@@ -1,0 +1,13 @@
+# Sangbik server Python dependencies (no keys, no Studio99 code).
+# Installed into server/.venv in the Dockerfile, because server/index.js
+# looks for Whisper at server/.venv/bin/python and server/whisper_local.py.
+# Versions pinned only where they were verified on 2026-10-26:
+# faster-whisper 1.2.1, ctranslate2 4.8.4, edge-tts 7.3.1.
+faster-whisper==1.2.1
+ctranslate2==4.8.4
+edge-tts==7.3.1
+transformers
+sentencepiece
+numpy
+aiohttp
+certifi
