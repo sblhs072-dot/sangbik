@@ -1,0 +1,28 @@
+# Sangbik .dockerignore — what must NEVER go into the Docker build context.
+# This file controls the build context only; it does NOT control runtime
+# caches. Model caches (~/.cache/huggingface, Whisper ~464 MB, NLLB) are
+# downloaded at runtime on first workflow use (lazy) and are never committed.
+# NEVER commit / upload these, especially to a PUBLIC Space:
+#   - any .env file (keys belong only in the host's secret settings, never in code)
+#   - sangbik-release.keystore / any *.keystore (the Android signing key)
+#   - server/.venv, node_modules, client/dist (rebuilt in the image)
+#   - server/uploads, server/outputs, server/data (user videos/results/projects;
+#     on free hosts these are ephemeral anyway — download results before restart)
+.git
+.github
+.env
+.env.*
+*.keystore
+sangbik-release.keystore
+**/node_modules
+server/.venv
+server/node_modules
+client/node_modules
+client/dist
+server/uploads
+server/outputs
+server/data
+**/.cache
+**/models--*
+*.log
+.DS_Store
