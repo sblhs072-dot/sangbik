@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Sangbik offline transcription helper (original code for this app only).
+FAST-v3 (2026-10-26): beam_size=1 greedy + VAD + language reuse (detect once, reuse for rest) + cpu_threads=2 for speed on Render Free.
+Previous version used beam_size=5 (slow beam search).
 
 Uses faster-whisper, model from WHISPER_MODEL env (default "tiny", multilingual, auto language detection),
 CPU int8. Usage:
@@ -28,7 +30,7 @@ MODEL = os.environ.get("WHISPER_MODEL", "tiny")
 def load_model():
     from faster_whisper import WhisperModel
 
-    return WhisperModel(MODEL, device="cpu", compute_type="int8")
+    return WhisperModel(MODEL, device="cpu", compute_type="int8", cpu_threads=2)
 
 
 def main():
@@ -47,6 +49,7 @@ def main():
     if not args.audio:
         print("usage: whisper_local.py [--check] <audio.wav> [...]", file=sys.stderr)
         return 2
+    detected_lang = None
     try:
         for audio in args.audio:
             # Decode with ffmpeg to 16 kHz mono float32 ourselves, instead of
@@ -57,7 +60,8 @@ def main():
                 ["ffmpeg", "-v", "error", "-i", audio, "-ac", "1", "-ar", "16000",
                  "-f", "s16le", "-"], capture_output=True, check=True).stdout
             pcm = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-            segments, info = model.transcribe(pcm, beam_size=5)
+            segments, info = model.transcribe(pcm, beam_size=1, best_of=1, temperature=0, vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500), language=detected_lang, condition_on_previous_text=False, word_timestamps=False) if detected_lang else model.transcribe(pcm, beam_size=1, best_of=1, temperature=0, vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500), condition_on_previous_text=False, word_timestamps=False)
+            if detected_lang is None: detected_lang = info.language
             out = []
             for s in segments:
                 text = (s.text or "").strip()
