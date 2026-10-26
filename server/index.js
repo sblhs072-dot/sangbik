@@ -346,7 +346,8 @@ function validUploadId(id) { return typeof id === 'string' && /^[A-Za-z0-9._-]{4
 
 // ---- Scene detection (shared by analyze + auto-job) ----
 async function detectScenes(filePath) {
-  const { err } = await run('ffmpeg', ['-i', filePath, '-vf', "select='gt(scene,0.4)',showinfo", '-f', 'null', '-']);
+  // FAST-v2: detect scenes at 320px wide instead of full 1280px — same cuts, ~4x fewer pixels to decode.
+  const { err } = await run('ffmpeg', ['-i', filePath, '-vf', "scale=320:-1,select='gt(scene,0.4)',showinfo", '-f', 'null', '-']);
   const scenes = [];
   for (const m of err.matchAll(/pts_time:([\d.]+)/g)) { const t = parseFloat(m[1]); if (!scenes.length || t - scenes[scenes.length - 1] > 1) scenes.push(+t.toFixed(2)); }
   if (!scenes.length) scenes.push(0);
@@ -377,8 +378,8 @@ async function runAutoJob(projectId) {
   p.autoJob = { status: 'running', stage: 'scenes', percent: 0, completedSegments: 0, totalSegments: 0, lines: [], message: 'Auto transcript job started: scenes, then audio segments.', startedAt: new Date().toISOString() };
   saveProjects(projects);
   try {
-    const scenes = await detectScenes(p.file.path);
-    p.scenes = scenes;
+    // FAST-v2: scene detection skipped in auto job — transcript uses 60s time segments, not scenes, so decoding the full video for scenes only wasted minutes on Render Free. Scenes are still available via /analyze if needed.
+    p.scenes = p.scenes || [];
     p.autoJob.stage = 'scenes-done'; p.autoJob.percent = 5; saveProjects(projects);
     // No key gate: offline Whisper + Google Translate need no key.
     if (!whisperInstalled()) {
@@ -586,7 +587,7 @@ app.post('/api/projects/:id/url', async (req, res) => {
 app.post('/api/projects/:id/analyze', async (req, res) => {
   const p = projects[req.params.id]; if (!p || !p.file) return res.status(400).json({ error: 'Project or uploaded video not found' });
   try {
-    const { err } = await run('ffmpeg', ['-i', p.file.path, '-vf', "select='gt(scene,0.4)',showinfo", '-f', 'null', '-']);
+    const { err } = await run('ffmpeg', ['-i', p.file.path, '-vf', "scale=320:-1,select='gt(scene,0.4)',showinfo", '-f', 'null', '-']);
     const scenes = [];
     for (const m of err.matchAll(/pts_time:([\d.]+)/g)) { const t = parseFloat(m[1]); if (!scenes.length || t - scenes[scenes.length - 1] > 1) scenes.push(+t.toFixed(2)); }
     if (!scenes.length) scenes.push(0);
@@ -948,8 +949,6 @@ app.post('/api/projects/:id/export', async (req, res) => {
         // Note: blur is a visual effect only — it does NOT make copyrighted content legal.
         filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${clarityFilter}${fadeFilter}${subFilter}[vout]`;
       } else if (blurMode === 'custom') {
-        // Blur only the chosen region (e.g. the subtitle strip at the bottom).
-        // Note: blur is a visual effect only — it does NOT make copyrighted content legal.
         filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${clarityFilter}${fadeFilter}${subFilter}[vout]`;
       } else {
         filter = `[0:v]${panVf || baseVf}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
