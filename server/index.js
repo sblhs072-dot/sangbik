@@ -798,7 +798,11 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const sub = o.subtitles || {}; const narrVol = parseFloat(o.narrationVolume ?? 1); const origVol = parseFloat(o.originalVolume ?? (dubbing ? 0 : 0.5));
   const subtitlesOn = o.subtitlesOn !== false;
   const subtitlesFrom = o.subtitlesFrom || (dubbing ? 'translation' : 'script');
-  const blurMode = ['none', 'full', 'background'].includes(o.blurMode) ? o.blurMode : 'none';
+  const blurMode = ['none', 'full', 'background', 'custom'].includes(o.blurMode) ? o.blurMode : 'none';
+  const br0 = o.blurRegion && typeof o.blurRegion === 'object' ? o.blurRegion : {};
+  const clamp01 = (v, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
+  const blurX = clamp01(o.blurX ?? br0.x, 0), blurY = clamp01(o.blurY ?? br0.y, 0.60), blurW = clamp01(o.blurW ?? br0.w, 1), blurH = clamp01(o.blurH ?? br0.h, 0.40);
+  const blurRegion = { x: blurX, y: blurY, w: blurW, h: blurH };
   const blurStrength = ['light', 'medium', 'strong'].includes(o.blurStrength) ? o.blurStrength : 'medium';
   const blurSigma = BLUR_SIGMA[blurStrength];
   const zoomEvery5s = !!o.zoomEvery5s;
@@ -836,7 +840,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   }
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont };
+  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont };
   saveProjects(projects);
   (async () => {
     try {
@@ -943,6 +947,10 @@ app.post('/api/projects/:id/export', async (req, res) => {
         // Blurred background fills the frame; sharp original is overlaid centred inside it.
         // Note: blur is a visual effect only — it does NOT make copyrighted content legal.
         filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+      } else if (blurMode === 'custom') {
+        // Blur only the chosen region (e.g. the subtitle strip at the bottom).
+        // Note: blur is a visual effect only — it does NOT make copyrighted content legal.
+        filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${clarityFilter}${fadeFilter}${subFilter}[vout]`;
       } else {
         filter = `[0:v]${panVf || baseVf}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
       }
@@ -972,7 +980,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       args.push('-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outMp4);
       await run('ffmpeg', args);
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont };
+      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
@@ -1122,8 +1130,8 @@ async function runWorkflow(projectId, opts) {
 
     // 6. Render (reuses the real export endpoint, then polls until ready/failed)
     wfStage(p, 'render', 'running', 'Rendering export with FFmpeg…'); saveProjects(projects);
-    wfLog(p, 'render', 'info', 'render: Starting Render (FFmpeg export)…');
-    const er = await wfSelf(`/api/projects/${p.id}/export`, 'POST', { aspect: opts.aspect || '16:9', quality: opts.quality || '720p', subtitlesFrom: source, subtitlesOn: true, narrationVolume: 1, originalVolume: source === 'translation' ? 0 : 0.5, dubbingPreset: source === 'translation' });
+    wfLog(p, 'render', 'info', `render: Starting Render (FFmpeg export) — blur=${opts.blurMode || 'none'}/${opts.blurStrength || 'medium'}, subtitle color=${opts.subtitles?.color || opts.subtitleColor || '#FFFFFF'}…`);
+    const er = await wfSelf(`/api/projects/${p.id}/export`, 'POST', { aspect: opts.aspect || '16:9', quality: opts.quality || '720p', subtitlesFrom: source, subtitlesOn: true, narrationVolume: 1, originalVolume: source === 'translation' ? 0 : 0.5, dubbingPreset: source === 'translation', blurMode: opts.blurMode || 'none', blurStrength: opts.blurStrength || 'medium', subtitles: { color: opts.subtitles?.color || opts.subtitleColor || '#FFFFFF' } });
     if (!er.ok) {
       wfStage(p, 'render', 'failed', er.json?.error || `Export failed to start (HTTP ${er.status}).`);
       wfLog(p, 'render', 'error', `render: Export failed to start — ${er.json?.error || er.status}`);
