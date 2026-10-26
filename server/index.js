@@ -804,6 +804,9 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const clamp01 = (v, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
   const blurX = clamp01(o.blurX ?? br0.x, 0), blurY = clamp01(o.blurY ?? br0.y, 0.60), blurW = clamp01(o.blurW ?? br0.w, 1), blurH = clamp01(o.blurH ?? br0.h, 0.40);
   const blurRegion = { x: blurX, y: blurY, w: blurW, h: blurH };
+  const posterSecRaw = parseInt(o.posterSec ?? o.posterSeconds ?? 0);
+  const posterSec = [3, 5].includes(posterSecRaw) ? posterSecRaw : 0;
+  const posterTitle = String(o.posterTitle || 'Sangbik').replace(/[^A-Za-z0-9 _-]/g, '').trim() || 'Sangbik';
   const blurStrength = ['light', 'medium', 'strong'].includes(o.blurStrength) ? o.blurStrength : 'medium';
   const blurSigma = BLUR_SIGMA[blurStrength];
   const zoomEvery5s = !!o.zoomEvery5s;
@@ -841,7 +844,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   }
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont };
+  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle };
   saveProjects(projects);
   (async () => {
     try {
@@ -937,7 +940,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       const panExpr = panMode === 'left-right' ? `min(t/${effDuration},1)` : `1-min(t/${effDuration},1)`;
       const panVf = panMode === 'none' ? null : `scale=${Math.round(W * 1.2)}:${Math.round(H * 1.2)}${scaleFlags},crop=${W}:${H}:x='(iw-ow)*${panExpr}':y='(ih-oh)/2'`;
       const subFilter = subtitlesOn ? `,subtitles='${srtPath.replace(/'/g, "\\'")}':force_style='${style}'` : '';
-      const outMp4 = path.join(OUT_DIR, `${p.id}-recap.mp4`);
+      let outMp4 = path.join(OUT_DIR, `${p.id}-recap.mp4`);
       const args = ['-y', '-ss', String(effStart), '-to', String(effEnd), '-i', inputPath];
       const inputs = [p.file.path];
       let filter;
@@ -978,8 +981,22 @@ app.post('/api/projects/:id/export', async (req, res) => {
       else { filter += `;${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=first:dropout_transition=0[aout]`; audioMap = '[aout]'; }
       args.push('-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outMp4);
       await run('ffmpeg', args);
+      let posterApplied = false; let posterNote = null;
+      if (posterSec > 0) {
+        try {
+          const posterImg = path.join(OUT_DIR, `${p.id}-poster.jpg`);
+          await run('ffmpeg', ['-y', '-ss', '1', '-i', outMp4, '-vframes', '1', posterImg]);
+          const posterMp4 = path.join(OUT_DIR, `${p.id}-poster.mp4`);
+          const fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+          const draw = fs.existsSync(fontPath) ? `,drawtext=fontfile=${fontPath}:text='${posterTitle.replace(/'/g, "")}':fontsize=48:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-80` : '';
+          await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', 'anullsrc', '-vf', `scale=trunc(iw/2)*2:trunc(ih/2)*2${draw}`, '-t', String(posterSec), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
+          const finalMp4 = path.join(OUT_DIR, `${p.id}-recap-poster.mp4`);
+          await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex', '[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', finalMp4]);
+          outMp4 = finalMp4; posterApplied = true;
+        } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
+      }
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont };
+      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
