@@ -1,0 +1,14 @@
+# FALLBACK only — Render free tier (see DEPLOY.md for why it is NOT primary).
+# Render free gives only 512 MB RAM, which is very likely too little for
+# Whisper small int8 (model ~464 MB on disk, plus runtime memory), so a
+# workflow may crash / run out of memory here. Use this only to test the
+# API / Translate / Edge TTS, or upgrade to a paid Render instance with
+# 2 GB+ RAM for real Whisper work. No keys are in this file.
+services:
+  - type: web
+    name: sangbik
+    env: docker
+    dockerfilePath: ./Dockerfile
+    # Render sets PORT at runtime; that overrides the Dockerfile's PORT=7860.
+    healthCheckPath: /api/health
+    plan: free
