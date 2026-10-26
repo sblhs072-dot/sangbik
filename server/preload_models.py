@@ -3,7 +3,7 @@
 Hugging Face cache (~/.cache/huggingface).
 
 Default Sangbik behaviour is LAZY: the first workflow run downloads
-Whisper small (~464 MB) via faster-whisper and, if NLLB is needed, the
+Whisper tiny (~39 MB) via faster-whisper and, if NLLB is needed, the
 NLLB-200 ct2-int8 model via CTranslate2. Lazy is the default because
 baking ~1 GB+ of models into the Docker image makes the first deploy
 much slower and can hit host build limits.
@@ -17,9 +17,9 @@ import sys
 
 def main():
     from faster_whisper import WhisperModel
-    print("Downloading Whisper small (int8, CPU)...", flush=True)
-    WhisperModel("small", device="cpu", compute_type="int8")
-    print("Whisper small ready.", flush=True)
+    print("Downloading Whisper tiny (int8, CPU)...", flush=True)
+    WhisperModel("tiny", device="cpu", compute_type="int8")
+    print("Whisper tiny ready.", flush=True)
     # NLLB is downloaded lazily by nllb_ct2_translate.py on first use;
     # pre-downloading it here is optional and is intentionally skipped,
     # because its tokenizer/model download is large and it is only a

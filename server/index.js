@@ -15,13 +15,13 @@ const { spawn, execFile, spawnSync } = require('child_process');
 // (not cached at startup) so installing espeak-ng then restarting is not
 // the only path — a fresh health check after install also reflects it.
 function localTtsConfigured() { try { return spawnSync('which', ['espeak-ng'], { encoding: 'utf8' }).status === 0; } catch { return false; } }
-// Sangbik defaults (user-chosen, 2026-10-26): offline Whisper small for
+// Sangbik defaults (user-chosen, 2026-10-26): offline Whisper tiny for
 // transcription, Google Translate for translation, Edge TTS for voice.
 // Azure/OpenAI/Gemini remain available if explicitly selected, but are NOT
 // the defaults. No key is needed for the three defaults.
 const WHISPER_PYTHON = path.join(__dirname, '.venv/bin/python');
 const WHISPER_SCRIPT = path.join(__dirname, 'whisper_local.py');
-const WHISPER_MODEL_NAME = process.env.WHISPER_MODEL || 'small';
+const WHISPER_MODEL_NAME = process.env.WHISPER_MODEL || 'tiny';
 function whisperInstalled() { try { return fs.existsSync(WHISPER_PYTHON) && fs.existsSync(WHISPER_SCRIPT); } catch { return false; } }
 function edgeTtsInstalled() { try { return spawnSync('python3', ['-m', 'edge_tts', '--help'], { encoding: 'utf8' }).status === 0; } catch { return false; } }
 function defaultTtsProvider() { return 'edge-tts'; }
@@ -424,7 +424,7 @@ async function runAutoJob(projectId) {
     p.autoJob.lines.sort((a, b) => a.start - b.start);
     p.translationLines.sort((a, b) => a.start - b.start);
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (Whisper offline small, translation via ${p.autoJob.translationPath || 'google'}).${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}`, finishedAt: new Date().toISOString() };
+    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (Whisper offline tiny, translation via ${p.autoJob.translationPath || 'google'}).${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}`, finishedAt: new Date().toISOString() };
     saveProjects(projects);
   } catch (e) {
     p.autoJob = { ...p.autoJob, status: 'failed', stage: 'failed', message: `Auto transcript job failed: ${e.message}`, error: e.message, finishedAt: new Date().toISOString() };
@@ -440,7 +440,7 @@ app.use(cors()); app.use(express.json({ limit: '2mb' }));
 const storage = multer.diskStorage({ destination: UPLOAD_DIR, filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`) });
 const upload = multer({ storage, limits: { fileSize: MAX_MB * 1024 * 1024 }, fileFilter: (req, file, cb) => { const ext = path.extname(file.originalname).toLowerCase(); cb(ALLOWED_EXT.includes(ext) ? null : new Error(`Unsupported file type: ${ext}. Allowed: ${ALLOWED_EXT.join(', ')}`), ALLOWED_EXT.includes(ext)); } });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, app: 'Sangbik', name: 'Sangbik', ttsVoices: TTS_VOICES, ttsDefaultProvider: defaultTtsProvider(), transcriptionProvider: 'whisper-offline-small', whisperModel: WHISPER_MODEL_NAME, whisperOfflineConfigured: whisperInstalled(), translationProvider: 'google-translate', ttsProviderDefault: 'edge-tts', edgeTtsConfigured: edgeTtsInstalled(), localConfigured: localTtsConfigured(), aiConfigured: !!(process.env.AI_PROVIDER && (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)), transcriptionConfigured: whisperInstalled(), azureConfigured: !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION), openaiTtsConfigured: !!process.env.OPENAI_API_KEY, geminiConfigured: !!process.env.GEMINI_API_KEY, geminiVoice: process.env.GEMINI_VOICE || 'Kore', geminiTtsModel: process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts', ttsProviders: ['edge-tts', 'local', 'azure', 'openai', 'gemini'], maxFileMb: MAX_MB }));
+app.get('/api/health', (req, res) => res.json({ ok: true, app: 'Sangbik', name: 'Sangbik', ttsVoices: TTS_VOICES, ttsDefaultProvider: defaultTtsProvider(), transcriptionProvider: 'whisper-offline-tiny', whisperModel: WHISPER_MODEL_NAME, whisperOfflineConfigured: whisperInstalled(), translationProvider: 'google-translate', ttsProviderDefault: 'edge-tts', edgeTtsConfigured: edgeTtsInstalled(), localConfigured: localTtsConfigured(), aiConfigured: !!(process.env.AI_PROVIDER && (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)), transcriptionConfigured: whisperInstalled(), azureConfigured: !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION), openaiTtsConfigured: !!process.env.OPENAI_API_KEY, geminiConfigured: !!process.env.GEMINI_API_KEY, geminiVoice: process.env.GEMINI_VOICE || 'Kore', geminiTtsModel: process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts', ttsProviders: ['edge-tts', 'local', 'azure', 'openai', 'gemini'], maxFileMb: MAX_MB }));
 
 app.post('/api/projects', (req, res) => {
   const id = newId();
@@ -635,7 +635,7 @@ app.post('/api/projects/:id/transcribe', async (req, res) => {
     results.forEach((res, idx) => { for (const sg of (res.segments || [])) lines.push({ start: +(idx * 60 + sg.start).toFixed(2), end: +(idx * 60 + sg.end).toFixed(2), original: sg.text.trim(), burmese: '' }); });
     const language = results[0]?.language || null;
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    p.transcript = { text: lines.map(l => l.original).join(' '), segments: lines, provider: 'whisper-offline-small', language, model: WHISPER_MODEL_NAME };
+    p.transcript = { text: lines.map(l => l.original).join(' '), segments: lines, provider: 'whisper-offline-tiny', language, model: WHISPER_MODEL_NAME };
     if (!p.translationLines.length) p.translationLines = lines;
     saveProjects(projects); res.json({ project: p, transcript: p.transcript });
   } catch (e) { res.status(500).json({ error: `Offline Whisper transcription failed: ${e.message}` }); }
@@ -987,8 +987,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
 // final workflow status is "partial" when any stage was needs-key. "Download" here
 // means the project's video input step (an upload, or a permission-confirmed direct
 // media URL via /api/projects/:id/url); platform/DRM downloads are never attempted.
-// "Model" actually loads the offline Whisper small model (whisper_local.py
-// --check) and only then reports "Model ready: small (multilingual)".
+// "Model" actually loads the offline Whisper tiny model (whisper_local.py
+// --check) and only then reports "Model ready: tiny (multilingual)".
 // "Transcribe" runs that offline model (no key). "Translate" uses Google
 // Translate batch (no key), with AI fallback only if Google fails and an AI
 // key is configured. "Narrate" defaults to Edge TTS; if Edge fails, the
@@ -1028,22 +1028,22 @@ async function runWorkflow(projectId, opts) {
     wfLog(p, 'download', 'success', `Download: video input ready — ${p.file.name} (${p.file.size} bytes, ${dur}s).`);
     saveProjects(projects);
 
-    // 2. Model — actually load the offline Whisper small model (no key).
-    wfStage(p, 'model', 'running', 'Loading offline Whisper small model…'); saveProjects(projects);
+    // 2. Model — actually load the offline Whisper tiny model (no key).
+    wfStage(p, 'model', 'running', 'Loading offline Whisper tiny model…'); saveProjects(projects);
     let modelReady = false;
     try {
       const readyLine = await runWhisperCheck();
       modelReady = true;
-      wfStage(p, 'model', 'done', `Model ready: small (multilingual) — ${readyLine}`);
-      wfLog(p, 'model', 'success', 'model: Model ready: small (multilingual)');
+      wfStage(p, 'model', 'done', `Model ready: tiny (multilingual) — ${readyLine}`);
+      wfLog(p, 'model', 'success', 'model: Model ready: tiny (multilingual)');
     } catch (e) {
       wfStage(p, 'model', 'failed', `Offline Whisper model failed to load: ${e.message}`);
       wfLog(p, 'model', 'error', `model: Model load failed — ${e.message}`);
     }
     saveProjects(projects);
 
-    // 3. Transcribe — offline Whisper small (no key).
-    wfStage(p, 'transcribe', 'running', 'Transcribing with offline Whisper small…'); saveProjects(projects);
+    // 3. Transcribe — offline Whisper tiny (no key).
+    wfStage(p, 'transcribe', 'running', 'Transcribing with offline Whisper tiny…'); saveProjects(projects);
     if (!modelReady) {
       wfStage(p, 'transcribe', 'failed', 'Transcription skipped — offline Whisper model failed to load (see Model stage). No transcript was faked.');
       wfLog(p, 'transcribe', 'error', 'asr: Transcription skipped — model load failed.');
@@ -1054,7 +1054,7 @@ async function runWorkflow(projectId, opts) {
         const span = r.json?.transcript?.segments?.length ? `${r.json.transcript.segments[0].start}s-${r.json.transcript.segments[r.json.transcript.segments.length - 1].end}s of the audio` : 'unknown span';
         wfStage(p, 'transcribe', 'done', `Transcribed ${n} segments (speech span: ${span}).`);
         wfLog(p, 'transcribe', 'success', `asr: Transcribed ${n} segments`);
-        if (r.json?.transcript?.language) wfLog(p, 'transcribe', 'info', `asr: Detected language: ${r.json.transcript.language} (Whisper offline small, multilingual)`);
+        if (r.json?.transcript?.language) wfLog(p, 'transcribe', 'info', `asr: Detected language: ${r.json.transcript.language} (Whisper offline tiny, multilingual)`);
         wfLog(p, 'transcribe', 'info', `asr: Speech span: ${span}`);
       } else {
         wfStage(p, 'transcribe', 'failed', r.json?.error || `Transcription failed (HTTP ${r.status}).`);

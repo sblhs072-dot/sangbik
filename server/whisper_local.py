@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sangbik offline transcription helper (original code for this app only).
 
-Uses faster-whisper, model "small" (multilingual, auto language detection),
+Uses faster-whisper, model from WHISPER_MODEL env (default "tiny", multilingual, auto language detection),
 CPU int8. Usage:
   python whisper_local.py --check
       Loads the model and prints MODEL_READY <model> — proves the model
@@ -9,19 +9,20 @@ CPU int8. Usage:
   python whisper_local.py <audio1.wav> [<audio2.wav> ...]
       Transcribes each audio file in ONE process (model loaded once) and
       prints one JSON object per line:
-      {"file": "...", "model": "small", "language": "en",
+      {"file": "...", "model": "tiny", "language": "en",
        "segments": [{"start":..,"end":..,"text":".."}]}
 No network key is needed. The model is downloaded by faster-whisper on
 first load into the standard Hugging Face cache.
 """
 import argparse
 import json
+import os
 import subprocess
 import sys
 
 import numpy as np
 
-MODEL = "small"
+MODEL = os.environ.get("WHISPER_MODEL", "tiny")
 
 
 def load_model():
