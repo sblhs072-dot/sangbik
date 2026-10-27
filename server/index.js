@@ -81,7 +81,7 @@ async function googleTranslateBatch(texts, target = 'my') {
 async function myMemoryTranslateBatch(texts, target = 'my') {
   const out = [];
   for (const t of texts) {
-    const url = 'https://api.mymemory.translated.net/get?' + new URLSearchParams({ q: t, langpair: `en|${target}` }).toString();
+    const url = 'https://api.mymemory.translated.net/get?' + new URLSearchParams({ q: t, langpair: `${/[\u4e00-\u9fff]/.test(t) ? 'zh' : 'en'}|${target}` }).toString();
     const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const body = await r.text();
     let j; try { j = JSON.parse(body); } catch { throw new Error(`MyMemory returned unparseable output (HTTP ${r.status}): ${body.slice(0, 200)}`); }
@@ -389,7 +389,8 @@ async function translateTextToBurmese(text) {
 }
 
 // ---- Auto transcript+translation job (background, never blocks upload) ----
-async function runAutoJob(projectId) {
+async function runAutoJob(projectId, opts) {
+  const skipTranslate = !!(opts && opts.skipTranslate);
   const p = projects[projectId]; if (!p || !p.file) return;
   if (p.autoJob && p.autoJob.status === 'running') return;
   p.autoJob = { status: 'running', stage: 'scenes', percent: 0, completedSegments: 0, totalSegments: 0, lines: [], message: 'Auto transcript job started: scenes skipped (FAST), Whisper စာသားပြောင်းနေပါတယ်။', startedAt: new Date().toISOString() };
@@ -429,10 +430,10 @@ async function runAutoJob(projectId) {
       for (const sg of (res.segments || [])) allPieces.push({ start: +(job.start + sg.start).toFixed(2), end: +(job.start + sg.end).toFixed(2), original: sg.text.trim() });
     });
     p.autoJob.completedSegments = totalSegments; p.autoJob.stage = 'translating-google'; p.autoJob.percent = 70; saveProjects(projects);
-    const gt = await translateLinesWithGoogleOrFallback(allPieces);
+    const gt = skipTranslate ? { translations: null, path: 'skipped-manual', error: 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' } : await translateLinesWithGoogleOrFallback(allPieces);
     for (let i = 0; i < allPieces.length; i++) {
       const piece = allPieces[i];
-      const burmese = gt.translations ? (gt.translations[i] || '') : '';
+      const burmese = skipTranslate ? piece.original : (gt.translations ? (gt.translations[i] || '') : '');
       const line = { ...piece, burmese, translationPending: !burmese, translationPendingReason: burmese ? null : (gt.error || 'translation failed') };
       p.autoJob.lines.push(line);
       if (burmese && !p.translationLines.some(l => l.start === line.start && l.original === line.original)) p.translationLines.push(line);
@@ -449,8 +450,8 @@ async function runAutoJob(projectId) {
     saveProjects(projects);
   }
 }
-function enqueueAutoJob(projectId) { // fire-and-forget; upload response must not wait for it
-  setImmediate(() => runAutoJob(projectId).catch(() => {}));
+function enqueueAutoJob(projectId, opts) { // fire-and-forget; upload response must not wait for it
+  setImmediate(() => runAutoJob(projectId, opts).catch(() => {}));
 }
 
 const app = express();
@@ -503,7 +504,7 @@ app.get('/api/upload-status/:uploadId', (req, res) => {
 });
 app.post('/api/upload-complete', async (req, res) => {
   try {
-    const { uploadId, projectId } = req.body || {};
+    const { uploadId, projectId, autoTranscript, autoTranslate } = req.body || {};
     const p = projects[projectId];
     if (!validUploadId(uploadId)) return res.status(400).json({ error: 'uploadId is required' });
     if (!p) return res.status(404).json({ error: 'Project not found' });
@@ -528,7 +529,7 @@ app.post('/api/upload-complete', async (req, res) => {
     // Cleanup chunks (best effort, after successful assembly).
     for (let i = 0; i < meta.totalChunks; i++) { try { fs.unlinkSync(path.join(CHUNK_DIR, `${uploadId}.part${i}`)); } catch {} }
     try { fs.unlinkSync(chunkMetaPath(uploadId)); } catch {}
-    enqueueAutoJob(p.id);
+    if (autoTranscript !== false) enqueueAutoJob(p.id, { skipTranslate: autoTranslate === false });
     res.json({ project: p, metadata: fileMeta, job: p.autoJob || { status: 'queued' } });
   } catch (e) { res.status(400).json({ error: `Assembly/validation failed: ${e.message}` }); }
 });
@@ -832,6 +833,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const blur1Enabled = o.blur1Enabled !== false;
   const rotationDegRaw = parseFloat(o.rotationDeg ?? 0);
   const rotationDeg = Number.isFinite(rotationDegRaw) ? Math.max(-180, Math.min(180, rotationDegRaw)) : 0;
+  const videoMirror = o.videoMirror === true || o.videoMirror === 'true';
   const posterSecRaw = parseInt(o.posterSec ?? o.posterSeconds ?? 0);
   const posterSec = [3, 5].includes(posterSecRaw) ? posterSecRaw : 0;
   const posterTitle = String(o.posterTitle || 'Sangbik').replace(/[^A-Za-z0-9 _-]/g, '').trim() || 'Sangbik';
@@ -872,7 +874,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   }
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle };
+  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle };
   saveProjects(projects);
   (async () => {
     try {
@@ -978,6 +980,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       const relBlurEnd = blurEndSec > 0 ? Math.max(0, blurEndSec - effStart) : -1;
       const blurEnable = (blurStartSec > 0 || blurEndSec > 0) ? ":enable='" + (relBlurEnd > 0 ? "between(t," + relBlurStart + "," + relBlurEnd + ")" : "gte(t," + relBlurStart + ")") + "'" : "";
       let rotAfter = '';
+      if (videoMirror) rotAfter += ',hflip';
       if (rotationDeg !== 0) {
         const rotRad = rotationDeg * Math.PI / 180;
         const rc = Math.abs(Math.cos(rotRad)), rs = Math.abs(Math.sin(rotRad));
@@ -1043,7 +1046,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote };
+      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
