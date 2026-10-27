@@ -32,6 +32,23 @@ async function runWhisperCheck() {
   if (!line.startsWith('MODEL_READY')) throw new Error(`Offline Whisper model did not load: ${line || err.slice(-500)}`);
   return line;
 }
+// FAST-progress: stream Whisper output line-by-line so each finished 60s
+// segment updates the job percent (20% -> 70%) instead of sitting at 20%
+// until every segment finishes. whisper_local.py already prints one JSON
+// line per segment with flush=True.
+function transcribeOfflineFilesStreaming(wavFiles, onSegment) {
+  if (!whisperInstalled()) throw new Error('Offline Whisper is not installed on this server (server/.venv or whisper_local.py missing).');
+  return new Promise((resolve, reject) => {
+    const p = spawn(WHISPER_PYTHON, [WHISPER_SCRIPT, ...wavFiles]);
+    let err = '', buf = '';
+    const results = [];
+    const handleLine = (line) => { const t = line.trim(); if (t.startsWith('{')) { try { results.push(JSON.parse(t)); if (onSegment) onSegment(results.length); } catch {} } };
+    p.stdout.on('data', d => { buf += d; let i; while ((i = buf.indexOf(String.fromCharCode(10))) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); handleLine(line); } });
+    p.stderr.on('data', d => err += d);
+    p.on('error', reject);
+    p.on('close', code => { if (buf.trim()) handleLine(buf); if (code !== 0) return reject(new Error('whisper_local.py exited ' + code + ': ' + err.slice(-2000))); if (!results.length) return reject(new Error('Offline Whisper produced no output: ' + (err || '').slice(-1000))); resolve(results); });
+  });
+}
 async function transcribeOfflineFiles(wavFiles) {
   if (!whisperInstalled()) throw new Error('Offline Whisper is not installed on this server (server/.venv or whisper_local.py missing).');
   const { out, err } = await run(WHISPER_PYTHON, [WHISPER_SCRIPT, ...wavFiles]);
@@ -375,7 +392,7 @@ async function translateTextToBurmese(text) {
 async function runAutoJob(projectId) {
   const p = projects[projectId]; if (!p || !p.file) return;
   if (p.autoJob && p.autoJob.status === 'running') return;
-  p.autoJob = { status: 'running', stage: 'scenes', percent: 0, completedSegments: 0, totalSegments: 0, lines: [], message: 'Auto transcript job started: scenes, then audio segments.', startedAt: new Date().toISOString() };
+  p.autoJob = { status: 'running', stage: 'scenes', percent: 0, completedSegments: 0, totalSegments: 0, lines: [], message: 'Auto transcript job started: scenes skipped (FAST), Whisper စာသားပြောင်းနေပါတယ်။', startedAt: new Date().toISOString() };
   saveProjects(projects);
   try {
     // FAST-v2: scene detection skipped in auto job — transcript uses 60s time segments, not scenes, so decoding the full video for scenes only wasted minutes on Render Free. Scenes are still available via /analyze if needed.
@@ -405,7 +422,7 @@ async function runAutoJob(projectId) {
       segWavs.push(segWav);
     }
     p.autoJob.stage = 'transcribing-offline'; p.autoJob.percent = 20; saveProjects(projects);
-    const whisperResults = await transcribeOfflineFiles(segWavs);
+    const whisperResults = await transcribeOfflineFilesStreaming(segWavs, (done) => { p.autoJob.completedSegments = done; p.autoJob.percent = Math.round(20 + 50 * done / totalSegments); p.autoJob.message = 'Whisper စာသားပြောင်းနေပါတယ် — အပိုင်း ' + done + '/' + totalSegments + ' ပြီးပါပြီ။'; saveProjects(projects); });
     const allPieces = [];
     whisperResults.forEach((res, idx) => {
       const job = jobs[idx];
@@ -804,6 +821,17 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const clamp01 = (v, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
   const blurX = clamp01(o.blurX ?? br0.x, 0), blurY = clamp01(o.blurY ?? br0.y, 0.60), blurW = clamp01(o.blurW ?? br0.w, 1), blurH = clamp01(o.blurH ?? br0.h, 0.40);
   const blurRegion = { x: blurX, y: blurY, w: blurW, h: blurH };
+  const br2_0 = o.blur2Region && typeof o.blur2Region === 'object' ? o.blur2Region : {};
+  const blur2Enabled = o.blur2Enabled === true || o.blur2Enabled === 'true';
+  const blur2X = clamp01(o.blur2X ?? br2_0.x, 0), blur2Y = clamp01(o.blur2Y ?? br2_0.y, 0), blur2W = clamp01(o.blur2W ?? br2_0.w, 1), blur2H = clamp01(o.blur2H ?? br2_0.h, 0.30);
+  const blur2Region = { x: blur2X, y: blur2Y, w: blur2W, h: blur2H };
+  const blurStartSecRaw = parseFloat(o.blurStartSec ?? 0);
+  const blurStartSec = Number.isFinite(blurStartSecRaw) ? Math.max(0, blurStartSecRaw) : 0;
+  const blurEndSecRaw = parseFloat(o.blurEndSec);
+  const blurEndSec = Number.isFinite(blurEndSecRaw) && blurEndSecRaw > blurStartSec ? blurEndSecRaw : -1;
+  const blur1Enabled = o.blur1Enabled !== false;
+  const rotationDegRaw = parseFloat(o.rotationDeg ?? 0);
+  const rotationDeg = Number.isFinite(rotationDegRaw) ? Math.max(-180, Math.min(180, rotationDegRaw)) : 0;
   const posterSecRaw = parseInt(o.posterSec ?? o.posterSeconds ?? 0);
   const posterSec = [3, 5].includes(posterSecRaw) ? posterSecRaw : 0;
   const posterTitle = String(o.posterTitle || 'Sangbik').replace(/[^A-Za-z0-9 _-]/g, '').trim() || 'Sangbik';
@@ -844,7 +872,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   }
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle };
+  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle };
   saveProjects(projects);
   (async () => {
     try {
@@ -944,17 +972,36 @@ app.post('/api/projects/:id/export', async (req, res) => {
       const args = ['-y', '-ss', String(effStart), '-to', String(effEnd), '-i', inputPath];
       const inputs = [p.file.path];
       let filter;
+      // Blur time range (app: user-set start/end seconds, original-video time).
+      // FFmpeg t is relative to the trimmed input, so shift by effStart.
+      const relBlurStart = Math.max(0, blurStartSec - effStart);
+      const relBlurEnd = blurEndSec > 0 ? Math.max(0, blurEndSec - effStart) : -1;
+      const blurEnable = (blurStartSec > 0 || blurEndSec > 0) ? ":enable='" + (relBlurEnd > 0 ? "between(t," + relBlurStart + "," + relBlurEnd + ")" : "gte(t," + relBlurStart + ")") + "'" : "";
+      let rotAfter = '';
+      if (rotationDeg !== 0) {
+        const rotRad = rotationDeg * Math.PI / 180;
+        const rc = Math.abs(Math.cos(rotRad)), rs = Math.abs(Math.sin(rotRad));
+        const rbw = Math.max(2, Math.round((W * rc + H * rs) / 2) * 2);
+        const rbh = Math.max(2, Math.round((W * rs + H * rc) / 2) * 2);
+        rotAfter = `,rotate=${rotRad.toFixed(4)}:ow=${rbw}:oh=${rbh}:fillcolor=black,scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black`;
+      }
       if (blurMode === 'full') {
         // Blur the whole frame (gblur sigma: light 5 / medium 15 / strong 30).
-        filter = `[0:v]${panVf || baseVf},gblur=sigma=${blurSigma}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        filter = blurEnable ? `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma}[br];[b][br]overlay=0:0${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]` : `[0:v]${panVf || baseVf},gblur=sigma=${blurSigma}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
       } else if (blurMode === 'background') {
         // Blurred background fills the frame; sharp original is overlaid centred inside it.
         // Note: blur is a visual effect only — it does NOT make copyrighted content legal.
-        filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
       } else if (blurMode === 'custom') {
-        filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        if (blur2Enabled && blur1Enabled) {
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br2];[d][br2]overlay=x='iw*${blur2X}':y='ih*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        } else if (blur2Enabled) {
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='iw*${blur2X}':y='ih*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        } else {
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        }
       } else {
-        filter = `[0:v]${panVf || baseVf}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
       }
       // Audio chain: original (volume) + narration (volume, if generated) + music
       // (volume, fades, looped/trimmed to the video duration, if uploaded).
@@ -996,7 +1043,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote };
+      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
