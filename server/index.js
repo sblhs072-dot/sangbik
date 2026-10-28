@@ -516,7 +516,7 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <div id="ttsText" class="small"></div></div>
 <div class="card"><h2>၅။ Preview + Export</h2>
 <video id="vid" controls playsinline></video><br>
-<select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option></select>
+<select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select>
 <select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
 <label><input type="checkbox" id="zoomChk" checked> Zoom (၅ စက္ကန့်တစ်ခါ)</label><br>
 <button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
@@ -1112,9 +1112,10 @@ app.post('/api/projects/:id/export', async (req, res) => {
       const effDuration = Math.max(effEnd - effStart, 0.1);
       const transitionApplied = transition === 'crossfade' ? ((sceneOrderApplied || zoomEvery5s) ? 'crossfade' : 'fade (fallback: crossfade needs scene reorder or zoom segments)') : transition;
       const transitionNote = transition === 'crossfade' && !(sceneOrderApplied || zoomEvery5s) ? 'Crossfade requested but no segment pass is active (no scene reorder, no zoom) — fade in/out was used instead.' : (sceneOrderNote || null);
-      const dims = quality === '1080p' ? { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080] } : { '16:9': [1280, 720], '9:16': [720, 1280], '1:1': [720, 720] };
-      const [W, H] = dims[aspect] || dims['16:9'];
-      const ar = aspect === '9:16' ? '9/16' : aspect === '1:1' ? '1/1' : '16/9';
+      const _ap = String(aspect || '16:9').split(':'); const _aw = parseFloat(_ap[0]) || 16; const _ah = parseFloat(_ap[1]) || 9;
+      const _s = (quality === '1080p' ? 1080 : 720) / Math.min(_aw, _ah);
+      const W = Math.max(2, Math.round(_aw * _s / 2) * 2), H = Math.max(2, Math.round(_ah * _s / 2) * 2);
+      const ar = _aw + '/' + _ah;
       const align = sub.position === 'top' ? 8 : sub.position === 'middle' ? 5 : 2;
       const color = (sub.color || '#FFFFFF').replace('#', '');
       const bgr = color.length === 6 ? color.slice(4, 6) + color.slice(2, 4) + color.slice(0, 2) : 'FFFFFF';
