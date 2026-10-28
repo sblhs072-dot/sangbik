@@ -1175,14 +1175,23 @@ app.post('/api/projects/:id/export', async (req, res) => {
       } else {
         filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
       }
-      // Logo watermark (top-right corner): server/logo.png, requested by the user.
-      // Applied last so it sits above blur/subtitles; skipped if the file is absent.
+      // Logo watermark: server/logo.png, requested by the user. Applied last
+      // so it sits above blur/subtitles; skipped if the file is absent.
       // logoOn defaults ON (app + website send it; old clients omit it) — only an
       // explicit logoOn:false turns it off. Size = 8% of output width (small).
+      // Position: the app sends the dragged logo centre as fractions of the
+      // preview canvas (logoXFrac/logoYFrac); without them the logo stays at
+      // the old top-right corner (W-w-12:12).
       const logoPath = path.join(__dirname, 'logo.png');
       if (o.logoOn !== false && fs.existsSync(logoPath)) {
         const logoW = Math.max(64, Math.round(W * 0.08));
-        filter = filter.replace(/\[vout\]$/, `[vpre];movie='${logoPath.replace(/'/g, "\\'")}',scale=${logoW}:-1,format=rgba[logo];[vpre][logo]overlay=W-w-12:12[vout]`);
+        let lx = W - logoW - 12, ly = 12;
+        const lfx = Number(o.logoXFrac), lfy = Number(o.logoYFrac);
+        if (Number.isFinite(lfx) && Number.isFinite(lfy)) {
+          lx = Math.max(0, Math.min(W - logoW, Math.round(lfx * W - logoW / 2)));
+          ly = Math.max(0, Math.min(H - logoW, Math.round(lfy * H - logoW / 2)));
+        }
+        filter = filter.replace(/\[vout\]$/, `[vpre];movie='${logoPath.replace(/'/g, "\\'")}',scale=${logoW}:-1,format=rgba[logo];[vpre][logo]overlay=${lx}:${ly}[vout]`);
       }
       // Audio chain: original (volume) + narration (volume, if generated) + music
       // (volume, fades, looped/trimmed to the video duration, if uploaded).
