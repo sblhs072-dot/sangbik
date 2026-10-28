@@ -78,10 +78,18 @@ async function googleTranslateBatch(texts, target = 'my') {
 // MyMemory free API (no key). MUST reject its quota-warning text: a
 // responseStatus other than 200, or a translatedText starting with
 // "MYMEMORY WARNING", is a failure, never a translation.
+// Quota (https://mymemory.translated.net/doc/usagelimits.php, checked
+// 2026-10-28): anonymous use is 5000 chars/day; providing a valid email
+// via the 'de' parameter raises it to 50000 chars/day. The email comes
+// only from the MYMEMORY_EMAIL env var — never hard-coded here. When the
+// var is unset, no 'de' parameter is sent and behaviour is unchanged.
+const MYMEMORY_EMAIL = (process.env.MYMEMORY_EMAIL || '').trim();
 async function myMemoryTranslateBatch(texts, target = 'my') {
   const out = [];
   for (const t of texts) {
-    const url = 'https://api.mymemory.translated.net/get?' + new URLSearchParams({ q: t, langpair: `${/[\u4e00-\u9fff]/.test(t) ? 'zh' : 'en'}|${target}` }).toString();
+    const params = { q: t, langpair: `${/[\u4e00-\u9fff]/.test(t) ? 'zh' : 'en'}|${target}` };
+    if (MYMEMORY_EMAIL) params.de = MYMEMORY_EMAIL;
+    const url = 'https://api.mymemory.translated.net/get?' + new URLSearchParams(params).toString();
     const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const body = await r.text();
     let j; try { j = JSON.parse(body); } catch { throw new Error(`MyMemory returned unparseable output (HTTP ${r.status}): ${body.slice(0, 200)}`); }
