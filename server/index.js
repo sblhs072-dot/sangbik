@@ -467,6 +467,159 @@ app.use(cors()); app.use(express.json({ limit: '2mb' }));
 const storage = multer.diskStorage({ destination: UPLOAD_DIR, filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`) });
 const upload = multer({ storage, limits: { fileSize: MAX_MB * 1024 * 1024 }, fileFilter: (req, file, cb) => { const ext = path.extname(file.originalname).toLowerCase(); cb(ALLOWED_EXT.includes(ext) ? null : new Error(`Unsupported file type: ${ext}. Allowed: ${ALLOWED_EXT.join(', ')}`), ALLOWED_EXT.includes(ext)); } });
 
+// Sangbik website: single-file page served at / so the app, the website and
+// the server share the same projects. No build step, no extra files to upload.
+const WEBSITE_HTML = `<!DOCTYPE html>
+<html lang="my">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sangbik</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#14161a;color:#e8eaf0;margin:0;padding:12px}
+h1{font-size:20px;margin:8px 0}
+h2{font-size:17px;margin:18px 0 6px}
+.card{background:#1e222b;border-radius:10px;padding:12px;margin:10px 0}
+button{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:10px 14px;margin:4px 4px 4px 0;font-size:15px}
+button:disabled{opacity:.5}
+input,select{padding:9px;border-radius:8px;border:1px solid #444;background:#10131a;color:#fff;font-size:15px;margin:4px 4px 4px 0;max-width:100%}
+input[type=text]{width:100%;box-sizing:border-box}
+#msg{white-space:pre-wrap}
+.line{border-top:1px solid #333;padding:8px 0}
+.t{color:#9aa}
+video{width:100%;max-height:340px;background:#000;border-radius:10px}
+.bar{height:10px;background:#333;border-radius:6px;overflow:hidden;margin:6px 0}
+.bar>i{display:block;height:100%;background:#22c55e;width:0}
+.small{color:#9aa;font-size:13px}
+</style>
+</head>
+<body>
+<h1>🎬 Sangbik — Website</h1>
+<div class="card"><div id="health">ဆာဗာ စစ်နေပါတယ်…</div><div class="small">ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video ပဲ တင်ပါ။ Zoom / blur / crop က မူပိုင်ခွင့်ကို တရားဝင်မဖြစ်စေပါ။</div></div>
+<div class="card"><h2>၁။ Project</h2>
+<button id="newBtn">＋ Project အသစ်</button>
+<button id="listBtn">Project များ ကြည့်ပါ</button>
+<div id="pidText" class="small">Project မရွေးရသေးပါ</div>
+<div id="projList"></div></div>
+<div class="card"><h2>၂။ Video တင်ပါ</h2>
+<input type="file" id="fileInput" accept="video/*">
+<button id="upBtn">တင်ပါ</button>
+<div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
+<div id="jobText"></div></div>
+<div class="card"><h2>၃။ စာသား + ဘာသာပြန်</h2>
+<button id="loadBtn">လိုင်းများ ဖွင့်ပါ</button>
+<button id="saveBtn">💾 သိမ်းပါ</button>
+<div id="linesBox"></div></div>
+<div class="card"><h2>၄။ မြန်မာအသံ</h2>
+<select id="voiceSel"><option value="my-MM-ThihaNeural">Thiha (ကျား)</option><option value="my-MM-NilarNeural">Nilar (မ)</option></select>
+<button id="ttsBtn">🔊 အသံ ထုတ်ပါ</button>
+<div id="ttsText" class="small"></div></div>
+<div class="card"><h2>၅။ Preview + Export</h2>
+<video id="vid" controls playsinline></video><br>
+<select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option></select>
+<select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
+<label><input type="checkbox" id="zoomChk" checked> Zoom (၅ စက္ကန့်တစ်ခါ)</label><br>
+<button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
+<div id="expText" class="small"></div>
+<div id="dlBox"></div></div>
+<div class="card"><div id="msg"></div></div>
+<script>
+var pid = localStorage.getItem('sangbik-pid') || '';
+var duration = 0;
+var lines = [];
+function el(id){ return document.getElementById(id); }
+function msg(t){ el('msg').textContent = t; }
+function api(path, method, body){
+  var o = { method: method || 'GET', headers: {} };
+  if (body !== undefined) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(body); }
+  return fetch('/api' + path, o).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); });
+}
+function setPid(id){ pid = id; localStorage.setItem('sangbik-pid', id); el('pidText').textContent = 'Project: ' + id; }
+function health(){ api('/health').then(function(h){ el('health').textContent = 'ဆာဗာ အဆင်သင့်ဖြစ်ပါပြီ — Whisper ' + (h.whisperOfflineConfigured ? 'ready' : 'NOT installed') + ' + Edge TTS ' + (h.edgeTtsConfigured ? 'ready' : 'NOT installed') + ' | Max ' + h.maxFileMb + ' MB'; }).catch(function(e){ el('health').textContent = 'ဆာဗာ မနိုးသေးပါ — ခဏစောင့်ပြီး ပြန်ဖွင့်ပါ (' + e.message + ')'; }); }
+el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
+el('listBtn').onclick = function(){ api('/projects').then(function(ps){ var h=''; ps.forEach(function(p){ h += '<div>' + p.id + ' — ' + (p.status||'') + ' ' + (p.file ? '🎬' : '') + ' <button data-pid="' + p.id + '">ရွေးပါ</button></div>'; }); el('projList').innerHTML = h || '(မရှိပါ)'; var bs = el('projList').querySelectorAll('button'); bs.forEach(function(b){ b.onclick = function(){ setPid(b.getAttribute('data-pid')); loadLines(); }; }); }).catch(function(e){ msg('List မရပါ: ' + e.message); }); };
+el('upBtn').onclick = function(){ var f = el('fileInput').files[0]; if(!f){ msg('Video အရင် ရွေးပါ'); return; } if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; } uploadFile(f); };
+function uploadFile(f){
+  var CHUNK = 5*1024*1024;
+  var uploadId = (pid + '-' + f.name + '-' + f.size + '-' + f.lastModified).replace(/[^A-Za-z0-9._-]/g,'_');
+  msg('တင်နေပါတယ်… ဒီ tab ကို ပိတ်မသွားပါနဲ့။');
+  api('/upload-status/' + uploadId).then(function(st){
+    var received = {}; (st.received||[]).forEach(function(i){ received[i]=1; });
+    var total = Math.ceil(f.size/CHUNK);
+    var done = 0; (st.received||[]).forEach(function(i){ done += Math.min(CHUNK, f.size - i*CHUNK); });
+    var i = 0;
+    function next(){
+      if(i >= total){ return api('/upload-complete','POST',{uploadId:uploadId, projectId:pid, autoTranscript:true, autoTranslate:true}).then(function(cj){ duration = (cj.metadata && cj.metadata.duration) || 0; el('vid').src = '/api/projects/' + pid + '/preview'; el('progText').textContent = 'တင်တာ ပြီးပါပြီ — ' + Math.round(duration) + ' စက္ကန့်။ စာသားပြောင်းနေပါတယ်…'; pollJob(); }).catch(function(e){ msg('Upload-complete မရပါ: ' + e.message); }); }
+      if(received[i]){ i++; return next(); }
+      var fd = new FormData();
+      fd.append('chunk', f.slice(i*CHUNK, (i+1)*CHUNK));
+      fd.append('uploadId', uploadId); fd.append('chunkIndex', String(i)); fd.append('totalChunks', String(total)); fd.append('fileName', f.name);
+      fetch('/api/upload-chunk', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error||'chunk failed'); return j; }); }).then(function(){ done += Math.min(CHUNK, f.size - i*CHUNK); var pc = Math.round(done/f.size*100); el('progBar').style.width = pc + '%'; el('progText').textContent = 'တင်နေပါတယ်: ' + pc + '% (' + (i+1) + '/' + total + ' အပိုင်း)'; i++; next(); }).catch(function(e){ msg('တင်တာ မအောင်ပါ: ' + e.message + ' — ပြန်နှိပ်ပြီး ဆက်တင်နိုင်ပါတယ် (ရောက်ပြီးသား အပိုင်းတွေ ကျော်မယ်)'); });
+    }
+    next();
+  }).catch(function(e){ msg('Upload status မရပါ: ' + e.message); });
+}
+function pollJob(){
+  if(!pid) return;
+  api('/projects/' + pid + '/job-status').then(function(j){
+    el('jobText').textContent = 'Auto job: ' + j.status + ' — ' + (j.stage||'') + ' — ' + (j.percent||0) + '% (' + (j.completedSegments||0) + '/' + (j.totalSegments||0) + ') ' + (j.message||'');
+    if(j.status === 'running' || j.status === 'queued'){ setTimeout(pollJob, 3000); }
+    else { loadLines(); }
+  }).catch(function(e){ el('jobText').textContent = 'Job မရပါ: ' + e.message; });
+}
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function loadLines(){
+  if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
+  api('/projects/' + pid).then(function(p){
+    lines = p.translationLines || [];
+    duration = (p.metadata && p.metadata.duration) || duration;
+    if(p.file) el('vid').src = '/api/projects/' + pid + '/preview';
+    renderLines();
+    msg(lines.length + ' လိုင်း ဖွင့်ပါပြီ။');
+  }).catch(function(e){ msg('လိုင်းများ မရပါ: ' + e.message); });
+}
+function renderLines(){
+  var h = '';
+  lines.forEach(function(l, idx){
+    h += '<div class="line"><div class="t">' + l.start + 's – ' + l.end + 's</div><div>' + esc(l.original) + '</div><input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"></div>';
+  });
+  el('linesBox').innerHTML = h || '(လိုင်းမရှိသေးပါ — တင်တာ ပြီးပြီး job ပြီးမှ ပေါ်မယ်)';
+}
+el('loadBtn').onclick = loadLines;
+el('saveBtn').onclick = function(){
+  var inputs = el('linesBox').querySelectorAll('input[data-idx]');
+  inputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-idx'), 10); lines[idx].burmese = inp.value; });
+  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း'); }).catch(function(e){ msg('သိမ်းမရပါ: ' + e.message); });
+};
+el('ttsBtn').onclick = function(){
+  if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
+  el('ttsText').textContent = 'အသံ ထုတ်နေပါတယ်…';
+  api('/projects/' + pid + '/tts', 'POST', {provider:'edge-tts', source:'translation', voice: el('voiceSel').value, speed:1, pause:0.5}).then(function(j){
+    el('ttsText').innerHTML = 'အသံ အဆင်သင့်ဖြစ်ပါပြီ။ <a href="/api/projects/' + pid + '/download/audio">အသံ (MP3) နားထောင်ရန် / ဒေါင်းလုဒ်</a>';
+    msg('အသံ ရပါပြီ');
+  }).catch(function(e){ el('ttsText').textContent = 'အသံ မရပါ: ' + e.message; });
+};
+el('expBtn').onclick = function(){
+  if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
+  var body = {trimStart:0, trimEnd:duration, aspect: el('aspectSel').value, quality:'720p', subtitles:{size:24, color:'#FFFFFF', position:'bottom', font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength:'medium', zoomEvery5s: el('zoomChk').checked, zoomStrength:'medium'};
+  el('expText').textContent = 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
+  api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
+};
+function pollExport(){
+  api('/projects/' + pid + '/export-status').then(function(s){
+    el('expText').textContent = 'Export: ' + (s.status||'') + (s.error ? ' — ' + s.error : '');
+    if(s.status === 'processing'){ setTimeout(pollExport, 3000); }
+    else if(s.status === 'ready'){ el('dlBox').innerHTML = '<a href="/api/projects/' + pid + '/download/video"><button>⬇ Video ဒေါင်းလုဒ်</button></a> <a href="/api/projects/' + pid + '/download/subtitles"><button>⬇ Subtitles (SRT)</button></a>'; }
+  }).catch(function(e){ el('expText').textContent = 'Export status မရပါ: ' + e.message; });
+}
+if(pid){ setPid(pid); }
+health();
+</script>
+</body>
+</html>
+`;
+app.get('/', (req, res) => { res.type('html').send(WEBSITE_HTML); });
+
 app.get('/api/health', (req, res) => res.json({ ok: true, app: 'Sangbik', name: 'Sangbik', ttsVoices: TTS_VOICES, ttsDefaultProvider: defaultTtsProvider(), transcriptionProvider: 'whisper-offline-tiny', whisperModel: WHISPER_MODEL_NAME, whisperOfflineConfigured: whisperInstalled(), translationProvider: 'google-translate', ttsProviderDefault: 'edge-tts', edgeTtsConfigured: edgeTtsInstalled(), localConfigured: localTtsConfigured(), aiConfigured: !!(process.env.AI_PROVIDER && (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)), transcriptionConfigured: whisperInstalled(), azureConfigured: !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION), openaiTtsConfigured: !!process.env.OPENAI_API_KEY, geminiConfigured: !!process.env.GEMINI_API_KEY, geminiVoice: process.env.GEMINI_VOICE || 'Kore', geminiTtsModel: process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts', ttsProviders: ['edge-tts', 'local', 'azure', 'openai', 'gemini'], maxFileMb: MAX_MB }));
 
 app.post('/api/projects', (req, res) => {
