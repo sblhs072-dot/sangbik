@@ -1178,13 +1178,13 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // Logo watermark: server/logo.png, requested by the user. Applied last
       // so it sits above blur/subtitles; skipped if the file is absent.
       // logoOn defaults ON (app + website send it; old clients omit it) — only an
-      // explicit logoOn:false turns it off. Size = 8% of output width (small).
+      // explicit logoOn:false turns it off. Size = 16% of output width (big).
       // Position: the app sends the dragged logo centre as fractions of the
       // preview canvas (logoXFrac/logoYFrac); without them the logo stays at
       // the old top-right corner (W-w-12:12).
       const logoPath = path.join(__dirname, 'logo.png');
       if (o.logoOn !== false && fs.existsSync(logoPath)) {
-        const logoW = Math.max(64, Math.round(W * 0.08));
+        const logoW = Math.max(64, Math.round(W * 0.16));
         let lx = W - logoW - 12, ly = 12;
         const lfx = Number(o.logoXFrac), lfy = Number(o.logoYFrac);
         if (Number.isFinite(lfx) && Number.isFinite(lfy)) {
