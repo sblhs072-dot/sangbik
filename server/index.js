@@ -266,6 +266,23 @@ function scriptToSegments(script, totalDuration) {
   const per = dur / lines.length;
   return lines.map((text, i) => ({ start: i * per, end: (i + 1) * per, text }));
 }
+function fmtAss(t) { const cs = Math.max(0, Math.floor(t * 100)); const h = String(Math.floor(cs / 360000)).padStart(1, '0'); const m = String(Math.floor(cs / 6000) % 60).padStart(2, '0'); const s = String(Math.floor(cs / 100) % 60).padStart(2, '0'); const c = String(cs % 100).padStart(2, '0'); return `${h}:${m}:${s}.${c}`; }
+function writeOverlayAss(project, overlays, W, H) {
+  // Custom text overlays via the proven subtitle burn-in path (libass +
+  // fontconfig 'Noto Sans Myanmar', the same font the main subtitles use), so
+  // Burmese text renders exactly like subtitles. One style per overlay carries
+  // its size/colour/position; alignment centres the text horizontally.
+  const styles = overlays.map((ov, i) => {
+    const align = ov.position === 'top' ? 8 : ov.position === 'center' ? 5 : 2;
+    const c = ov.color.replace('#', '');
+    const bgr = c.slice(4, 6) + c.slice(2, 4) + c.slice(0, 2);
+    return `Style: Ov${i},Noto Sans Myanmar,${ov.size},&H00${bgr}&,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,${align},10,10,10,1`;
+  }).join('\n');
+  const events = overlays.map((ov, i) => `Dialogue: 0,${fmtAss(ov.start)},${fmtAss(ov.end)},Ov${i},,0,0,0,,${ov.text}`).join('\n');
+  const body = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events}\n`;
+  const f = path.join(OUT_DIR, `${project.id}-overlays.ass`);
+  fs.writeFileSync(f, body); return f;
+}
 function writeSrt(project, segments) {
   const p = path.join(OUT_DIR, `${project.id}.srt`);
   const body = segments.map((s, i) => `${i + 1}\n${fmtSrt(s.start)} --> ${fmtSrt(s.end)}\n${escapeSrt(s.text)}\n`).join('\n');
@@ -343,6 +360,16 @@ function blurJoinedIntervals(keepRanges, blurStartSec, blurEndSec) {
     acc += kr.end - kr.start;
   }
   return out;
+}
+function fitTempo(clipDuration, windowSec) {
+  // Per-line voiceover fitting: speed a clip up so it finishes inside its set
+  // time window. Returns {tempo, fitted, overflow}: tempo 1 when it already
+  // fits, else min(duration/window, 2.0); overflow is true when it still
+  // exceeds the window at the 2.0x cap. Speech is never slowed down to fill.
+  if (!Number.isFinite(clipDuration) || !Number.isFinite(windowSec) || windowSec <= 0 || clipDuration <= 0) return { tempo: 1, fitted: false, overflow: false };
+  if (clipDuration <= windowSec) return { tempo: 1, fitted: false, overflow: false };
+  const tempo = Math.min(clipDuration / windowSec, 2.0);
+  return { tempo, fitted: true, overflow: (clipDuration / tempo) > windowSec + 1e-6 };
 }
 function splitText(text) {
   const parts = text.split(/(?<=[။!?])\s+/).map(s => s.trim()).filter(Boolean);
@@ -609,7 +636,7 @@ button:disabled{opacity:.5}
 input,select{padding:9px;border-radius:8px;border:1px solid #444;background:#10131a;color:#fff;font-size:15px;margin:4px 4px 4px 0;max-width:100%}
 input[type=text]{width:100%;box-sizing:border-box}
 #msg{white-space:pre-wrap}
-.line{border-top:1px solid #333;padding:8px 0}
+.line{border-top:1px solid #333;padding:8px 0}.line .tm{width:64px}
 .t{color:#9aa}
 video{width:100%;max-height:340px;background:#000;border-radius:10px}
 .bar{height:10px;background:#333;border-radius:6px;overflow:hidden;margin:6px 0}
@@ -618,6 +645,12 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 #toolBar button.active{background:#0ea5e9}
 .toolpanel{display:none}
 .toolpanel.open{display:block}
+#timelineStrip{position:relative;height:26px;background:#1e222b;border-radius:6px;overflow:hidden;cursor:pointer;margin:6px 0}
+#timelinePlayhead{position:absolute;top:0;width:2px;height:100%;background:#ef4444;z-index:2}
+#timelineMarks{position:absolute;inset:0}
+.tlmark{position:absolute;top:0;width:3px;height:100%;background:#0ea5e9;cursor:pointer;z-index:1}
+#timelineTicks{position:relative;height:14px;font-size:10px;color:#94a3b8}
+#timelineTicks span{position:absolute;transform:translateX(-50%)}
 </style>
 </head>
 <body>
@@ -647,9 +680,15 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <button id="ttsBtn">🔊 အသံ ထုတ်ပါ</button>
 <div id="ttsText" class="small"></div></div>
 <div class="card"><h2>၅။ Preview + Export</h2>
-<video id="vid" controls playsinline></video><br>
-<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button></div>
+<video id="vid" controls playsinline></video><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div>
+<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
 <div id="grp-size" class="toolpanel"><label>အရွယ်အစား: <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select></label><br></div>
+<div id="grp-text" class="toolpanel"><label>စာသား: <input id="ovTextInp" type="text" placeholder="ထည့်မယ့် စာသား" style="width:220px"></label>
+<label>နေရာ: <select id="ovPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option><option value="center">အလယ်</option></select></label>
+<label>အစ (စက္ကန့်): <input id="ovStartInp" type="number" min="0" step="0.5" value="0" style="width:70px"></label>
+<label>အဆုံး (စက္ကန့်): <input id="ovEndInp" type="number" min="0" step="0.5" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label>
+<label>အရွယ်: <select id="ovSizeSel"><option value="18">18</option><option value="24">24</option><option value="32" selected>32</option><option value="48">48</option></select></label>
+<label>အရောင်: <select id="ovColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option><option value="#FF0000">အနီ</option></select></label><br></div>
 <div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br></div>
 <div id="grp-split" class="toolpanel"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
 <div id="grp-blur" class="toolpanel"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
@@ -670,7 +709,10 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
 <label>Poster: <select id="posterSel"><option value="0" selected>မရှိ</option><option value="3">3 စက္ကန့်</option><option value="5">5 စက္ကန့်</option></select></label>
 <label><input type="checkbox" id="logoChk" checked> Logo ထည့်</label><br></div>
-<div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br></div>
+<div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br>
+<label>အသံ ရွှေ့ (စက္ကန့်): <input id="narrDelayInp" type="number" min="-30" max="30" step="0.5" value="0" style="width:70px"> <span class="small">(+ = နောက်ကျ, − = စော)</span></label><br>
+<label>နောက်ခံအသံ (Music): <input id="musicFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg"></label> <button id="musicUpBtn">🎵 Music တင်ပါ</button> <span id="musicText" class="small"></span><br>
+<label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br></div>
 <button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
 <div id="expText" class="small"></div>
 <div id="dlBox"></div></div>
@@ -727,21 +769,54 @@ function loadLines(){
     duration = (p.metadata && p.metadata.duration) || duration;
     if(p.file && !p.file.sourceUrl) el('vid').src = '/api/projects/' + pid + '/preview';
     renderLines();
+    renderTimeline();
     msg(lines.length + ' လိုင်း ဖွင့်ပါပြီ။');
   }).catch(function(e){ msg('လိုင်းများ မရပါ: ' + e.message); });
+}
+function fmtMmSs(s){ var r = Math.max(0, Math.round((s || 0) * 10) / 10); var m = Math.floor(r / 60); var sec = r - m * 60; var si = Math.floor(sec); var frac = Math.round((sec - si) * 10); if(frac === 10){ si += 1; frac = 0; } return m + ':' + String(si).padStart(2, '0') + (frac ? '.' + frac : ''); }
+function parseMmSs(s){
+  s = String(s == null ? '' : s).trim();
+  if(!s) return NaN;
+  if(s.indexOf(':') >= 0){ var p = s.split(':'); if(p.length !== 2) return NaN; var m = parseFloat(p[0]), sec = parseFloat(p[1]); if(!isFinite(m) || !isFinite(sec) || m < 0 || sec < 0 || sec >= 60) return NaN; return m * 60 + sec; }
+  var v = parseFloat(s); return isFinite(v) && v >= 0 ? v : NaN;
 }
 function renderLines(){
   var h = '';
   lines.forEach(function(l, idx){
-    h += '<div class="line"><div class="t">' + l.start + 's – ' + l.end + 's</div><div>' + esc(l.original) + '</div><input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"></div>';
+    h += '<div class="line"><div class="t"><input type="text" class="tm" data-tidx="' + idx + '" data-kind="start" value="' + fmtMmSs(l.start) + '"> – <input type="text" class="tm" data-tidx="' + idx + '" data-kind="end" value="' + fmtMmSs(l.end) + '"></div><div>' + esc(l.original) + '</div><input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"></div>';
   });
   el('linesBox').innerHTML = h || '(လိုင်းမရှိသေးပါ — တင်တာ ပြီးပြီး job ပြီးမှ ပေါ်မယ်)';
 }
+function fmtTl(s){ s = Math.max(0, Math.floor(s)); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
+function renderTimeline(){
+  var strip = el('timelineStrip'); if(!strip) return;
+  var v = el('vid');
+  var dur = (v.duration && isFinite(v.duration)) ? v.duration : duration;
+  var marks = el('timelineMarks'); marks.innerHTML = '';
+  var ticks = el('timelineTicks'); ticks.innerHTML = '';
+  if(!dur || !lines.length) return;
+  lines.forEach(function(l){
+    var m = document.createElement('div'); m.className = 'tlmark'; m.title = fmtTl(l.start) + ' — ' + (l.burmese || '');
+    m.style.left = (100 * l.start / dur) + '%';
+    m.onclick = function(ev){ ev.stopPropagation(); if(v.duration) v.currentTime = l.start; };
+    marks.appendChild(m);
+  });
+  var step = dur > 300 ? 30 : 10;
+  for(var t = 0; t <= dur; t += step){ var sp = document.createElement('span'); sp.style.left = (100 * t / dur) + '%'; sp.textContent = fmtTl(t); ticks.appendChild(sp); }
+}
+el('vid').addEventListener('timeupdate', function(){ var v = el('vid'); var dur = v.duration || duration; if(dur) el('timelinePlayhead').style.left = (100 * v.currentTime / dur) + '%'; });
+el('vid').addEventListener('loadedmetadata', renderTimeline);
+el('timelineStrip').onclick = function(ev){ var r = this.getBoundingClientRect(); var frac = (ev.clientX - r.left) / r.width; var v = el('vid'); var dur = v.duration || duration; if(dur && v.duration) v.currentTime = frac * dur; };
 el('loadBtn').onclick = loadLines;
 el('saveBtn').onclick = function(){
   var inputs = el('linesBox').querySelectorAll('input[data-idx]');
   inputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-idx'), 10); lines[idx].burmese = inp.value; });
-  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း'); }).catch(function(e){ msg('သိမ်းမရပါ: ' + e.message); });
+  var tinputs = el('linesBox').querySelectorAll('input[data-tidx]');
+  var tvals = {};
+  tinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-tidx'), 10); if(!tvals[idx]) tvals[idx] = {}; tvals[idx][inp.getAttribute('data-kind')] = parseMmSs(inp.value); });
+  var badTimes = 0;
+  Object.keys(tvals).forEach(function(k){ var idx = parseInt(k, 10); var tv = tvals[idx]; if(!lines[idx] || !isFinite(tv.start) || !isFinite(tv.end) || tv.end <= tv.start) { badTimes++; return; } lines[idx].start = tv.start; lines[idx].end = tv.end; });
+  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : '')); }).catch(function(e){ msg('သိမ်းမရပါ: ' + e.message); });
 };
 el('ttsBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
@@ -750,6 +825,13 @@ el('ttsBtn').onclick = function(){
     el('ttsText').innerHTML = 'အသံ အဆင်သင့်ဖြစ်ပါပြီ။ <a href="/api/projects/' + pid + '/download/audio">အသံ (MP3) နားထောင်ရန် / ဒေါင်းလုဒ်</a>';
     msg('အသံ ရပါပြီ');
   }).catch(function(e){ el('ttsText').textContent = 'အသံ မရပါ: ' + e.message; });
+};
+el('musicUpBtn').onclick = function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  var f = el('musicFileInp').files[0]; if(!f){ msg('Music file အရင် ရွေးပါ'); return; }
+  var fd = new FormData(); fd.append('music', f);
+  el('musicText').textContent = 'Music တင်နေပါတယ်…';
+  fetch('/api/projects/' + pid + '/music', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).then(function(j){ el('musicText').textContent = 'Music ရပါပြီ: ' + (j.music ? j.music.name : f.name); msg('Music သိမ်းပါပြီ — နောက် export မှာ ပါမယ်'); }).catch(function(e){ el('musicText').textContent = 'Music မရပါ: ' + e.message; });
 };
 document.querySelectorAll('#toolBar button').forEach(function(b){ b.onclick = function(){ var g = el(b.getAttribute('data-goto')); if(!g) return; var wasOpen = g.classList.contains('open'); document.querySelectorAll('.toolpanel').forEach(function(p){ p.classList.remove('open'); }); document.querySelectorAll('#toolBar button').forEach(function(x){ x.classList.remove('active'); }); if(!wasOpen){ g.classList.add('open'); b.classList.add('active'); g.scrollIntoView({behavior:'smooth', block:'center'}); } }; });
 el('urlBtn').onclick = function(){
@@ -781,7 +863,7 @@ el('expBtn').onclick = function(){
   if(rotVal === 270) rotVal = -90; // server clamps rotation to +/-180, and -90 is the same turn as 270
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })()};
   el('expText').textContent = 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 };
@@ -1213,6 +1295,19 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const zoomStrength = ['light', 'medium', 'strong'].includes(o.zoomStrength) ? o.zoomStrength : 'medium';
   const zoomMax = ZOOM_MAX[zoomStrength];
   const narrationSync = o.narrationSync === 'timed' ? 'timed' : 'continuous';
+  const narrationDelayRaw = parseFloat(o.narrationDelaySec ?? 0);
+  const narrationDelaySec = Number.isFinite(narrationDelayRaw) ? Math.max(-30, Math.min(30, narrationDelayRaw)) : 0;
+  // Custom text overlays (website Add Text tool): validated + sanitised here.
+  // Braces/backslashes are stripped so overlay text can never inject ASS override tags.
+  const textOverlaysIn = [];
+  if (Array.isArray(o.textOverlays)) for (const ov of o.textOverlays) {
+    if (!ov || typeof ov !== 'object') continue;
+    const ovText = String(ov.text || '').replace(/[\r\n]+/g, ' ').replace(/[{}\\]/g, '').trim();
+    if (!ovText) continue;
+    const ovS = parseFloat(ov.start), ovE = parseFloat(ov.end);
+    if (!Number.isFinite(ovS) || !Number.isFinite(ovE) || ovE <= ovS) continue;
+    textOverlaysIn.push({ start: ovS, end: ovE, text: ovText, position: ['top', 'center', 'bottom'].includes(ov.position) ? ov.position : 'bottom', size: Math.max(12, Math.min(96, parseInt(ov.size, 10) || 32)), color: /^#[0-9A-Fa-f]{6}$/.test(ov.color || '') ? String(ov.color).toUpperCase() : '#FFFFFF' });
+  }
   const zoomIntervalRaw = parseFloat(o.zoomIntervalSec ?? 5);
   const zoomIntervalSec = Number.isFinite(zoomIntervalRaw) ? Math.max(1, Math.min(30, zoomIntervalRaw)) : 5;
   // Split (removeRanges): validated cut-out ranges in original-video time, inside [start, end].
@@ -1274,9 +1369,14 @@ app.post('/api/projects/:id/export', async (req, res) => {
     // still in original-video time.
     segments = rebaseSegmentsForSplit(segments, keepRanges);
   }
+  // Custom text overlays follow the same timeline rules as subtitles: scene
+  // reorder mapping, then split re-basing (an overlay starting in a cut range drops).
+  let overlaySegs = textOverlaysIn;
+  if (sceneOrderApplied) overlaySegs = overlaySegs.map(sg => ({ ...sg, start: mapTimeForOrder(rawOrder, sceneSegs, sg.start), end: mapTimeForOrder(rawOrder, sceneSegs, sg.end) })).filter(sg => sg.end > sg.start);
+  if (splitActive) overlaySegs = rebaseSegmentsForSplit(overlaySegs, keepRanges);
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote };
+  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, narrationFitCount: 0, narrationFitOverflow: [], narrationFitNote: null };
   saveProjects(projects);
   (async () => {
     try {
@@ -1397,6 +1497,14 @@ app.post('/api/projects/:id/export', async (req, res) => {
       const panExpr = panMode === 'left-right' ? `min(t/${effDuration},1)` : `1-min(t/${effDuration},1)`;
       const panVf = panMode === 'none' ? null : `scale=${Math.round(W * 1.2)}:${Math.round(H * 1.2)}${scaleFlags},crop=${W}:${H}:x='(iw-ow)*${panExpr}':y='(ih-oh)/2'`;
       const subFilter = subtitlesOn ? `,subtitles='${srtPath.replace(/'/g, "\\'")}':force_style='${style}'` : '';
+      let overlayFilter = '';
+      let overlayNote = null;
+      if (overlaySegs.length) {
+        try {
+          const overlayAssPath = writeOverlayAss(p, overlaySegs, W, H);
+          overlayFilter = `,subtitles='${overlayAssPath.replace(/'/g, "\\'")}'`;
+        } catch (oe) { overlayNote = 'Text overlay failed, video kept without it: ' + oe.message; }
+      }
       let outMp4 = path.join(OUT_DIR, `${p.id}-recap.mp4`);
       const args = ['-y', '-ss', String(effStart), '-to', String(effEnd), '-i', inputPath];
       const inputs = [p.file.path];
@@ -1425,21 +1533,21 @@ app.post('/api/projects/:id/export', async (req, res) => {
       }
       if (blurMode === 'full') {
         // Blur the whole frame (gblur sigma: light 5 / medium 15 / strong 30).
-        filter = blurEnable ? `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma}[br];[b][br]overlay=0:0${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]` : `[0:v]${panVf || baseVf},gblur=sigma=${blurSigma}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        filter = blurEnable ? `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma}[br];[b][br]overlay=0:0${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]` : `[0:v]${panVf || baseVf},gblur=sigma=${blurSigma}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else if (blurMode === 'background') {
         // Blurred background fills the frame; sharp original is overlaid centred inside it.
         // Note: blur is a visual effect only — it does NOT make copyrighted content legal.
-        filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else if (blurMode === 'custom') {
         if (blur2Enabled && blur1Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br2];[d][br2]overlay=x='iw*${blur2X}':y='ih*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br2];[d][br2]overlay=x='iw*${blur2X}':y='ih*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else if (blur2Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='iw*${blur2X}':y='ih*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='iw*${blur2X}':y='ih*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         }
       } else {
-        filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}[vout]`;
+        filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       }
       // Logo watermark: server/logo.png, requested by the user. Applied last
       // so it sits above blur/subtitles; skipped if the file is absent.
@@ -1470,41 +1578,60 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // timeline: line.start minus trimStart, clamped at 0; lines entirely
       // outside [trimStart, trimEnd) are skipped). Timed clips are mixed
       // with per-clip adelay + amix, same pattern as the continuous mix;
-      // a clip longer than its window simply overlaps the next line (no
+      // a clip longer than its set window is sped up with atempo (capped at 2.0x)
+      // so it finishes inside the window; beyond the cap it overlaps and is listed in narrationFitNote (no
       // time-stretch, no silent drops). If timed was requested but no
       // usable per-line clips exist, fall back to continuous + a note.
       let narrationSyncNote = null;
       let timedClips = [];
+      let narrationFitCount = 0, narrationFitOverflow = [], narrationFitNote = null;
       if (narrationSync === 'timed' && Array.isArray(p.tts?.clips) && p.translationLines?.length) {
         for (const c of p.tts.clips) {
           if (!c || !c.file || !fs.existsSync(c.file)) continue;
           const line = p.translationLines[c.lineIndex];
           if (!line) continue;
           const ls = parseFloat(line.start || 0), le = parseFloat(line.end || 0);
-          let outStart;
+          let outStart, windowSec;
           if (splitActive) {
-            // Re-base onto the joined timeline; a line cut out by split is dropped.
-            const jt = mapTimeForSplit(keepRanges, ls);
-            if (jt === null) continue;
-            outStart = jt;
+            // Re-base onto the joined timeline, exactly like subtitles: a line
+            // cut out by split is dropped, a line ending in a cut range is clipped.
+            const rb = rebaseSegmentsForSplit([{ start: ls, end: le }], keepRanges);
+            if (!rb.length) continue;
+            outStart = Math.max(0, rb[0].start + narrationDelaySec);
+            windowSec = rb[0].end - rb[0].start;
           } else {
             if (le <= start || ls >= end) continue;
-            outStart = Math.max(0, ls - start);
+            outStart = Math.max(0, ls - start + narrationDelaySec);
+            windowSec = Math.min(le, end) - Math.max(ls, start);
           }
-          timedClips.push({ file: c.file, outStart });
+          if (!(windowSec > 0)) continue;
+          // Per-line fitting: speed the clip up so it finishes inside its set
+          // time window (capped at 2.0x); a shorter clip stays as-is.
+          const fit = fitTempo(c.duration || 0, windowSec);
+          if (fit.fitted) narrationFitCount++;
+          if (fit.overflow) narrationFitOverflow.push(c.lineIndex);
+          timedClips.push({ file: c.file, outStart, tempo: fit.tempo });
         }
+        if (narrationFitOverflow.length) narrationFitNote = 'Voiceover fitting: ' + narrationFitCount + ' line(s) sped up to fit their set times; line(s) ' + narrationFitOverflow.join(', ') + ' still longer than their windows at the 2.0x cap and will overlap the next line.';
+        else if (narrationFitCount) narrationFitNote = 'Voiceover fitting: ' + narrationFitCount + ' line(s) sped up to fit their set times.';
       }
       if (timedClips.length) {
+        p.export.narrationFitCount = narrationFitCount; p.export.narrationFitOverflow = narrationFitOverflow; p.export.narrationFitNote = narrationFitNote; saveProjects(projects);
         for (const tc of timedClips) {
           args.push('-i', tc.file); inputs.push(tc.file);
           const ms = Math.round(tc.outStart * 1000);
-          filter += `;[${nextInputIdx}:a]adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
+          const tempoFilter = tc.tempo > 1 ? `atempo=${tc.tempo},` : '';
+          filter += `;[${nextInputIdx}:a]${tempoFilter}adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
         }
       } else {
         if (narrationSync === 'timed') narrationSyncNote = p.tts?.file ? 'Timed narration requested but no usable per-line clips were found — used the continuous narration track instead. Re-run voiceover (TTS) after this deploy to generate per-line clips.' : 'Timed narration requested but no narration audio exists — generate voiceover first.';
         if (p.tts?.file && fs.existsSync(p.tts.file)) {
           args.push('-i', p.tts.file); inputs.push(p.tts.file);
-          filter += `;[${nextInputIdx}:a]volume=${narrVol}[a1]`; audioInputs.push('[a1]'); nextInputIdx++;
+          // Manual voiceover shift: positive delay = adelay, negative = trim the head.
+          if (narrationDelaySec > 0) filter += `;[${nextInputIdx}:a]adelay=${Math.round(narrationDelaySec * 1000)}:all=1,volume=${narrVol}[a1]`;
+          else if (narrationDelaySec < 0) filter += `;[${nextInputIdx}:a]atrim=start=${-narrationDelaySec},asetpts=PTS-STARTPTS,volume=${narrVol}[a1]`;
+          else filter += `;[${nextInputIdx}:a]volume=${narrVol}[a1]`;
+          audioInputs.push('[a1]'); nextInputIdx++;
         }
       }
       if (hasMusic) {
@@ -1537,7 +1664,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, narrationSync, narrationSyncNote, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote };
+      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, narrationSync, narrationSyncNote, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, overlayNote, narrationFitCount, narrationFitOverflow, narrationFitNote };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
