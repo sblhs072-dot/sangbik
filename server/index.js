@@ -615,6 +615,9 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 .bar{height:10px;background:#333;border-radius:6px;overflow:hidden;margin:6px 0}
 .bar>i{display:block;height:100%;background:#22c55e;width:0}
 .small{color:#9aa;font-size:13px}
+#toolBar button.active{background:#0ea5e9}
+.toolpanel{display:none}
+.toolpanel.open{display:block}
 </style>
 </head>
 <body>
@@ -645,29 +648,29 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <div id="ttsText" class="small"></div></div>
 <div class="card"><h2>၅။ Preview + Export</h2>
 <video id="vid" controls playsinline></video><br>
-<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button></div>
-<select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select><br>
-<div id="grp-trim"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br></div>
-<div id="grp-split"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
-<div id="grp-blur"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
+<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button></div>
+<div id="grp-size" class="toolpanel"><label>အရွယ်အစား: <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select></label><br></div>
+<div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br></div>
+<div id="grp-split" class="toolpanel"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
+<div id="grp-blur" class="toolpanel"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
 <label>Blur အပြင်း: <select id="blurStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
 <label>Blur နေရာ: <select id="blurPosSel"><option value="subtitle">စာတန်းနေရာ</option><option value="top">အပေါ်</option><option value="bottom">အောက်</option><option value="left">ဘယ်</option><option value="right">ညာ</option><option value="centre">အလယ်</option><option value="full">အပြည့်</option><option value="custom">ကိုယ်တိုင်ရွေး</option></select></label><br>
 <div id="blurCustomBox" style="display:none"><label>Blur X <input id="blurXInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> Y <input id="blurYInp" type="number" min="0" max="1" step="0.05" value="0.60" style="width:60px"> အကျယ် <input id="blurWInp" type="number" min="0" max="1" step="0.05" value="1" style="width:60px"> အမြင့် <input id="blurHInp" type="number" min="0" max="1" step="0.05" value="0.40" style="width:60px"></label> <span class="small">(0–1, ဗီဒီယိုအချိုးအလိုက်)</span></div>
 <label>Blur အချိန် (စက္ကန့်): အစ <input id="blurStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="blurEndInp" type="number" min="-1" step="1" value="-1" style="width:70px"> <span class="small">(-1 = အဆုံးထိ)</span></label>
 <label><input type="checkbox" id="blur2Chk"> Blur ၂ (အပေါ်ပိုင်း)</label><br></div>
-<div id="grp-zoom"><label><input type="checkbox" id="zoomChk" checked> Zoom (ရွေးထားတဲ့ စက္ကန့်တိုင်း)</label>
+<div id="grp-zoom" class="toolpanel"><label><input type="checkbox" id="zoomChk" checked> Zoom (ရွေးထားတဲ့ စက္ကန့်တိုင်း)</label>
 <label>Zoom အပြင်း: <select id="zoomStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
 <label>Zoom အကြိမ် (စက္ကန့်): <select id="zoomIntSel"><option value="4" selected>4</option><option value="5">5</option><option value="10">10</option></select></label><br></div>
-<div id="grp-rotate"><label>လှည့်: <select id="rotSel"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+<div id="grp-rotate" class="toolpanel"><label>လှည့်: <select id="rotSel"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
 <label><input type="checkbox" id="mirrorChk"> မှန်ကြည့် (Mirror)</label><br></div>
-<div id="grp-subs"><label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
+<div id="grp-subs" class="toolpanel"><label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
 <label>စာတန်း အရောင်: <select id="subColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option></select></label>
 <label>စာတန်း နေရာ: <select id="subPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option></select></label><br></div>
-<div id="grp-quality"><label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+<div id="grp-quality" class="toolpanel"><label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
 <label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
 <label>Poster: <select id="posterSel"><option value="0" selected>မရှိ</option><option value="3">3 စက္ကန့်</option><option value="5">5 စက္ကန့်</option></select></label>
 <label><input type="checkbox" id="logoChk" checked> Logo ထည့်</label><br></div>
-<div id="grp-audio"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br></div>
+<div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br></div>
 <button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
 <div id="expText" class="small"></div>
 <div id="dlBox"></div></div>
@@ -748,7 +751,7 @@ el('ttsBtn').onclick = function(){
     msg('အသံ ရပါပြီ');
   }).catch(function(e){ el('ttsText').textContent = 'အသံ မရပါ: ' + e.message; });
 };
-document.querySelectorAll('#toolBar button').forEach(function(b){ b.onclick = function(){ var g = el(b.getAttribute('data-goto')); if(!g) return; g.scrollIntoView({behavior:'smooth', block:'center'}); var oldBg = g.style.background; g.style.background = '#334155'; g.style.borderRadius = '8px'; setTimeout(function(){ g.style.background = oldBg; }, 1200); }; });
+document.querySelectorAll('#toolBar button').forEach(function(b){ b.onclick = function(){ var g = el(b.getAttribute('data-goto')); if(!g) return; var wasOpen = g.classList.contains('open'); document.querySelectorAll('.toolpanel').forEach(function(p){ p.classList.remove('open'); }); document.querySelectorAll('#toolBar button').forEach(function(x){ x.classList.remove('active'); }); if(!wasOpen){ g.classList.add('open'); b.classList.add('active'); g.scrollIntoView({behavior:'smooth', block:'center'}); } }; });
 el('urlBtn').onclick = function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   var u = (el('urlInp').value || '').trim();
