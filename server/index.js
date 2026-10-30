@@ -99,8 +99,17 @@ async function googleTranslateBatch(texts, target = 'my') {
 // var is unset, no 'de' parameter is sent and behaviour is unchanged.
 const MYMEMORY_EMAIL = (process.env.MYMEMORY_EMAIL || '').trim();
 async function myMemoryTranslateBatch(texts, target = 'my') {
-  const out = [];
-  for (const t of texts) {
+  // Bounded concurrency (6 parallel): MyMemory calls are network-bound, so
+  // parallel requests cut translation time sharply for many lines, while the
+  // CPU-bound Whisper path is deliberately left single-process. Order is
+  // preserved via the index. Failure semantics are unchanged: if ANY line
+  // fails (non-200, empty, or MYMEMORY WARNING quota text) the whole batch
+  // throws, and the caller falls through to the NLLB offline path exactly as
+  // before — no line is ever dropped or guessed.
+  const out = new Array(texts.length);
+  const CONC = 6;
+  async function translateOne(i) {
+    const t = texts[i];
     const params = { q: t, langpair: `${/[\u4e00-\u9fff]/.test(t) ? 'zh' : 'en'}|${target}` };
     if (MYMEMORY_EMAIL) params.de = MYMEMORY_EMAIL;
     const url = 'https://api.mymemory.translated.net/get?' + new URLSearchParams(params).toString();
@@ -109,7 +118,12 @@ async function myMemoryTranslateBatch(texts, target = 'my') {
     let j; try { j = JSON.parse(body); } catch { throw new Error(`MyMemory returned unparseable output (HTTP ${r.status}): ${body.slice(0, 200)}`); }
     const txt = j.responseData?.translatedText || '';
     if (j.responseStatus !== 200 || !txt || txt.startsWith('MYMEMORY WARNING')) throw new Error(`MyMemory HTTP ${j.responseStatus}: ${(j.responseDetails || body).slice(0, 200)}`);
-    out.push(txt);
+    out[i] = txt;
+  }
+  for (let s = 0; s < texts.length; s += CONC) {
+    const chunk = [];
+    for (let i = s; i < Math.min(s + CONC, texts.length); i++) chunk.push(translateOne(i));
+    await Promise.all(chunk);
   }
   return out;
 }
@@ -537,6 +551,20 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select>
 <select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
 <label><input type="checkbox" id="zoomChk" checked> Zoom (၅ စက္ကန့်တစ်ခါ)</label><br>
+<label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br>
+<label>Blur အပြင်း: <select id="blurStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
+<label>Blur နေရာ: <select id="blurPosSel"><option value="subtitle">စာတန်းနေရာ</option><option value="top">အပေါ်</option><option value="bottom">အောက်</option><option value="left">ဘယ်</option><option value="right">ညာ</option><option value="centre">အလယ်</option><option value="full">အပြည့်</option><option value="custom">ကိုယ်တိုင်ရွေး</option></select></label><br>
+<div id="blurCustomBox" style="display:none"><label>Blur X <input id="blurXInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> Y <input id="blurYInp" type="number" min="0" max="1" step="0.05" value="0.60" style="width:60px"> အကျယ် <input id="blurWInp" type="number" min="0" max="1" step="0.05" value="1" style="width:60px"> အမြင့် <input id="blurHInp" type="number" min="0" max="1" step="0.05" value="0.40" style="width:60px"></label> <span class="small">(0–1, ဗီဒီယိုအချိုးအလိုက်)</span></div>
+<label>Blur အချိန် (စက္ကန့်): အစ <input id="blurStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="blurEndInp" type="number" min="-1" step="1" value="-1" style="width:70px"> <span class="small">(-1 = အဆုံးထိ)</span></label>
+<label><input type="checkbox" id="blur2Chk"> Blur ၂ (အပေါ်ပိုင်း)</label><br>
+<label>လှည့်: <select id="rotSel"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+<label><input type="checkbox" id="mirrorChk"> မှန်ကြည့် (Mirror)</label>
+<label>Zoom အပြင်း: <select id="zoomStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label><br>
+<label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
+<label>စာတန်း အရောင်: <select id="subColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option></select></label>
+<label>စာတန်း နေရာ: <select id="subPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option></select></label><br>
+<label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+<label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label><br>
 <button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
 <div id="expText" class="small"></div>
 <div id="dlBox"></div></div>
@@ -617,9 +645,19 @@ el('ttsBtn').onclick = function(){
     msg('အသံ ရပါပြီ');
   }).catch(function(e){ el('ttsText').textContent = 'အသံ မရပါ: ' + e.message; });
 };
+el('blurPosSel').onchange = function(){ el('blurCustomBox').style.display = (this.value === 'custom') ? 'block' : 'none'; };
 el('expBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
-  var body = {trimStart:0, trimEnd:duration, aspect: el('aspectSel').value, quality:'720p', subtitles:{size:24, color:'#FFFFFF', position:'bottom', font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength:'medium', zoomEvery5s: el('zoomChk').checked, zoomStrength:'medium'};
+  var clamp01 = function(v, d){ var n = parseFloat(v); return isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
+  var trimS = Math.max(0, parseFloat(el('trimStartInp').value) || 0);
+  var trimE = parseFloat(el('trimEndInp').value);
+  if(!isFinite(trimE) || trimE <= trimS) trimE = duration;
+  var blurPos = el('blurPosSel').value;
+  var blurPresets = {subtitle:[0,0.60,1,0.40], top:[0,0,1,0.30], bottom:[0,0.70,1,0.30], left:[0,0,0.30,1], right:[0.70,0,0.30,1], centre:[0.25,0.25,0.5,0.5], full:[0,0,1,1]};
+  var bp = blurPos === 'custom' ? [clamp01(el('blurXInp').value, 0), clamp01(el('blurYInp').value, 0.60), clamp01(el('blurWInp').value, 1), clamp01(el('blurHInp').value, 0.40)] : (blurPresets[blurPos] || blurPresets.subtitle);
+  var rotVal = parseInt(el('rotSel').value, 10) || 0;
+  if(rotVal === 270) rotVal = -90; // server clamps rotation to +/-180, and -90 is the same turn as 270
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked};
   el('expText').textContent = 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 };
