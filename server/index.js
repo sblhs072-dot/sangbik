@@ -675,6 +675,9 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <button id="loadBtn">လိုင်းများ ဖွင့်ပါ</button>
 <button id="saveBtn">💾 သိမ်းပါ</button>
 <button id="addLineBtn">＋ လိုင်းထည့်ပါ</button>
+<input type="file" id="srtFileInp" accept=".srt">
+<button id="srtImportBtn">📄 SRT ထည့်ပါ</button>
+<button id="translateBtn">🌐 ဘာသာပြန်ပါ</button>
 <div id="linesBox"></div></div>
 <div class="card"><h2>၄။ မြန်မာအသံ</h2>
 <select id="voiceSel"><option value="my-MM-ThihaNeural">Thiha (ကျား)</option><option value="my-MM-NilarNeural">Nilar (မ)</option></select>
@@ -912,6 +915,69 @@ el('addLineBtn').onclick = function(){
   linesDirty = true;
   renderLines(); renderTimeline();
   msg('လိုင်း အသစ် ထည့်ပါပြီ — မူရင်း + မြန်မာ စာသား ဖြည့်ပြီး သိမ်းပါ (မြန်မာ ဗလာ ရှိတဲ့ လိုင်းက သိမ်းရင် ပျက်သွားမယ်)။');
+};
+function parseSrt(text){
+  var t = String(text == null ? '' : text);
+  if(t.charCodeAt(0) === 0xFEFF) t = t.slice(1);
+  var norm = t.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  var blocks = norm.split(/\n[ \t]*\n/);
+  var out = [], dropped = 0;
+  function toSec(h, mi, s, ms){ return parseInt(h, 10) * 3600 + parseInt(mi, 10) * 60 + parseInt(s, 10) + parseInt((ms + '000').slice(0, 3), 10) / 1000; }
+  blocks.forEach(function(b){
+    var ls = b.split('\n').filter(function(x){ return x.trim() !== ''; });
+    if(!ls.length) return;
+    var ti = -1;
+    for(var i = 0; i < ls.length; i++){ if(ls[i].indexOf('-->') >= 0){ ti = i; break; } }
+    if(ti < 0){ dropped++; return; }
+    var m = ls[ti].match(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/);
+    if(!m){ dropped++; return; }
+    var start = toSec(m[1], m[2], m[3], m[4]);
+    var end = toSec(m[5], m[6], m[7], m[8]);
+    var txt = ls.slice(ti + 1).join(' ').replace(/\s+/g, ' ').trim();
+    if(!txt || !(end > start)){ dropped++; return; }
+    out.push({start: start, end: end, original: txt, burmese: '', manual: true});
+  });
+  out.sort(function(a, b){ return a.start - b.start; });
+  return {lines: out, dropped: dropped};
+}
+el('srtImportBtn').onclick = function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  var f = el('srtFileInp').files[0]; if(!f){ msg('SRT file အရင် ရွေးပါ'); return; }
+  var rd = new FileReader();
+  rd.onload = function(){
+    var r = parseSrt(rd.result);
+    if(!r.lines.length){ msg('SRT ထဲမှာ လိုင်း မတွေ့ပါ' + (r.dropped ? ' (' + r.dropped + ' လိုင်း ကျော်လိုက်တယ်)' : '')); return; }
+    lines = lines.concat(r.lines);
+    lines.sort(function(a, b){ return a.start - b.start; });
+    linesDirty = true;
+    renderLines(); renderTimeline();
+    msg('SRT မှ ' + r.lines.length + ' လိုင်း ထည့်ပါပြီ' + (r.dropped ? ' (' + r.dropped + ' လိုင်း ကျော်လိုက်တယ်)' : '') + ' — "ဘာသာပြန်ပါ" နှိပ်ပြီး သိမ်းပါ။');
+  };
+  rd.onerror = function(){ msg('SRT file ဖတ်မရပါ'); };
+  rd.readAsText(f);
+};
+el('translateBtn').onclick = function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  var inputs = el('linesBox').querySelectorAll('input[data-idx]');
+  inputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-idx'), 10); if(lines[idx]) lines[idx].burmese = inp.value; });
+  var oinputs = el('linesBox').querySelectorAll('input[data-oidx]');
+  oinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-oidx'), 10); if(lines[idx]) lines[idx].original = inp.value; });
+  var todo = 0;
+  lines.forEach(function(l){ if(l.original && l.original.trim() && !(l.burmese && l.burmese.trim())) todo++; });
+  if(!todo){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ ရှိတဲ့ လိုင်း မရှိဘူး။'); return; }
+  el('translateBtn').disabled = true;
+  msg('ဘာသာပြန်နေပါတယ်… (' + todo + ' လိုင်း)');
+  api('/projects/' + pid + '/translate-lines', 'POST', {lines: lines}).then(function(j){
+    el('translateBtn').disabled = false;
+    var filled = 0;
+    (j.lines || []).forEach(function(rl, i){ if(lines[i] && rl.burmese && !(lines[i].burmese && lines[i].burmese.trim())){ lines[i].burmese = rl.burmese; filled++; } });
+    linesDirty = true;
+    renderLines(); renderTimeline();
+    msg('ဘာသာပြန်ပါပြီ: ' + filled + ' လိုင်း' + (j.path ? ' (' + j.path + ')' : '') + ' — စစ်ပြီး သိမ်းပါ။');
+  }).catch(function(e){
+    el('translateBtn').disabled = false;
+    msg('ဘာသာပြန်မရပါ: ' + e.message);
+  });
 };
 el('ttsBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
@@ -1229,6 +1295,26 @@ app.post('/api/projects/:id/translate-google', async (req, res) => {
   p.translationLines = lines; p.translationPath = gt.path; p.translationGoogleLog = gt.googleLog || null;
   saveProjects(projects);
   res.json({ project: p, lines, path: gt.path, googleLog: gt.googleLog || null, note: gt.error || null });
+});
+app.post('/api/projects/:id/translate-lines', async (req, res) => {
+  const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
+  // Stateless: only the project's existence is checked. No video file is
+  // required, and nothing stored on the project is read or written — the
+  // caller passes the lines and gets them back with Burmese filled, in the
+  // same order. Only lines with empty Burmese are translated; lines that
+  // already have Burmese pass through untouched.
+  const input = Array.isArray(req.body?.lines) ? req.body.lines : [];
+  const toTranslate = [];
+  const idxMap = [];
+  input.forEach((l, i) => {
+    if (l && typeof l.original === 'string' && l.original.trim() && !(l.burmese && l.burmese.trim())) { toTranslate.push({ original: l.original }); idxMap.push(i); }
+  });
+  if (!toTranslate.length) return res.json({ lines: input, path: 'none', note: 'No empty-Burmese lines to translate.' });
+  const gt = await translateLinesWithGoogleOrFallback(toTranslate);
+  if (!gt.translations) return res.status(502).json({ error: gt.error });
+  const out = input.slice();
+  idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: gt.translations[k] || '' }); });
+  res.json({ lines: out, path: gt.path, note: gt.error || null });
 });
 app.post('/api/projects/:id/tts', async (req, res) => {
   const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
