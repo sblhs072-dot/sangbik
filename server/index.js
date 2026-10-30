@@ -663,7 +663,7 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <div id="projList"></div></div>
 <div class="card"><h2>၂။ Video တင်ပါ</h2>
 <input type="file" id="fileInput" accept="video/*">
-<button id="upBtn">တင်ပါ</button>
+<button id="upBtn" style="display:none">တင်ပါ</button>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
 <div id="jobText"></div>
 <div class="small">Link နဲ့ ယူမလား (တိုက်ရိုက် .mp4 link ပဲ ရမယ်)</div>
@@ -674,6 +674,7 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <div class="card"><h2>၃။ စာသား + ဘာသာပြန်</h2>
 <button id="loadBtn">လိုင်းများ ဖွင့်ပါ</button>
 <button id="saveBtn">💾 သိမ်းပါ</button>
+<button id="addLineBtn">＋ လိုင်းထည့်ပါ</button>
 <div id="linesBox"></div></div>
 <div class="card"><h2>၄။ မြန်မာအသံ</h2>
 <select id="voiceSel"><option value="my-MM-ThihaNeural">Thiha (ကျား)</option><option value="my-MM-NilarNeural">Nilar (မ)</option></select>
@@ -730,36 +731,117 @@ function api(path, method, body){
 }
 function setPid(id){ pid = id; localStorage.setItem('sangbik-pid', id); el('pidText').textContent = 'Project: ' + id; }
 function health(){ api('/health').then(function(h){ el('health').textContent = 'ဆာဗာ အဆင်သင့်ဖြစ်ပါပြီ — Whisper ' + (h.whisperOfflineConfigured ? 'ready' : 'NOT installed') + ' + Edge TTS ' + (h.edgeTtsConfigured ? 'ready' : 'NOT installed') + ' | Max ' + h.maxFileMb + ' MB'; }).catch(function(e){ el('health').textContent = 'ဆာဗာ မနိုးသေးပါ — ခဏစောင့်ပြီး ပြန်ဖွင့်ပါ (' + e.message + ')'; }); }
-el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
-el('listBtn').onclick = function(){ api('/projects').then(function(ps){ var h=''; ps.forEach(function(p){ h += '<div>' + p.id + ' — ' + (p.status||'') + ' ' + (p.file ? '🎬' : '') + ' <button data-pid="' + p.id + '">ရွေးပါ</button></div>'; }); el('projList').innerHTML = h || '(မရှိပါ)'; var bs = el('projList').querySelectorAll('button'); bs.forEach(function(b){ b.onclick = function(){ setPid(b.getAttribute('data-pid')); loadLines(); }; }); }).catch(function(e){ msg('List မရပါ: ' + e.message); }); };
-el('upBtn').onclick = function(){ var f = el('fileInput').files[0]; if(!f){ msg('Video အရင် ရွေးပါ'); return; } if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; } uploadFile(f); };
-function uploadFile(f){
+// ---- Background resilience: screen-off / reload must not kill a project ----
+// Server jobs (transcribe/translate/TTS/export) already run on Render and survive
+// screen-off; the browser only polls. This block protects the browser side:
+// (1) upload state persists in localStorage and auto-resumes from the next
+// incomplete chunk (never from 0); (2) returning to the page instantly refreshes
+// job/export status instead of waiting for the next poll tick; (3) a reload never
+// resets a running job's UI to idle. NOTE: Chrome's Background Fetch cannot carry
+// this upload -- it only accepts requests without a body, and Sangbik chunk uploads
+// are POST multipart requests with bodies -- so there is no true screen-off upload
+// path on the web today; resume-on-return is the closest working behaviour.
+var jobPolling = false, exportPolling = false, linesDirty = false;
+var upState = null;
+var localFile = null;
+var localFilePid = '';
+var localFileUrl = '';
+var pendingExportAfterJob = false;
+var UP_KEY = 'sangbik-upload';
+function upIdFor(f){ return (pid + '-' + f.name + '-' + f.size + '-' + f.lastModified).replace(/[^A-Za-z0-9._-]/g,'_'); }
+function saveUpPersist(){ try{ if(upState && upState.active){ localStorage.setItem(UP_KEY, JSON.stringify({uploadId:upState.uploadId, projectId:upState.projectId, fileName:upState.file.name, fileSize:upState.file.size, lastModified:upState.file.lastModified, totalChunks:upState.total})); } }catch(e){} }
+function clearUpPersist(){ try{ localStorage.removeItem(UP_KEY); }catch(e){} }
+function clearLocalFile(){ if(localFileUrl){ try{ URL.revokeObjectURL(localFileUrl); }catch(e){} localFileUrl = ''; } localFile = null; localFilePid = ''; }
+function readUpPersist(){ try{ var s = localStorage.getItem(UP_KEY); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
+function nextIncomplete(received, total){ for(var i = 0; i < total; i++){ if(!received[i]) return i; } return total; }
+function refreshAll(){
+  if(!pid) return;
+  api('/projects/' + pid).then(function(p){
+    duration = (p.metadata && p.metadata.duration) || duration;
+    if(p.file && !p.file.sourceUrl) el('vid').src = '/api/projects/' + pid + '/preview';
+    if(!linesDirty){ lines = p.translationLines || []; renderLines(); renderTimeline(); }
+  }).catch(function(){});
+  pollJob();
+  refreshExport();
+}
+function refreshExport(){
+  if(!pid) return;
+  api('/projects/' + pid + '/export-status').then(function(s){
+    if(s.status === 'processing'){ el('expText').textContent = 'Export: processing'; pollExport(); }
+    else if(s.status === 'ready'){ el('expText').textContent = 'Export: ready'; el('dlBox').innerHTML = '<a href="/api/projects/' + pid + '/download/video"><button>⬇ Video ဒေါင်းလုဒ်</button></a> <a href="/api/projects/' + pid + '/download/subtitles"><button>⬇ Subtitles (SRT)</button></a>'; }
+  }).catch(function(){});
+}
+el('linesBox').addEventListener('input', function(){ linesDirty = true; });
+el('fileInput').addEventListener('change', function(){
+  var f = el('fileInput').files[0]; if(!f) return;
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  clearLocalFile();
+  localFile = f; localFilePid = pid;
+  try{ localFileUrl = URL.createObjectURL(f); el('vid').src = localFileUrl; }catch(e){}
+  var saved = readUpPersist();
+  var resumed = saved && saved.projectId === pid && saved.fileName === f.name && saved.fileSize === f.size && saved.lastModified === f.lastModified && upIdFor(f) === saved.uploadId;
+  msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — server ထဲ Export နှိပ်မှပဲ တင်မယ်, အခု မတင်သေးပါ။' + (resumed ? ' တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ Export နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
+  el('progText').textContent = 'Local preview — server ထဲ မတင်သေးပါ';
+});
+el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
+el('listBtn').onclick = function(){ api('/projects').then(function(ps){ var h=''; ps.forEach(function(p){ h += '<div>' + p.id + ' — ' + (p.status||'') + ' ' + (p.file ? '🎬' : '') + ' <button data-pid="' + p.id + '">ရွေးပါ</button></div>'; }); el('projList').innerHTML = h || '(မရှိပါ)'; var bs = el('projList').querySelectorAll('button'); bs.forEach(function(b){ b.onclick = function(){ setPid(b.getAttribute('data-pid')); clearLocalFile(); loadLines(); }; }); }).catch(function(e){ msg('List မရပါ: ' + e.message); }); };
+el('upBtn').onclick = function(){ msg('Video ကို server ထဲ Export နှိပ်မှပဲ တင်မယ် — အခု မတင်ပါ။'); };
+function uploadFile(f, opts){
   var CHUNK = 5*1024*1024;
-  var uploadId = (pid + '-' + f.name + '-' + f.size + '-' + f.lastModified).replace(/[^A-Za-z0-9._-]/g,'_');
-  msg('တင်နေပါတယ်… ဒီ tab ကို ပိတ်မသွားပါနဲ့။');
-  api('/upload-status/' + uploadId).then(function(st){
-    var received = {}; (st.received||[]).forEach(function(i){ received[i]=1; });
-    var total = Math.ceil(f.size/CHUNK);
-    var done = 0; (st.received||[]).forEach(function(i){ done += Math.min(CHUNK, f.size - i*CHUNK); });
-    var i = 0;
-    function next(){
-      if(i >= total){ return api('/upload-complete','POST',{uploadId:uploadId, projectId:pid, autoTranscript:true, autoTranslate:true}).then(function(cj){ duration = (cj.metadata && cj.metadata.duration) || 0; el('vid').src = '/api/projects/' + pid + '/preview'; el('progText').textContent = 'တင်တာ ပြီးပါပြီ — ' + Math.round(duration) + ' စက္ကန့်။ စာသားပြောင်းနေပါတယ်…'; pollJob(); }).catch(function(e){ msg('Upload-complete မရပါ: ' + e.message); }); }
-      if(received[i]){ i++; return next(); }
-      var fd = new FormData();
-      fd.append('chunk', f.slice(i*CHUNK, (i+1)*CHUNK));
-      fd.append('uploadId', uploadId); fd.append('chunkIndex', String(i)); fd.append('totalChunks', String(total)); fd.append('fileName', f.name);
-      fetch('/api/upload-chunk', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error||'chunk failed'); return j; }); }).then(function(){ done += Math.min(CHUNK, f.size - i*CHUNK); var pc = Math.round(done/f.size*100); el('progBar').style.width = pc + '%'; el('progText').textContent = 'တင်နေပါတယ်: ' + pc + '% (' + (i+1) + '/' + total + ' အပိုင်း)'; i++; next(); }).catch(function(e){ msg('တင်တာ မအောင်ပါ: ' + e.message + ' — ပြန်နှိပ်ပြီး ဆက်တင်နိုင်ပါတယ် (ရောက်ပြီးသား အပိုင်းတွေ ကျော်မယ်)'); });
-    }
-    next();
-  }).catch(function(e){ msg('Upload status မရပါ: ' + e.message); });
+  var uploadId = upIdFor(f);
+  upState = {file:f, uploadId:uploadId, projectId:pid, total:Math.ceil(f.size/CHUNK), chunk:CHUNK, received:{}, next:0, active:true, retries:0, sending:false, uploadOpts: opts || {}};
+  saveUpPersist();
+  msg('တင်နေပါတယ်… Screen ပိတ်သွားလည်း server အလုပ် ဆက်လုပ်မယ်၊ ပြန်လာရင် တင်တာ အလိုအလျောက် ဆက်မယ်။');
+  resumeUpload();
+}
+function resumeUpload(){
+  var st = upState;
+  if(!st || !st.active || st.sending || st.projectId !== pid) return;
+  api('/upload-status/' + st.uploadId).then(function(s){
+    (s.received||[]).forEach(function(i){ st.received[i]=1; });
+    st.next = nextIncomplete(st.received, st.total);
+    if(st.next >= st.total){ finishUpload(); return; }
+    sendChunk();
+  }).catch(function(e){ msg('Upload status မရပါ: ' + e.message + ' — ပြန်လာရင် အလိုအလျောက် ဆက်မယ်'); });
+  function sendChunk(){
+    if(!st.active || st.sending) return;
+    var i = st.next;
+    if(i >= st.total){ finishUpload(); return; }
+    st.sending = true;
+    var fd = new FormData();
+    fd.append('chunk', st.file.slice(i*st.chunk, (i+1)*st.chunk));
+    fd.append('uploadId', st.uploadId); fd.append('chunkIndex', String(i)); fd.append('totalChunks', String(st.total)); fd.append('fileName', st.file.name);
+    fetch('/api/upload-chunk', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error||'chunk failed'); return j; }); }).then(function(){
+      st.sending = false; st.received[i]=1; st.retries=0;
+      var done = 0; Object.keys(st.received).forEach(function(k){ done += Math.min(st.chunk, st.file.size - k*st.chunk); });
+      var pc = Math.round(done/st.file.size*100); el('progBar').style.width = pc + '%'; el('progText').textContent = 'တင်နေပါတယ်: ' + pc + '% (' + (i+1) + '/' + st.total + ' အပိုင်း)';
+      st.next = nextIncomplete(st.received, st.total);
+      saveUpPersist();
+      if(st.next >= st.total){ finishUpload(); } else { sendChunk(); }
+    }).catch(function(e){
+      st.sending = false;
+      st.retries++;
+      if(st.retries <= 5){ var wait = Math.min(30000, 2000 * Math.pow(2, st.retries - 1)); el('progText').textContent = 'တင်တာ ရပ်သွားတယ် — ' + Math.round(wait/1000) + ' စက္ကန့်အကြာမှာ အလိုအလျောက် ပြန်တင်မယ် (' + st.retries + '/5)'; setTimeout(function(){ if(st.active && !st.sending) sendChunk(); }, wait); }
+      else { st.active = false; msg('တင်တာ မအောင်ပါ: ' + e.message + ' — ပြန်လာပြီး file ကို ပြန်ရွေးရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်'); }
+    });
+  }
+  function finishUpload(){
+    if(!st.active) return;
+    api('/upload-complete','POST',{uploadId:st.uploadId, projectId:st.projectId, autoTranscript: !(st.uploadOpts && st.uploadOpts.autoTranscript === false), autoTranslate: !(st.uploadOpts && st.uploadOpts.autoTranslate === false)}).then(function(cj){
+      duration = (cj.metadata && cj.metadata.duration) || 0; el('vid').src = '/api/projects/' + st.projectId + '/preview'; el('progText').textContent = 'တင်တာ ပြီးပါပြီ — ' + Math.round(duration) + ' စက္ကန့်။ စာသားပြောင်းနေပါတယ်…';
+      st.active = false; upState = null; clearUpPersist(); if(st.uploadOpts && st.uploadOpts.onDone){ st.uploadOpts.onDone(); } else { pollJob(); }
+    }).catch(function(e){ msg('Upload-complete မရပါ: ' + e.message); });
+  }
 }
 function pollJob(){
   if(!pid) return;
+  if(jobPolling) return;
+  jobPolling = true;
   api('/projects/' + pid + '/job-status').then(function(j){
     el('jobText').textContent = 'Auto job: ' + j.status + ' — ' + (j.stage||'') + ' — ' + (j.percent||0) + '% (' + (j.completedSegments||0) + '/' + (j.totalSegments||0) + ') ' + (j.message||'');
-    if(j.status === 'running' || j.status === 'queued'){ setTimeout(pollJob, 3000); }
-    else { loadLines(); }
-  }).catch(function(e){ el('jobText').textContent = 'Job မရပါ: ' + e.message; });
+    if(j.status === 'running' || j.status === 'queued'){ jobPolling = false; setTimeout(pollJob, 3000); }
+    else { jobPolling = false; if(!linesDirty) loadLines(); }
+  }).catch(function(e){ jobPolling = false; el('jobText').textContent = 'Job မရပါ: ' + e.message; });
 }
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function loadLines(){
@@ -770,7 +852,8 @@ function loadLines(){
     if(p.file && !p.file.sourceUrl) el('vid').src = '/api/projects/' + pid + '/preview';
     renderLines();
     renderTimeline();
-    msg(lines.length + ' လိုင်း ဖွင့်ပါပြီ။');
+    msg(lines.length + ' လိုင်း ဖွင့်ပါပြီ။' + (pendingExportAfterJob ? ' လိုင်းတွေ စစ်ပြီး Export ကို နောက်တစ်ခါ နှိပ်ပါ။' : ''));
+    if(pendingExportAfterJob) pendingExportAfterJob = false;
   }).catch(function(e){ msg('လိုင်းများ မရပါ: ' + e.message); });
 }
 function fmtMmSs(s){ var r = Math.max(0, Math.round((s || 0) * 10) / 10); var m = Math.floor(r / 60); var sec = r - m * 60; var si = Math.floor(sec); var frac = Math.round((sec - si) * 10); if(frac === 10){ si += 1; frac = 0; } return m + ':' + String(si).padStart(2, '0') + (frac ? '.' + frac : ''); }
@@ -783,9 +866,10 @@ function parseMmSs(s){
 function renderLines(){
   var h = '';
   lines.forEach(function(l, idx){
-    h += '<div class="line"><div class="t"><input type="text" class="tm" data-tidx="' + idx + '" data-kind="start" value="' + fmtMmSs(l.start) + '"> – <input type="text" class="tm" data-tidx="' + idx + '" data-kind="end" value="' + fmtMmSs(l.end) + '"></div><div>' + esc(l.original) + '</div><input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"></div>';
+  var origPart = l.manual ? '<input type="text" data-oidx="' + idx + '" value="' + esc(l.original) + '" placeholder="မူရင်း စာသား">' : '<div>' + esc(l.original) + '</div>';
+    h += '<div class="line"><div class="t"><input type="text" class="tm" data-tidx="' + idx + '" data-kind="start" value="' + fmtMmSs(l.start) + '"> – <input type="text" class="tm" data-tidx="' + idx + '" data-kind="end" value="' + fmtMmSs(l.end) + '"></div>' + origPart + '<input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"></div>';
   });
-  el('linesBox').innerHTML = h || '(လိုင်းမရှိသေးပါ — တင်တာ ပြီးပြီး job ပြီးမှ ပေါ်မယ်)';
+  el('linesBox').innerHTML = h || '(လိုင်းမရှိသေးပါ — “လိုင်းထည့်ပါ” နဲ့ ကိုယ်တိုင် ထည့်နိုင်တယ်)';
 }
 function fmtTl(s){ s = Math.max(0, Math.floor(s)); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
 function renderTimeline(){
@@ -811,12 +895,23 @@ el('loadBtn').onclick = loadLines;
 el('saveBtn').onclick = function(){
   var inputs = el('linesBox').querySelectorAll('input[data-idx]');
   inputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-idx'), 10); lines[idx].burmese = inp.value; });
+  var oinputs = el('linesBox').querySelectorAll('input[data-oidx]');
+  oinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-oidx'), 10); if(lines[idx]) lines[idx].original = inp.value; });
   var tinputs = el('linesBox').querySelectorAll('input[data-tidx]');
   var tvals = {};
   tinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-tidx'), 10); if(!tvals[idx]) tvals[idx] = {}; tvals[idx][inp.getAttribute('data-kind')] = parseMmSs(inp.value); });
   var badTimes = 0;
   Object.keys(tvals).forEach(function(k){ var idx = parseInt(k, 10); var tv = tvals[idx]; if(!lines[idx] || !isFinite(tv.start) || !isFinite(tv.end) || tv.end <= tv.start) { badTimes++; return; } lines[idx].start = tv.start; lines[idx].end = tv.end; });
-  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : '')); }).catch(function(e){ msg('သိမ်းမရပါ: ' + e.message); });
+  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ linesDirty = false; msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : '')); }).catch(function(e){ msg('သိမ်းမရပါ: ' + e.message); });
+};
+el('addLineBtn').onclick = function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  var lastEnd = 0;
+  if(lines.length){ lastEnd = lines[lines.length - 1].end || 0; }
+  lines.push({start: lastEnd, end: lastEnd + 5, original: '', burmese: '', manual: true});
+  linesDirty = true;
+  renderLines(); renderTimeline();
+  msg('လိုင်း အသစ် ထည့်ပါပြီ — မူရင်း + မြန်မာ စာသား ဖြည့်ပြီး သိမ်းပါ (မြန်မာ ဗလာ ရှိတဲ့ လိုင်းက သိမ်းရင် ပျက်သွားမယ်)။');
 };
 el('ttsBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
@@ -850,8 +945,7 @@ el('urlBtn').onclick = function(){
   }).catch(function(e){ el('urlText').textContent = 'URL မရပါ: ' + e.message; });
 };
 el('blurPosSel').onchange = function(){ el('blurCustomBox').style.display = (this.value === 'custom') ? 'block' : 'none'; };
-el('expBtn').onclick = function(){
-  if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
+function buildExportBody(){
   var clamp01 = function(v, d){ var n = parseFloat(v); return isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
   var trimS = Math.max(0, parseFloat(el('trimStartInp').value) || 0);
   var trimE = parseFloat(el('trimEndInp').value);
@@ -864,18 +958,53 @@ el('expBtn').onclick = function(){
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
   var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })()};
+  return body;
+}
+function doExport(){
+  var body = buildExportBody();
   el('expText').textContent = 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
+}
+el('expBtn').onclick = function(){
+  if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
+  if(upState && upState.active){ msg('Export အတွက် video တင်နေပါတယ် — ပြီးရင် အလိုအလျောက် export ဆက်မယ်။'); return; }
+  api('/projects/' + pid).then(function(p){
+    if(p.file){ doExport(); return; }
+    var f = (localFile && localFilePid === pid) ? localFile : null;
+    if(!f){ msg('Video အရင် ရွေးပါ'); return; }
+    var hasLines = !!(p.translationLines && p.translationLines.length);
+    el('expText').textContent = 'Export အတွက် video တင်နေပါတယ်…';
+    if(hasLines){
+      uploadFile(f, {autoTranscript:false, autoTranslate:false, onDone:function(){ doExport(); }});
+    } else {
+      pendingExportAfterJob = true;
+      uploadFile(f, {autoTranscript:true, autoTranslate:true});
+      el('expText').textContent = 'Video တင်ပြီးရင် စာသား အလိုအလျောက် ပြောင်းမယ် — ပြီးရင် လိုင်းတွေ စစ်ပြီး Export ကို နောက်တစ်ခါ နှိပ်ပါ။';
+    }
+  }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 };
 function pollExport(){
+  if(exportPolling) return;
+  exportPolling = true;
   api('/projects/' + pid + '/export-status').then(function(s){
     el('expText').textContent = 'Export: ' + (s.status||'') + (s.error ? ' — ' + s.error : '');
-    if(s.status === 'processing'){ setTimeout(pollExport, 3000); }
-    else if(s.status === 'ready'){ el('dlBox').innerHTML = '<a href="/api/projects/' + pid + '/download/video"><button>⬇ Video ဒေါင်းလုဒ်</button></a> <a href="/api/projects/' + pid + '/download/subtitles"><button>⬇ Subtitles (SRT)</button></a>'; }
-  }).catch(function(e){ el('expText').textContent = 'Export status မရပါ: ' + e.message; });
+    if(s.status === 'processing'){ exportPolling = false; setTimeout(pollExport, 3000); }
+    else { exportPolling = false; if(s.status === 'ready'){ el('dlBox').innerHTML = '<a href="/api/projects/' + pid + '/download/video"><button>⬇ Video ဒေါင်းလုဒ်</button></a> <a href="/api/projects/' + pid + '/download/subtitles"><button>⬇ Subtitles (SRT)</button></a>'; } }
+  }).catch(function(e){ exportPolling = false; el('expText').textContent = 'Export status မရပါ: ' + e.message; });
 }
 if(pid){ setPid(pid); }
 health();
+(function(){
+  var saved = readUpPersist();
+  if(saved && saved.projectId === pid){ el('progText').textContent = 'တင်တာ မပြီးသေးဘူး (' + saved.fileName + ') — Export နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။'; }
+})();
+if(pid){ refreshAll(); }
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible'){
+    if(upState && upState.active && upState.file && upState.projectId === pid && !upState.sending){ resumeUpload(); }
+    refreshAll();
+  }
+});
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(function(){}); }
 </script>
 </body>
