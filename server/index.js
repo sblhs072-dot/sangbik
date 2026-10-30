@@ -343,6 +343,50 @@ async function concatMp3s(files, outMp3, pauseSec, tmpDir) {
   fs.writeFileSync(listFile, list.map(f => `file '${f}'`).join('\n'));
   await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', outMp3]);
 }
+
+// Per-line narration clips (timed-narration support): group per-segment
+// files by translation line index and concat each line's chunks (no pause)
+// into one persistent clip per line, so export can later schedule each
+// spoken line at its subtitle start time. Returns [{file, duration,
+// lineIndex}] in line order. Lines with no segments get no clip entry
+// (export skips them in timed mode). Stale clips from an earlier narration
+// with more lines are removed.
+async function buildLineClips(files, segmentLineIndex, projectId) {
+  const byLine = new Map();
+  for (let i = 0; i < files.length; i++) {
+    const li = segmentLineIndex ? segmentLineIndex[i] : null;
+    if (li === null || li === undefined) continue;
+    if (!byLine.has(li)) byLine.set(li, []);
+    byLine.get(li).push(files[i]);
+  }
+  const clips = [];
+  for (const li of [...byLine.keys()].sort((a, b) => a - b)) {
+    const parts = byLine.get(li);
+    const clipFile = path.join(OUT_DIR, `${projectId}-clip-${li}.mp3`);
+    if (parts.length === 1) {
+      try { fs.copyFileSync(parts[0], clipFile); } catch { continue; }
+    } else {
+      const clipList = path.join(path.dirname(parts[0]), `clip-${li}-list.txt`);
+      fs.writeFileSync(clipList, parts.map(f => `file '${f}'`).join('\n'));
+      try { await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', clipList, '-c', 'copy', clipFile]); } catch { try { fs.unlinkSync(clipList); } catch {} continue; }
+      try { fs.unlinkSync(clipList); } catch {}
+    }
+    if (!fs.existsSync(clipFile) || !fs.statSync(clipFile).size) continue;
+    let duration = 0;
+    try { duration = (await probe(clipFile)).duration || 0; } catch {}
+    clips.push({ file: clipFile, duration, lineIndex: li });
+  }
+  try {
+    const keep = new Set(clips.map(c => c.file));
+    for (const f of fs.readdirSync(OUT_DIR)) {
+      if (f.startsWith(`${projectId}-clip-`) && f.endsWith('.mp3')) {
+        const full = path.join(OUT_DIR, f);
+        if (!keep.has(full)) { try { fs.rmSync(full, { force: true }); } catch {} }
+      }
+    }
+  } catch {}
+  return clips;
+}
 function estimate(script, wpm) {
   const words = script.trim().split(/\s+/).filter(Boolean).length;
   const chars = script.replace(/\s/g, '').length;
@@ -551,6 +595,7 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select>
 <select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
 <label><input type="checkbox" id="zoomChk" checked> Zoom (၅ စက္ကန့်တစ်ခါ)</label><br>
+<label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br>
 <label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br>
 <label>Blur အပြင်း: <select id="blurStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
 <label>Blur နေရာ: <select id="blurPosSel"><option value="subtitle">စာတန်းနေရာ</option><option value="top">အပေါ်</option><option value="bottom">အောက်</option><option value="left">ဘယ်</option><option value="right">ညာ</option><option value="centre">အလယ်</option><option value="full">အပြည့်</option><option value="custom">ကိုယ်တိုင်ရွေး</option></select></label><br>
@@ -657,7 +702,7 @@ el('expBtn').onclick = function(){
   var bp = blurPos === 'custom' ? [clamp01(el('blurXInp').value, 0), clamp01(el('blurYInp').value, 0.60), clamp01(el('blurWInp').value, 1), clamp01(el('blurHInp').value, 0.40)] : (blurPresets[blurPos] || blurPresets.subtitle);
   var rotVal = parseInt(el('rotSel').value, 10) || 0;
   if(rotVal === 270) rotVal = -90; // server clamps rotation to +/-180, and -90 is the same turn as 270
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous'};
   el('expText').textContent = 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 };
@@ -907,7 +952,26 @@ app.post('/api/projects/:id/tts', async (req, res) => {
     if (!p.script) return res.status(400).json({ error: 'Project or script not found' });
     text = p.script;
   }
-  const segments = splitText(text);
+  // Per-line segmentation for translation source: each translation line's text
+  // is split with the same splitText chunking, and segmentLineIndex maps every
+  // synthesised segment back to its translation line, so export can schedule
+  // each spoken line at its subtitle start time. Script source keeps the old
+  // flat segmentation (segmentLineIndex stays null, no per-line clips). Note:
+  // for translation source the concatenated narration.mp3 is now segmented at
+  // line boundaries (pauses land between lines) instead of packing across
+  // lines; the file itself is unchanged in purpose and content.
+  let segmentLineIndex = null;
+  let segments = splitText(text);
+  if (source === 'translation') {
+    segmentLineIndex = [];
+    segments = [];
+    p.translationLines.forEach((l, li) => {
+      const t = (l.burmese || '').trim();
+      if (!t) return;
+      for (const s of splitText(t)) { segments.push(s); segmentLineIndex.push(li); }
+    });
+    if (!segments.length) { segments = splitText(text); segmentLineIndex = null; }
+  }
   const tmpDir = fs.mkdtempSync(path.join(OUT_DIR, 'tts-'));
   try {
     const files = [];
@@ -920,11 +984,12 @@ app.post('/api/projects/:id/tts', async (req, res) => {
       const voice = req.body?.voice || TTS_VOICES[0];
       if (!TTS_VOICES.includes(voice)) return res.status(400).json({ error: `Voice not configured. Configured voices (Nilar/Thiha first): ${TTS_VOICES.join(', ')}` });
       for (let i = 0; i < segments.length; i++) { const segFile = path.join(tmpDir, `seg${i}.mp3`); await azureTtsSegment(segments[i], voice, speed, req.body?.pitch, key, region, segFile); files.push(segFile); }
+      const lineClips = segmentLineIndex ? await buildLineClips(files, segmentLineIndex, p.id) : [];
       const outMp3 = path.join(OUT_DIR, `${p.id}-narration.mp3`);
       await concatMp3s(files, outMp3, pauseSec, tmpDir);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       const meta = await probe(outMp3);
-      p.tts = { provider: 'azure', voice, source, segments: segments.length, file: outMp3, duration: meta.duration }; saveProjects(projects);
+      p.tts = { provider: 'azure', voice, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
       return res.json({ project: p, tts: p.tts });
     }
     if (provider === 'openai') {
@@ -937,11 +1002,12 @@ app.post('/api/projects/:id/tts', async (req, res) => {
         if (!r.ok) throw new Error(`OpenAI TTS HTTP ${r.status}: ${(await r.text()).slice(0, 500)}`);
         const segFile = path.join(tmpDir, `seg${i}.mp3`); fs.writeFileSync(segFile, Buffer.from(await r.arrayBuffer())); files.push(segFile);
       }
+      const lineClips = segmentLineIndex ? await buildLineClips(files, segmentLineIndex, p.id) : [];
       const outMp3 = path.join(OUT_DIR, `${p.id}-narration.mp3`);
       await concatMp3s(files, outMp3, pauseSec, tmpDir);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       const meta = await probe(outMp3);
-      p.tts = { provider: 'openai', voice: oVoice, source, segments: segments.length, file: outMp3, duration: meta.duration }; saveProjects(projects);
+      p.tts = { provider: 'openai', voice: oVoice, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
       return res.json({ project: p, tts: p.tts });
     }
     if (provider === 'local') {
@@ -959,11 +1025,12 @@ app.post('/api/projects/:id/tts', async (req, res) => {
         await run('ffmpeg', ['-y', '-i', wavFile, '-c:a', 'libmp3lame', segFile]);
         files.push(segFile);
       }
+      const lineClips = segmentLineIndex ? await buildLineClips(files, segmentLineIndex, p.id) : [];
       const outMp3 = path.join(OUT_DIR, `${p.id}-narration.mp3`);
       await concatMp3s(files, outMp3, pauseSec, tmpDir);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       const meta = await probe(outMp3);
-      p.tts = { provider: 'local', voice: 'local-my (espeak-ng)', source, segments: segments.length, file: outMp3, duration: meta.duration }; saveProjects(projects);
+      p.tts = { provider: 'local', voice: 'local-my (espeak-ng)', source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
       return res.json({ project: p, tts: p.tts });
     }
     if (provider === 'gemini') {
@@ -978,11 +1045,12 @@ app.post('/api/projects/:id/tts', async (req, res) => {
       }
       const listFile = path.join(tmpDir, 'list.txt');
       fs.writeFileSync(listFile, files.map(f => `file '${f}'`).join('\n'));
+      const lineClips = segmentLineIndex ? await buildLineClips(files, segmentLineIndex, p.id) : [];
       const outMp3 = path.join(OUT_DIR, `${p.id}-narration.mp3`);
       await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', outMp3]);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       const meta = await probe(outMp3);
-      p.tts = { provider: 'gemini', voice, model, source, segments: segments.length, file: outMp3, duration: meta.duration }; saveProjects(projects);
+      p.tts = { provider: 'gemini', voice, model, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
       return res.json({ project: p, tts: p.tts });
     }
     // Edge TTS (Sangbik default, 2026-10-26): FIRST try the current
@@ -1021,11 +1089,12 @@ app.post('/api/projects/:id/tts', async (req, res) => {
     }
     const listFile = path.join(tmpDir, 'list.txt');
     fs.writeFileSync(listFile, files.map(f => `file '${f}'`).join('\n'));
+    const lineClips = segmentLineIndex ? await buildLineClips(files, segmentLineIndex, p.id) : [];
     const outMp3 = path.join(OUT_DIR, `${p.id}-narration.mp3`);
     await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', outMp3]);
     fs.rmSync(tmpDir, { recursive: true, force: true });
     const meta = await probe(outMp3);
-    p.tts = { provider: 'edge-tts', voice, source, segments: segments.length, file: outMp3, duration: meta.duration }; saveProjects(projects);
+    p.tts = { provider: 'edge-tts', voice, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
     res.json({ project: p, tts: p.tts });
   } catch (e) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} res.status(500).json({ error: `TTS failed: ${e.message}` }); }
 });
@@ -1064,6 +1133,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const zoomEvery5s = !!o.zoomEvery5s;
   const zoomStrength = ['light', 'medium', 'strong'].includes(o.zoomStrength) ? o.zoomStrength : 'medium';
   const zoomMax = ZOOM_MAX[zoomStrength];
+  const narrationSync = o.narrationSync === 'timed' ? 'timed' : 'continuous';
   const transition = ['none', 'fade', 'crossfade'].includes(o.transition) ? o.transition : 'none';
   const transitionDurationRaw = parseFloat(o.transitionDuration || 0.5);
   const transitionDuration = Math.min(2, Math.max(0, Number.isFinite(transitionDurationRaw) ? transitionDurationRaw : 0.5));
@@ -1096,7 +1166,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   }
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle };
+  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync };
   saveProjects(projects);
   (async () => {
     try {
@@ -1253,9 +1323,38 @@ app.post('/api/projects/:id/export', async (req, res) => {
       let audioInputs = []; // labelled audio streams to mix, in order
       filter += `;[0:a]volume=${origVol}[a0]`; audioInputs.push('[a0]');
       let nextInputIdx = 1;
-      if (p.tts?.file && fs.existsSync(p.tts.file)) {
-        args.push('-i', p.tts.file); inputs.push(p.tts.file);
-        filter += `;[${nextInputIdx}:a]volume=${narrVol}[a1]`; audioInputs.push('[a1]'); nextInputIdx++;
+      // Narration: 'continuous' (default, exactly as before) or 'timed'
+      // (each spoken line placed at its subtitle start time on the output
+      // timeline: line.start minus trimStart, clamped at 0; lines entirely
+      // outside [trimStart, trimEnd) are skipped). Timed clips are mixed
+      // with per-clip adelay + amix, same pattern as the continuous mix;
+      // a clip longer than its window simply overlaps the next line (no
+      // time-stretch, no silent drops). If timed was requested but no
+      // usable per-line clips exist, fall back to continuous + a note.
+      let narrationSyncNote = null;
+      let timedClips = [];
+      if (narrationSync === 'timed' && Array.isArray(p.tts?.clips) && p.translationLines?.length) {
+        for (const c of p.tts.clips) {
+          if (!c || !c.file || !fs.existsSync(c.file)) continue;
+          const line = p.translationLines[c.lineIndex];
+          if (!line) continue;
+          const ls = parseFloat(line.start || 0), le = parseFloat(line.end || 0);
+          if (le <= start || ls >= end) continue;
+          timedClips.push({ file: c.file, outStart: Math.max(0, ls - start) });
+        }
+      }
+      if (timedClips.length) {
+        for (const tc of timedClips) {
+          args.push('-i', tc.file); inputs.push(tc.file);
+          const ms = Math.round(tc.outStart * 1000);
+          filter += `;[${nextInputIdx}:a]adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
+        }
+      } else {
+        if (narrationSync === 'timed') narrationSyncNote = p.tts?.file ? 'Timed narration requested but no usable per-line clips were found — used the continuous narration track instead. Re-run voiceover (TTS) after this deploy to generate per-line clips.' : 'Timed narration requested but no narration audio exists — generate voiceover first.';
+        if (p.tts?.file && fs.existsSync(p.tts.file)) {
+          args.push('-i', p.tts.file); inputs.push(p.tts.file);
+          filter += `;[${nextInputIdx}:a]volume=${narrVol}[a1]`; audioInputs.push('[a1]'); nextInputIdx++;
+        }
       }
       if (hasMusic) {
         // -stream_loop -1 must precede -i so the music loops until amix cuts it off.
@@ -1287,7 +1386,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote };
+      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, narrationSync, narrationSyncNote };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
