@@ -219,7 +219,7 @@ const CHUNK_DIR = path.join(UPLOAD_DIR, '.chunks');
 const TRANSCRIBE_CONCURRENCY = Math.max(1, parseInt(process.env.TRANSCRIBE_CONCURRENCY || '4', 10));
 const TRANSCRIBE_MODEL = process.env.TRANSCRIBE_MODEL || 'whisper-1';
 const BLUR_SIGMA = { light: 5, medium: 15, strong: 30 };
-const ZOOM_MAX = { light: 1.10, medium: 1.20, strong: 1.35 }; // zoom-every-5s max zoom factor
+const ZOOM_MAX = { light: 1.10, medium: 1.20, strong: 1.35 }; // zoom pulse max zoom factor
 // Clarity enhancement (sharpen/denoise, NOT magic restoration): unsharp luma amount
 // light 0.5 / medium 1.0 / strong 1.5, chroma amount kept at 0 to avoid colour artefacts.
 const CLARITY_UNSHARP = { light: '5:5:0.5:5:5:0.0', medium: '5:5:1.0:5:5:0.0', strong: '5:5:1.5:5:5:0.0' };
@@ -295,6 +295,54 @@ function mapTimeForOrder(order, segs, t) {
   for (const idx of order) { newStarts[segs[idx].index] = cursor; cursor += segs[idx].duration; }
   for (const seg of segs) if (t >= seg.start && t <= seg.end) return newStarts[seg.index] + (t - seg.start);
   return t;
+}
+function mapTimeForSplit(keepRanges, t) {
+  // Map an original-video timestamp onto the joined timeline after cut-out split.
+  // Returns null when t falls inside a removed range (or outside all keep ranges).
+  let acc = 0;
+  for (const kr of keepRanges) {
+    if (t >= kr.start && t < kr.end) return acc + (t - kr.start);
+    if (t < kr.start) return null;
+    acc += kr.end - kr.start;
+  }
+  return null;
+}
+function rebaseSegmentsForSplit(segments, keepRanges) {
+  // Re-base subtitle segments onto the joined timeline. A line starting inside a
+  // removed range is dropped; a line starting inside a keep range is clipped to
+  // that range's end (its content past the cut is gone with the cut).
+  const out = [];
+  for (const sg of segments) {
+    const ns = mapTimeForSplit(keepRanges, sg.start);
+    if (ns === null) continue;
+    let ne = mapTimeForSplit(keepRanges, sg.end);
+    if (ne === null) {
+      for (const kr of keepRanges) {
+        if (sg.start >= kr.start && sg.start < kr.end) {
+          let acc = 0;
+          for (const k2 of keepRanges) { if (k2 === kr) break; acc += k2.end - k2.start; }
+          ne = acc + (kr.end - kr.start);
+          break;
+        }
+      }
+    }
+    if (ne !== null && ne > ns) out.push({ ...sg, start: ns, end: ne });
+  }
+  return out;
+}
+function blurJoinedIntervals(keepRanges, blurStartSec, blurEndSec) {
+  // Intersect [blurStartSec, blurEndSec or Infinity] with keep ranges, mapped onto
+  // the joined timeline. Returns [[a,b],...] or [] when there is no overlap.
+  const be = blurEndSec > 0 ? blurEndSec : Infinity;
+  const out = []; let acc = 0;
+  for (const kr of keepRanges) {
+    if (kr.end > blurStartSec && kr.start < be) {
+      const os = Math.max(blurStartSec, kr.start), oe = Math.min(be, kr.end);
+      if (oe > os) out.push([acc + (os - kr.start), acc + (oe - kr.start)]);
+    }
+    acc += kr.end - kr.start;
+  }
+  return out;
 }
 function splitText(text) {
   const parts = text.split(/(?<=[။!?])\s+/).map(s => s.trim()).filter(Boolean);
@@ -581,7 +629,12 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <input type="file" id="fileInput" accept="video/*">
 <button id="upBtn">တင်ပါ</button>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
-<div id="jobText"></div></div>
+<div id="jobText"></div>
+<div class="small">Link နဲ့ ယူမလား (တိုက်ရိုက် .mp4 link ပဲ ရမယ်)</div>
+<input type="text" id="urlInp" placeholder="https://.../video.mp4">
+<label><input type="checkbox" id="urlConfirmChk"> ဒီ video က ကျွန်တော်ပိုင် / ခွင့်ပြုချက်ရပြီးသားပါ</label>
+<button id="urlBtn">Link နဲ့ ယူပါ</button>
+<div id="urlText" class="small"></div></div>
 <div class="card"><h2>၃။ စာသား + ဘာသာပြန်</h2>
 <button id="loadBtn">လိုင်းများ ဖွင့်ပါ</button>
 <button id="saveBtn">💾 သိမ်းပါ</button>
@@ -592,24 +645,29 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <div id="ttsText" class="small"></div></div>
 <div class="card"><h2>၅။ Preview + Export</h2>
 <video id="vid" controls playsinline></video><br>
-<select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select>
-<select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
-<label><input type="checkbox" id="zoomChk" checked> Zoom (၅ စက္ကန့်တစ်ခါ)</label><br>
-<label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br>
-<label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br>
+<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button></div>
+<select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select><br>
+<div id="grp-trim"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br></div>
+<div id="grp-split"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
+<div id="grp-blur"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
 <label>Blur အပြင်း: <select id="blurStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
 <label>Blur နေရာ: <select id="blurPosSel"><option value="subtitle">စာတန်းနေရာ</option><option value="top">အပေါ်</option><option value="bottom">အောက်</option><option value="left">ဘယ်</option><option value="right">ညာ</option><option value="centre">အလယ်</option><option value="full">အပြည့်</option><option value="custom">ကိုယ်တိုင်ရွေး</option></select></label><br>
 <div id="blurCustomBox" style="display:none"><label>Blur X <input id="blurXInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> Y <input id="blurYInp" type="number" min="0" max="1" step="0.05" value="0.60" style="width:60px"> အကျယ် <input id="blurWInp" type="number" min="0" max="1" step="0.05" value="1" style="width:60px"> အမြင့် <input id="blurHInp" type="number" min="0" max="1" step="0.05" value="0.40" style="width:60px"></label> <span class="small">(0–1, ဗီဒီယိုအချိုးအလိုက်)</span></div>
 <label>Blur အချိန် (စက္ကန့်): အစ <input id="blurStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="blurEndInp" type="number" min="-1" step="1" value="-1" style="width:70px"> <span class="small">(-1 = အဆုံးထိ)</span></label>
-<label><input type="checkbox" id="blur2Chk"> Blur ၂ (အပေါ်ပိုင်း)</label><br>
-<label>လှည့်: <select id="rotSel"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
-<label><input type="checkbox" id="mirrorChk"> မှန်ကြည့် (Mirror)</label>
-<label>Zoom အပြင်း: <select id="zoomStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label><br>
-<label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
+<label><input type="checkbox" id="blur2Chk"> Blur ၂ (အပေါ်ပိုင်း)</label><br></div>
+<div id="grp-zoom"><label><input type="checkbox" id="zoomChk" checked> Zoom (ရွေးထားတဲ့ စက္ကန့်တိုင်း)</label>
+<label>Zoom အပြင်း: <select id="zoomStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
+<label>Zoom အကြိမ် (စက္ကန့်): <select id="zoomIntSel"><option value="4" selected>4</option><option value="5">5</option><option value="10">10</option></select></label><br></div>
+<div id="grp-rotate"><label>လှည့်: <select id="rotSel"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+<label><input type="checkbox" id="mirrorChk"> မှန်ကြည့် (Mirror)</label><br></div>
+<div id="grp-subs"><label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
 <label>စာတန်း အရောင်: <select id="subColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option></select></label>
-<label>စာတန်း နေရာ: <select id="subPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option></select></label><br>
-<label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
-<label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label><br>
+<label>စာတန်း နေရာ: <select id="subPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option></select></label><br></div>
+<div id="grp-quality"><label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+<label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
+<label>Poster: <select id="posterSel"><option value="0" selected>မရှိ</option><option value="3">3 စက္ကန့်</option><option value="5">5 စက္ကန့်</option></select></label>
+<label><input type="checkbox" id="logoChk" checked> Logo ထည့်</label><br></div>
+<div id="grp-audio"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br></div>
 <button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
 <div id="expText" class="small"></div>
 <div id="dlBox"></div></div>
@@ -664,7 +722,7 @@ function loadLines(){
   api('/projects/' + pid).then(function(p){
     lines = p.translationLines || [];
     duration = (p.metadata && p.metadata.duration) || duration;
-    if(p.file) el('vid').src = '/api/projects/' + pid + '/preview';
+    if(p.file && !p.file.sourceUrl) el('vid').src = '/api/projects/' + pid + '/preview';
     renderLines();
     msg(lines.length + ' လိုင်း ဖွင့်ပါပြီ။');
   }).catch(function(e){ msg('လိုင်းများ မရပါ: ' + e.message); });
@@ -690,6 +748,22 @@ el('ttsBtn').onclick = function(){
     msg('အသံ ရပါပြီ');
   }).catch(function(e){ el('ttsText').textContent = 'အသံ မရပါ: ' + e.message; });
 };
+document.querySelectorAll('#toolBar button').forEach(function(b){ b.onclick = function(){ var g = el(b.getAttribute('data-goto')); if(!g) return; g.scrollIntoView({behavior:'smooth', block:'center'}); var oldBg = g.style.background; g.style.background = '#334155'; g.style.borderRadius = '8px'; setTimeout(function(){ g.style.background = oldBg; }, 1200); }; });
+el('urlBtn').onclick = function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  var u = (el('urlInp').value || '').trim();
+  if(!u){ msg('Link အရင် ထည့်ပါ'); return; }
+  if(!el('urlConfirmChk').checked){ msg('ခွင့်ပြုချက်ကို အမှန်ခြစ်ပေးပါ'); return; }
+  if(/youtube\.com|youtu\.be|facebook\.com|tiktok\.com|instagram\.com|xiaohongshu|rednote|vimeo\.com/i.test(u)){ msg('Platform watch-page link တွေ မရပါ — တိုက်ရိုက် .mp4 link ပဲ သုံးပါ'); return; }
+  el('urlText').textContent = 'Link ကနေ ယူနေပါတယ်…';
+  api('/projects/' + pid + '/url', 'POST', {url: u, confirmed: true}).then(function(j){
+    duration = (j.metadata && j.metadata.duration) || 0;
+    el('vid').removeAttribute('src');
+    el('urlText').textContent = 'Link ကနေ video ရပါပြီ — ' + Math.round(duration) + ' စက္ကန့်။ စာသားပြောင်းနေပါတယ်…';
+    msg('Link ကနေ video ရပါပြီ။ Preview ကတော့ server-only video မို့ လွတ်နေမယ်။');
+    pollJob();
+  }).catch(function(e){ el('urlText').textContent = 'URL မရပါ: ' + e.message; });
+};
 el('blurPosSel').onchange = function(){ el('blurCustomBox').style.display = (this.value === 'custom') ? 'block' : 'none'; };
 el('expBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
@@ -702,7 +776,9 @@ el('expBtn').onclick = function(){
   var bp = blurPos === 'custom' ? [clamp01(el('blurXInp').value, 0), clamp01(el('blurYInp').value, 0.60), clamp01(el('blurWInp').value, 1), clamp01(el('blurHInp').value, 0.40)] : (blurPresets[blurPos] || blurPresets.subtitle);
   var rotVal = parseInt(el('rotSel').value, 10) || 0;
   if(rotVal === 270) rotVal = -90; // server clamps rotation to +/-180, and -90 is the same turn as 270
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous'};
+  var splitRanges = [];
+  (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked};
   el('expText').textContent = 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 };
@@ -1134,6 +1210,31 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const zoomStrength = ['light', 'medium', 'strong'].includes(o.zoomStrength) ? o.zoomStrength : 'medium';
   const zoomMax = ZOOM_MAX[zoomStrength];
   const narrationSync = o.narrationSync === 'timed' ? 'timed' : 'continuous';
+  const zoomIntervalRaw = parseFloat(o.zoomIntervalSec ?? 5);
+  const zoomIntervalSec = Number.isFinite(zoomIntervalRaw) ? Math.max(1, Math.min(30, zoomIntervalRaw)) : 5;
+  // Split (removeRanges): validated cut-out ranges in original-video time, inside [start, end].
+  const rawRemove = Array.isArray(o.removeRanges) ? o.removeRanges : [];
+  const splitRangesIn = [];
+  for (const r of rawRemove) {
+    if (!r || typeof r !== 'object') continue;
+    let rs = parseFloat(r.start), re = parseFloat(r.end);
+    if (!Number.isFinite(rs) || !Number.isFinite(re)) continue;
+    rs = Math.max(start, rs); re = Math.min(end, re);
+    if (re <= rs) continue;
+    splitRangesIn.push({ start: rs, end: re });
+  }
+  splitRangesIn.sort((a, b) => a.start - b.start);
+  const mergedRanges = [];
+  for (const r of splitRangesIn) {
+    const last = mergedRanges[mergedRanges.length - 1];
+    if (last && r.start <= last.end) last.end = Math.max(last.end, r.end);
+    else mergedRanges.push({ ...r });
+  }
+  const splitActive = mergedRanges.length > 0;
+  const keepRanges = [];
+  { let cursor = start; for (const r of mergedRanges) { if (r.start > cursor) keepRanges.push({ start: cursor, end: r.start }); cursor = Math.max(cursor, r.end); } if (cursor < end) keepRanges.push({ start: cursor, end: end }); }
+  const splitNote = splitActive ? ('Split: removed ' + mergedRanges.map(r => r.start + '-' + r.end + 's').join(', ') + ' (original-video time); subtitles and timed narration re-based onto the joined timeline. Continuous narration is not re-based — use timed narration for aligned audio under split.') : null;
+  if (splitActive && !keepRanges.length) return res.status(400).json({ error: 'Split removes the entire video: nothing left to export.' });
   const transition = ['none', 'fade', 'crossfade'].includes(o.transition) ? o.transition : 'none';
   const transitionDurationRaw = parseFloat(o.transitionDuration || 0.5);
   const transitionDuration = Math.min(2, Math.max(0, Number.isFinite(transitionDurationRaw) ? transitionDurationRaw : 0.5));
@@ -1153,8 +1254,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const rawOrder = Array.isArray(p.sceneOrder) ? p.sceneOrder : null;
   const sceneSegs = getSceneSegments(p.scenes || [], start, end);
   const sceneOrderValid = !!(rawOrder && rawOrder.length === sceneSegs.length && [...rawOrder].sort((a, b) => a - b).every((v, i) => v === i));
-  const sceneOrderApplied = !!(sceneOrderValid && sceneSegs.length >= 2);
-  const sceneOrderNote = rawOrder && !sceneOrderApplied ? 'Scene order ignored: it does not match the current scene segments (re-run Analyse, then save the order again).' : null;
+  const sceneOrderApplied = !!(sceneOrderValid && sceneSegs.length >= 2 && !splitActive);
+  const sceneOrderNote = splitActive && rawOrder ? 'Scene order ignored: split (removeRanges) is active — scene reorder across cut ranges is not supported.' : (rawOrder && !sceneOrderApplied ? 'Scene order ignored: it does not match the current scene segments (re-run Analyse, then save the order again).' : null);
   let segments;
   if (subtitlesFrom === 'translation' && p.translationLines?.length) segments = p.translationLines.map(l => ({ start: l.start, end: l.end, text: l.burmese }));
   else segments = scriptToSegments(p.script || 'No script', Math.max(end - start, 1));
@@ -1164,17 +1265,24 @@ app.post('/api/projects/:id/export', async (req, res) => {
     // duration on the new timeline may differ — documented here and in README.
     segments = segments.map(sg => ({ ...sg, start: mapTimeForOrder(rawOrder, sceneSegs, sg.start), end: mapTimeForOrder(rawOrder, sceneSegs, sg.end) })).filter(sg => sg.end > sg.start);
   }
+  if (splitActive) {
+    // Re-base subtitles onto the joined timeline (cut-out split). Split and scene
+    // reorder are mutually exclusive (see sceneOrderNote), so segments here are
+    // still in original-video time.
+    segments = rebaseSegmentsForSplit(segments, keepRanges);
+  }
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync };
+  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote };
   saveProjects(projects);
   (async () => {
     try {
-      // Zoom every 5 seconds (visual effect only — NOT a copyright-avoidance feature):
-      // pass 1 splits the trimmed range into 5s segments, crops each segment by an
-      // alternating zoom factor (1.0x, zoomMax, 1.0x, ...) centred, scales back to
-      // source size, and concats them. If blur is also enabled, pass 2 is the main
-      // export below, which applies the blur filter to this intermediate file.
+      // Zoom pulse (visual effect only — NOT a copyright-avoidance feature):
+      // pass 1 splits the current range into zoomIntervalSec segments, crops each
+      // segment by an alternating zoom factor (1.0x, zoomMax, 1.0x, ...) centred,
+      // scales back to source size, and concats them. If blur is also enabled,
+      // pass 2 is the main export below, which applies the blur filter to this
+      // intermediate file.
       let inputPath = p.file.path; let effStart = start; let effEnd = end;
       // Segment concat helper: plain concat, or xfade+acrossfade chain when transition=crossfade.
       async function concatOrXfade(segFiles, segDurs, outPath, hasAudio) {
@@ -1198,6 +1306,25 @@ app.post('/api/projects/:id/export', async (req, res) => {
         try { fs.unlinkSync(listFile); } catch {}
         return outPath;
       }
+      // Split pass (cut-out -> single video; runs before reorder/zoom): cut each
+      // keep-range from the original file and concat them into one joined file.
+      // Subtitles/timed narration/blur ranges were already re-based onto the joined
+      // timeline above, so the main filter chain below applies once to it.
+      if (splitActive) {
+        const splitDir = fs.mkdtempSync(path.join(OUT_DIR, 'split-'));
+        const segFiles = []; const segDurs = [];
+        const hasAudioS = !!p.metadata?.audioCodec;
+        for (let i = 0; i < keepRanges.length; i++) {
+          const kr = keepRanges[i]; const segFile = path.join(splitDir, `keep${i}.mp4`);
+          const argsSeg = ['-y', '-ss', String(kr.start), '-t', String(kr.end - kr.start), '-i', p.file.path, '-c:v', 'libx264', '-preset', 'veryfast'];
+          if (hasAudioS) argsSeg.push('-c:a', 'aac'); else argsSeg.push('-an');
+          argsSeg.push(segFile); await run('ffmpeg', argsSeg); segFiles.push(segFile); segDurs.push(kr.end - kr.start);
+        }
+        const splitOut = path.join(OUT_DIR, `${p.id}-split.mp4`);
+        await concatOrXfade(segFiles, segDurs, splitOut, hasAudioS);
+        try { fs.rmSync(splitDir, { recursive: true, force: true }); } catch {}
+        inputPath = splitOut; effStart = 0; effEnd = segDurs.reduce((a, b) => a + b, 0);
+      }
       // Scene reorder pass (runs before zoom): cut each scene segment in the saved order.
       if (sceneOrderApplied) {
         const reorderDir = fs.mkdtempSync(path.join(OUT_DIR, 'reorder-'));
@@ -1215,19 +1342,23 @@ app.post('/api/projects/:id/export', async (req, res) => {
         inputPath = reorderOut; effStart = 0; effEnd = segDurs.reduce((a, b) => a + b, 0);
       }
       if (zoomEvery5s) {
-        const totalDur = Math.max(end - start, 0.1);
-        const segCount = Math.ceil(totalDur / 5);
+        // Zoom pulse: cuts the current timeline (original, split-joined, or
+        // reordered) into zoomIntervalSec segments with alternating zoom.
+        // Uses inputPath/effStart/effEnd so it composes with the split pass
+        // (and with scene reorder, which the old original-file cuts ignored).
+        const totalDur = Math.max(effEnd - effStart, 0.1);
+        const segCount = Math.ceil(totalDur / zoomIntervalSec);
         const zoomDir = fs.mkdtempSync(path.join(OUT_DIR, 'zoom-'));
         const segFiles = [];
         const hasAudio = !!p.metadata?.audioCodec;
         for (let i = 0; i < segCount; i++) {
-          const segStart = start + i * 5; const segDur = Math.min(5, end - segStart);
+          const segStart = effStart + i * zoomIntervalSec; const segDur = Math.min(zoomIntervalSec, effEnd - segStart);
           if (segDur <= 0) break;
           const z = (i % 2 === 0) ? 1.0 : zoomMax;
           const segFile = path.join(zoomDir, `seg${i}.mp4`);
           const srcW = p.metadata?.width; const srcH = p.metadata?.height;
           const vf = z === 1.0 ? 'null' : `crop=iw/${z}:ih/${z},scale=${srcW || 'iw'}:${srcH || 'ih'}`;
-          const argsSeg = ['-y', '-ss', String(segStart), '-t', String(segDur), '-i', p.file.path, '-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast'];
+          const argsSeg = ['-y', '-ss', String(segStart), '-t', String(segDur), '-i', inputPath, '-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast'];
           if (hasAudio) argsSeg.push('-c:a', 'aac'); else argsSeg.push('-an');
           argsSeg.push(segFile);
           await run('ffmpeg', argsSeg);
@@ -1235,7 +1366,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         }
         const zoomOut = path.join(OUT_DIR, `${p.id}-zoom.mp4`);
         const zoomSegDurs = [];
-        { const totalDurZ = Math.max(end - start, 0.1); for (let i = 0; i < segCount; i++) zoomSegDurs.push(Math.min(5, end - (start + i * 5))); }
+        { const totalDurZ = Math.max(effEnd - effStart, 0.1); for (let i = 0; i < segCount; i++) zoomSegDurs.push(Math.min(zoomIntervalSec, effEnd - (effStart + i * zoomIntervalSec))); }
         await concatOrXfade(segFiles, zoomSegDurs, zoomOut, hasAudio);
         try { fs.rmSync(zoomDir, { recursive: true, force: true }); } catch {}
         inputPath = zoomOut; effStart = 0; effEnd = totalDur;
@@ -1269,9 +1400,17 @@ app.post('/api/projects/:id/export', async (req, res) => {
       let filter;
       // Blur time range (app: user-set start/end seconds, original-video time).
       // FFmpeg t is relative to the trimmed input, so shift by effStart.
-      const relBlurStart = Math.max(0, blurStartSec - effStart);
-      const relBlurEnd = blurEndSec > 0 ? Math.max(0, blurEndSec - effStart) : -1;
-      const blurEnable = (blurStartSec > 0 || blurEndSec > 0) ? ":enable='" + (relBlurEnd > 0 ? "between(t," + relBlurStart + "," + relBlurEnd + ")" : "gte(t," + relBlurStart + ")") + "'" : "";
+      let blurEnable;
+      if (splitActive && (blurStartSec > 0 || blurEndSec > 0)) {
+        // Blur range re-based onto the joined timeline. No overlap -> blur never
+        // fires (omitting enable would mean always-on, which would be wrong).
+        const joined = blurJoinedIntervals(keepRanges, blurStartSec, blurEndSec);
+        blurEnable = joined.length ? ":enable='" + joined.map(([a, b]) => "between(t," + a.toFixed(3) + "," + b.toFixed(3) + ")").join('+') + "'" : ":enable='0'";
+      } else {
+        const relBlurStart = Math.max(0, blurStartSec - effStart);
+        const relBlurEnd = blurEndSec > 0 ? Math.max(0, blurEndSec - effStart) : -1;
+        blurEnable = (blurStartSec > 0 || blurEndSec > 0) ? ":enable='" + (relBlurEnd > 0 ? "between(t," + relBlurStart + "," + relBlurEnd + ")" : "gte(t," + relBlurStart + ")") + "'" : "";
+      }
       let rotAfter = '';
       if (videoMirror) rotAfter += ',hflip';
       if (rotationDeg !== 0) {
@@ -1339,8 +1478,17 @@ app.post('/api/projects/:id/export', async (req, res) => {
           const line = p.translationLines[c.lineIndex];
           if (!line) continue;
           const ls = parseFloat(line.start || 0), le = parseFloat(line.end || 0);
-          if (le <= start || ls >= end) continue;
-          timedClips.push({ file: c.file, outStart: Math.max(0, ls - start) });
+          let outStart;
+          if (splitActive) {
+            // Re-base onto the joined timeline; a line cut out by split is dropped.
+            const jt = mapTimeForSplit(keepRanges, ls);
+            if (jt === null) continue;
+            outStart = jt;
+          } else {
+            if (le <= start || ls >= end) continue;
+            outStart = Math.max(0, ls - start);
+          }
+          timedClips.push({ file: c.file, outStart });
         }
       }
       if (timedClips.length) {
@@ -1386,7 +1534,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, narrationSync, narrationSyncNote };
+      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, narrationSync, narrationSyncNote, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
