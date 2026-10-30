@@ -543,21 +543,148 @@ async function translateTextToBurmese(text) {
   return (j.choices?.[0]?.message?.content || '').trim() || null;
 }
 
+
+// ---- Gemini transcription (auto job only; Whisper is the fallback) ----
+// Key comes from process.env.GEMINI_API_KEY ONLY. It is never logged, never
+// put in frontend code, and never echoed in any status message.
+const GEMINI_TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.0-flash';
+function geminiTimestampToSec(t) {
+  const m = /^(\d+):(\d{1,2})(?:[.,](\d{1,3}))?$/.exec((t || '').trim());
+  if (!m) return null;
+  const min = parseInt(m[1], 10), sec = parseInt(m[2], 10);
+  if (sec >= 60) return null;
+  let frac = 0;
+  if (m[3]) frac = parseFloat('0.' + m[3]);
+  return min * 60 + sec + frac;
+}
+// Parse Gemini's timestamped lines into segment-relative cues.
+// A line must match "[MM:SS.s - MM:SS.s] text"; anything else is dropped
+// (never invent finer timestamps). If NO line has usable timestamps, the
+// whole segment text becomes ONE line spanning the segment boundaries.
+function parseGeminiTranscript(text, segDur) {
+  const lines = [];
+  for (const row of (text || '').split(/\r?\n/)) {
+    const line = row.trim();
+    if (!line) continue;
+    const m = /^\[?\s*(\d+:\d{1,2}(?:[.,]\d{1,3})?)\s*(?:-|–|—|to)\s*(\d+:\d{1,2}(?:[.,]\d{1,3})?)\s*\]?\s*(.*)$/.exec(line);
+    if (!m) continue;
+    const st = geminiTimestampToSec(m[1]), en = geminiTimestampToSec(m[2]);
+    const t = (m[3] || '').trim();
+    if (st === null || en === null || !t) continue;
+    const cs = Math.max(0, Math.min(st, segDur)), ce = Math.max(0, Math.min(en, segDur));
+    if (ce <= cs) continue;
+    lines.push({ start: +cs.toFixed(2), end: +ce.toFixed(2), text: t });
+  }
+  if (lines.length) { lines.sort((a, b) => a.start - b.start); return lines; }
+  const plain = (text || '').replace(/^\[?\s*\d+:\d{1,2}(?:[.,]\d{1,3})?\s*(?:-|–|—|to)\s*\d+:\d{1,2}(?:[.,]\d{1,3})?\s*\]?\s*/gm, '').replace(/\s+/g, ' ').trim();
+  if (!plain) return [];
+  return [{ start: 0, end: +segDur.toFixed(2), text: plain }];
+}
+async function geminiTranscribeSegment(wavPath, segDur) {
+  const key = process.env.GEMINI_API_KEY || '';
+  if (!key) throw new Error('Gemini key missing');
+  const b64 = fs.readFileSync(wavPath).toString('base64');
+  const prompt = 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. If a part is unclear, transcribe your best guess rather than skipping it.';
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }] }] }) });
+  if (!res.ok) {
+    let detail = '';
+    try { const j = await res.json(); detail = j.error?.message || j.error?.status || ''; } catch {}
+    throw new Error('Gemini transcription failed (HTTP ' + res.status + (detail ? ': ' + detail : '') + ')');
+  }
+  const j = await res.json();
+  const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('');
+  if (!text.trim()) throw new Error('Gemini returned no transcript text');
+  return { segments: parseGeminiTranscript(text, segDur) };
+}
+// Sequential on purpose: the free tier is rate-limited, and one failure must
+// fall the WHOLE job back to Whisper (never a half-Gemini, half-Whisper mix).
+async function transcribeSegmentsWithGemini(segWavs, jobs, onProgress) {
+  const out = [];
+  for (let i = 0; i < segWavs.length; i++) {
+    const job = jobs[i];
+    const segDur = Math.max(0.1, job.end - job.start);
+    out.push(await geminiTranscribeSegment(segWavs[i], segDur));
+    if (onProgress) onProgress(i + 1);
+  }
+  return out;
+}
+
+
+// ---- Groq transcription (auto job only; falls back through Gemini -> Whisper) ----
+// Key comes from process.env.GROQ_API_KEY ONLY. It is never logged, never
+// put in frontend code, and never echoed in any status message.
+const GROQ_TRANSCRIBE_MODEL = process.env.GROQ_TRANSCRIBE_MODEL || 'whisper-large-v3-turbo';
+// Map a Groq verbose_json response to segment-relative cues. Timed segments
+// are clipped to the segment; lines with unusable times are dropped (never
+// invented). If NO timed segment survives, the plain text becomes ONE line
+// spanning the segment boundaries. Language is auto-detected by Groq, matching
+// the website pipeline's multilingual auto-detect (Whisper/Gemini do the same).
+function groqSegmentsToLines(j, segDur) {
+  const segs = (j && Array.isArray(j.segments)) ? j.segments : [];
+  const lines = [];
+  for (const sg of segs) {
+    const st = parseFloat(sg.start), en = parseFloat(sg.end);
+    const t = (sg.text || '').trim();
+    if (!t || !isFinite(st) || !isFinite(en)) continue;
+    const cs = Math.max(0, Math.min(st, segDur)), ce = Math.max(0, Math.min(en, segDur));
+    if (ce <= cs) continue;
+    lines.push({ start: +cs.toFixed(2), end: +ce.toFixed(2), text: t });
+  }
+  if (lines.length) { lines.sort((a, b) => a.start - b.start); return lines; }
+  const plain = (j && j.text ? String(j.text) : '').replace(/\s+/g, ' ').trim();
+  if (!plain) return [];
+  return [{ start: 0, end: +segDur.toFixed(2), text: plain }];
+}
+async function groqTranscribeSegment(wavPath, segDur) {
+  const key = process.env.GROQ_API_KEY || '';
+  if (!key) throw new Error('Groq key missing');
+  const buf = fs.readFileSync(wavPath);
+  const fd = new FormData();
+  fd.append('file', new Blob([buf], { type: 'audio/wav' }), 'segment.wav');
+  fd.append('model', GROQ_TRANSCRIBE_MODEL);
+  fd.append('temperature', '0');
+  fd.append('response_format', 'verbose_json');
+  const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd });
+  if (!res.ok) {
+    let detail = '';
+    try { const ej = await res.json(); detail = ej.error?.message || ''; } catch {}
+    throw new Error('Groq transcription failed (HTTP ' + res.status + (detail ? ': ' + detail : '') + ')');
+  }
+  const j = await res.json();
+  return { segments: groqSegmentsToLines(j, segDur) };
+}
+// Sequential on purpose: the free tier is rate-limited, and one failure must
+// fall the WHOLE job to the next engine (never a half-Groq, half-other mix).
+async function transcribeSegmentsWithGroq(segWavs, jobs, onProgress) {
+  const out = [];
+  for (let i = 0; i < segWavs.length; i++) {
+    const job = jobs[i];
+    const segDur = Math.max(0.1, job.end - job.start);
+    out.push(await groqTranscribeSegment(segWavs[i], segDur));
+    if (onProgress) onProgress(i + 1);
+  }
+  return out;
+}
 // ---- Auto transcript+translation job (background, never blocks upload) ----
 async function runAutoJob(projectId, opts) {
   const skipTranslate = !!(opts && opts.skipTranslate);
+  const rawTranscriptChoice = (opts && opts.transcript) || 'auto';
+  const transcriptChoice = ['auto', 'gemini', 'groq', 'whisper'].includes(rawTranscriptChoice) ? rawTranscriptChoice : 'auto';
+  const transcriptCandidates = transcriptChoice === 'auto' ? ['groq', 'gemini', 'whisper'] : [transcriptChoice].concat(['groq', 'gemini', 'whisper'].filter(function(e){ return e !== transcriptChoice; }));
   const p = projects[projectId]; if (!p || !p.file) return;
   if (p.autoJob && p.autoJob.status === 'running') return;
-  p.autoJob = { status: 'running', stage: 'scenes', percent: 0, completedSegments: 0, totalSegments: 0, lines: [], message: 'Auto transcript job started: scenes skipped (FAST), Whisper စာသားပြောင်းနေပါတယ်။', startedAt: new Date().toISOString() };
+  const initialTranscriptMsg = transcriptChoice === 'groq' ? 'Auto transcript job started: scenes skipped (FAST), Groq စာသားပြောင်းနေပါတယ်။' : transcriptChoice === 'gemini' ? 'Auto transcript job started: scenes skipped (FAST), Gemini စာသားပြောင်းနေပါတယ်။' : transcriptChoice === 'whisper' ? 'Auto transcript job started: scenes skipped (FAST), Whisper စာသားပြောင်းနေပါတယ်။' : (process.env.GEMINI_API_KEY ? 'Auto transcript job started: scenes skipped (FAST), Gemini စာသားပြောင်းနေပါတယ်။' : 'Auto transcript job started: scenes skipped (FAST), Whisper စာသားပြောင်းနေပါတယ်။');
+  p.autoJob = { status: 'running', stage: 'scenes', percent: 0, completedSegments: 0, totalSegments: 0, lines: [], message: initialTranscriptMsg, startedAt: new Date().toISOString() };
   saveProjects(projects);
   try {
+    p.autoJob.transcriptChoice = transcriptChoice;
     // FAST-v2: scene detection skipped in auto job — transcript uses 60s time segments, not scenes, so decoding the full video for scenes only wasted minutes on Render Free. Scenes are still available via /analyze if needed.
     p.scenes = p.scenes || [];
     p.autoJob.stage = 'scenes-done'; p.autoJob.percent = 5; saveProjects(projects);
-    // No key gate: offline Whisper + Google Translate need no key.
-    if (!whisperInstalled()) {
+    // No key gate when a cloud engine is keyed (Groq/Gemini need no local Whisper). Without keys, offline Whisper + Google Translate need no key.
+    if (!process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY && !whisperInstalled()) {
       p.autoJob = { ...p.autoJob, status: 'failed', stage: 'done', percent: 100, completedSegments: 0, totalSegments: 0,
-        message: 'Offline Whisper is not installed on this server (server/.venv or whisper_local.py missing) — no transcript was faked. Manual lines still work.',
+        message: 'No transcription engine available — Groq/Gemini key မရှိ၊ Whisper လည်း မတပ်ဆင်ထားပါ။ No transcript was faked. Manual lines still work.',
         finishedAt: new Date().toISOString() };
       saveProjects(projects); return;
     }
@@ -578,7 +705,38 @@ async function runAutoJob(projectId, opts) {
       segWavs.push(segWav);
     }
     p.autoJob.stage = 'transcribing-offline'; p.autoJob.percent = 20; saveProjects(projects);
-    const whisperResults = await transcribeOfflineFilesStreaming(segWavs, (done) => { p.autoJob.completedSegments = done; p.autoJob.percent = Math.round(20 + 50 * done / totalSegments); p.autoJob.message = 'Whisper စာသားပြောင်းနေပါတယ် — အပိုင်း ' + done + '/' + totalSegments + ' ပြီးပါပြီ။'; saveProjects(projects); });
+    let transcriptProvider = null;
+    let transcriptNote = '';
+    let whisperResults = null;
+    const engineProgress = function(engineLabel, done) { p.autoJob.completedSegments = done; p.autoJob.percent = Math.round(20 + 50 * done / totalSegments); p.autoJob.message = engineLabel + ' စာသားပြောင်းနေပါတယ် — အပိုင်း ' + done + '/' + totalSegments + ' ပြီးပါပြီ။'; saveProjects(projects); };
+    const engineDisplay = { groq: 'Groq Turbo', gemini: 'Gemini', whisper: 'Whisper offline tiny' };
+    const fallbackNotes = [];
+    for (const engine of transcriptCandidates) {
+      try {
+        if (engine === 'groq') {
+          if (!process.env.GROQ_API_KEY) { if (transcriptChoice === 'groq') fallbackNotes.push('Groq key မရှိ'); continue; }
+          whisperResults = await transcribeSegmentsWithGroq(segWavs, jobs, (done) => engineProgress('Groq', done));
+        } else if (engine === 'gemini') {
+          if (!process.env.GEMINI_API_KEY) { if (transcriptChoice === 'gemini') fallbackNotes.push('Gemini key မရှိ'); continue; }
+          whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done));
+        } else {
+          if (!whisperInstalled()) { if (transcriptChoice === 'whisper') fallbackNotes.push('Whisper မတပ်ဆင်ထားပါ'); continue; }
+          whisperResults = await transcribeOfflineFilesStreaming(segWavs, (done) => engineProgress('Whisper', done));
+        }
+        transcriptProvider = engine;
+        break;
+      } catch (engineErr) {
+        fallbackNotes.push(engine === 'groq' ? 'Groq မရပါ' : (engine === 'gemini' ? 'Gemini မရပါ' : 'Whisper မရပါ'));
+        whisperResults = null;
+      }
+    }
+    if (!whisperResults) {
+      p.autoJob = { ...p.autoJob, status: 'failed', stage: 'done', percent: 100, completedSegments: 0, totalSegments: 0,
+        message: 'No transcription engine available — Groq/Gemini key မရှိ၊ Whisper လည်း မတပ်ဆင်ထားပါ။ No transcript was faked. Manual lines still work.',
+        finishedAt: new Date().toISOString() };
+      saveProjects(projects); return;
+    }
+    if (fallbackNotes.length && transcriptProvider) transcriptNote = fallbackNotes.join(' ') + ' — ' + engineDisplay[transcriptProvider] + ' သို့ ပြန်ကျပါပြီ။';
     const allPieces = [];
     whisperResults.forEach((res, idx) => {
       const job = jobs[idx];
@@ -598,7 +756,8 @@ async function runAutoJob(projectId, opts) {
     p.autoJob.lines.sort((a, b) => a.start - b.start);
     p.translationLines.sort((a, b) => a.start - b.start);
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (Whisper offline tiny, translation via ${p.autoJob.translationPath || 'google'}).${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}`, finishedAt: new Date().toISOString() };
+    p.autoJob.transcriptionProvider = transcriptProvider;
+    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}`, finishedAt: new Date().toISOString() };
     saveProjects(projects);
   } catch (e) {
     p.autoJob = { ...p.autoJob, status: 'failed', stage: 'failed', message: `Auto transcript job failed: ${e.message}`, error: e.message, finishedAt: new Date().toISOString() };
@@ -663,6 +822,7 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <div id="projList"></div></div>
 <div class="card"><h2>၂။ Video တင်ပါ</h2>
 <input type="file" id="fileInput" accept="video/*">
+<div class="small"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label></div>
 <button id="upBtn" style="display:none">တင်ပါ</button>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
 <div id="jobText"></div>
@@ -789,6 +949,7 @@ el('fileInput').addEventListener('change', function(){
 el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
 el('listBtn').onclick = function(){ api('/projects').then(function(ps){ var h=''; ps.forEach(function(p){ h += '<div>' + p.id + ' — ' + (p.status||'') + ' ' + (p.file ? '🎬' : '') + ' <button data-pid="' + p.id + '">ရွေးပါ</button></div>'; }); el('projList').innerHTML = h || '(မရှိပါ)'; var bs = el('projList').querySelectorAll('button'); bs.forEach(function(b){ b.onclick = function(){ setPid(b.getAttribute('data-pid')); clearLocalFile(); loadLines(); }; }); }).catch(function(e){ msg('List မရပါ: ' + e.message); }); };
 el('upBtn').onclick = function(){ msg('Video ကို server ထဲ Export နှိပ်မှပဲ တင်မယ် — အခု မတင်ပါ။'); };
+function transcriptChoice(){ var s = el('transcriptSel'); return (s && s.value) ? s.value : 'auto'; }
 function uploadFile(f, opts){
   var CHUNK = 5*1024*1024;
   var uploadId = upIdFor(f);
@@ -830,7 +991,7 @@ function resumeUpload(){
   }
   function finishUpload(){
     if(!st.active) return;
-    api('/upload-complete','POST',{uploadId:st.uploadId, projectId:st.projectId, autoTranscript: !(st.uploadOpts && st.uploadOpts.autoTranscript === false), autoTranslate: !(st.uploadOpts && st.uploadOpts.autoTranslate === false)}).then(function(cj){
+    api('/upload-complete','POST',{uploadId:st.uploadId, projectId:st.projectId, autoTranscript: !(st.uploadOpts && st.uploadOpts.autoTranscript === false), autoTranslate: !(st.uploadOpts && st.uploadOpts.autoTranslate === false), transcript: transcriptChoice()}).then(function(cj){
       duration = (cj.metadata && cj.metadata.duration) || 0; el('vid').src = '/api/projects/' + st.projectId + '/preview'; el('progText').textContent = 'တင်တာ ပြီးပါပြီ — ' + Math.round(duration) + ' စက္ကန့်။ စာသားပြောင်းနေပါတယ်…';
       st.active = false; upState = null; clearUpPersist(); if(st.uploadOpts && st.uploadOpts.onDone){ st.uploadOpts.onDone(); } else { pollJob(); }
     }).catch(function(e){ msg('Upload-complete မရပါ: ' + e.message); });
@@ -1082,7 +1243,7 @@ app.get('/icon-192.png', (req, res) => { res.type('png').send(Buffer.from(ICON19
 app.get('/icon-512.png', (req, res) => { res.type('png').send(Buffer.from(ICON512_B64, 'base64')); });
 app.get('/sw.js', (req, res) => { res.type('js').send(SW_JS); });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, app: 'Sangbik', name: 'Sangbik', ttsVoices: TTS_VOICES, ttsDefaultProvider: defaultTtsProvider(), transcriptionProvider: 'whisper-offline-tiny', whisperModel: WHISPER_MODEL_NAME, whisperOfflineConfigured: whisperInstalled(), translationProvider: 'google-translate', ttsProviderDefault: 'edge-tts', edgeTtsConfigured: edgeTtsInstalled(), localConfigured: localTtsConfigured(), aiConfigured: !!(process.env.AI_PROVIDER && (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)), transcriptionConfigured: whisperInstalled(), azureConfigured: !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION), openaiTtsConfigured: !!process.env.OPENAI_API_KEY, geminiConfigured: !!process.env.GEMINI_API_KEY, geminiVoice: process.env.GEMINI_VOICE || 'Kore', geminiTtsModel: process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts', ttsProviders: ['edge-tts', 'local', 'azure', 'openai', 'gemini'], maxFileMb: MAX_MB }));
+app.get('/api/health', (req, res) => res.json({ ok: true, app: 'Sangbik', name: 'Sangbik', ttsVoices: TTS_VOICES, ttsDefaultProvider: defaultTtsProvider(), transcriptionProvider: 'whisper-offline-tiny', whisperModel: WHISPER_MODEL_NAME, whisperOfflineConfigured: whisperInstalled(), translationProvider: 'google-translate', ttsProviderDefault: 'edge-tts', edgeTtsConfigured: edgeTtsInstalled(), localConfigured: localTtsConfigured(), aiConfigured: !!(process.env.AI_PROVIDER && (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)), transcriptionConfigured: whisperInstalled(), azureConfigured: !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION), openaiTtsConfigured: !!process.env.OPENAI_API_KEY, geminiConfigured: !!process.env.GEMINI_API_KEY, groqConfigured: !!process.env.GROQ_API_KEY, geminiVoice: process.env.GEMINI_VOICE || 'Kore', geminiTtsModel: process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts', ttsProviders: ['edge-tts', 'local', 'azure', 'openai', 'gemini'], maxFileMb: MAX_MB }));
 
 app.post('/api/projects', (req, res) => {
   const id = newId();
@@ -1127,7 +1288,7 @@ app.get('/api/upload-status/:uploadId', (req, res) => {
 });
 app.post('/api/upload-complete', async (req, res) => {
   try {
-    const { uploadId, projectId, autoTranscript, autoTranslate } = req.body || {};
+    const { uploadId, projectId, autoTranscript, autoTranslate, transcript } = req.body || {};
     const p = projects[projectId];
     if (!validUploadId(uploadId)) return res.status(400).json({ error: 'uploadId is required' });
     if (!p) return res.status(404).json({ error: 'Project not found' });
@@ -1152,7 +1313,7 @@ app.post('/api/upload-complete', async (req, res) => {
     // Cleanup chunks (best effort, after successful assembly).
     for (let i = 0; i < meta.totalChunks; i++) { try { fs.unlinkSync(path.join(CHUNK_DIR, `${uploadId}.part${i}`)); } catch {} }
     try { fs.unlinkSync(chunkMetaPath(uploadId)); } catch {}
-    if (autoTranscript !== false) enqueueAutoJob(p.id, { skipTranslate: autoTranslate === false });
+    if (autoTranscript !== false) enqueueAutoJob(p.id, { skipTranslate: autoTranslate === false, transcript: transcript });
     res.json({ project: p, metadata: fileMeta, job: p.autoJob || { status: 'queued' } });
   } catch (e) { res.status(400).json({ error: `Assembly/validation failed: ${e.message}` }); }
 });
@@ -1163,7 +1324,7 @@ app.get('/api/projects/:id/job-status', (req, res) => {
 app.post('/api/projects/:id/auto-job', (req, res) => {
   const p = projects[req.params.id]; if (!p || !p.file) return res.status(400).json({ error: 'Project or video not found' });
   if (p.autoJob && p.autoJob.status === 'running') return res.json({ job: p.autoJob });
-  enqueueAutoJob(p.id);
+  enqueueAutoJob(p.id, { transcript: (req.body && req.body.transcript) || 'auto' });
   res.json({ job: { status: 'queued', stage: 'queued', percent: 0, message: 'Auto transcript job re-queued.' } });
 });
 
