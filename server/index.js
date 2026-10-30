@@ -786,7 +786,8 @@ const WEBSITE_HTML = `<!DOCTYPE html>
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <style>
-body{font-family:system-ui,sans-serif;background:#14161a;color:#e8eaf0;margin:0;padding:12px}
+body{font-family:system-ui,sans-serif;background:#14161a;color:#e8eaf0;margin:0 auto;padding:12px;max-width:480px}
+button{min-height:44px}select,input{max-width:100%}
 h1{font-size:20px;margin:8px 0}
 h2{font-size:17px;margin:18px 0 6px}
 .card{background:#1e222b;border-radius:10px;padding:12px;margin:10px 0}
@@ -814,7 +815,7 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 </head>
 <body>
 <h1>🎬 Sangbik — Website</h1>
-<div class="card"><div id="health">ဆာဗာ စစ်နေပါတယ်…</div><div class="small">ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video ပဲ တင်ပါ။ Zoom / blur / crop က မူပိုင်ခွင့်ကို တရားဝင်မဖြစ်စေပါ။</div></div>
+<div id="screenA"><div class="card"><div id="health">ဆာဗာ စစ်နေပါတယ်…</div><div class="small">ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video ပဲ တင်ပါ။ Zoom / blur / crop က မူပိုင်ခွင့်ကို တရားဝင်မဖြစ်စေပါ။</div></div>
 <div class="card"><h2>၁။ Project</h2>
 <button id="newBtn">＋ Project အသစ်</button>
 <button id="listBtn">Project များ ကြည့်ပါ</button>
@@ -822,15 +823,16 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <div id="projList"></div></div>
 <div class="card"><h2>၂။ Video တင်ပါ</h2>
 <input type="file" id="fileInput" accept="video/*">
-<div class="small"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label></div>
-<button id="upBtn" style="display:none">တင်ပါ</button>
+<div class="small" id="transcriptRow"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label></div>
+<div class="small"><label>Video နည်း: <select id="modeSel"><option value="upload">Server တင်မယ်</option><option value="zero">Zero-upload (SRT + MP3)</option></select></label></div>
+<button id="upBtn">📤 Video တင်ပါ</button>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
 <div id="jobText"></div>
-<div class="small">Link နဲ့ ယူမလား (တိုက်ရိုက် .mp4 link ပဲ ရမယ်)</div>
+<div id="urlRow"><div class="small">Link နဲ့ ယူမလား (တိုက်ရိုက် .mp4 link ပဲ ရမယ်)</div>
 <input type="text" id="urlInp" placeholder="https://.../video.mp4">
 <label><input type="checkbox" id="urlConfirmChk"> ဒီ video က ကျွန်တော်ပိုင် / ခွင့်ပြုချက်ရပြီးသားပါ</label>
 <button id="urlBtn">Link နဲ့ ယူပါ</button>
-<div id="urlText" class="small"></div></div>
+<div id="urlText" class="small"></div></div></div>
 <div class="card"><h2>၃။ စာသား + ဘာသာပြန်</h2>
 <button id="loadBtn">လိုင်းများ ဖွင့်ပါ</button>
 <button id="saveBtn">💾 သိမ်းပါ</button>
@@ -838,12 +840,13 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <input type="file" id="srtFileInp" accept=".srt">
 <button id="srtImportBtn">📄 SRT ထည့်ပါ</button>
 <button id="translateBtn">🌐 ဘာသာပြန်ပါ</button>
+<button id="transSrtDlBtn">⬇ ဘာသာပြန် SRT ဒေါင်းလုဒ်</button>
 <div id="linesBox"></div></div>
 <div class="card"><h2>၄။ မြန်မာအသံ</h2>
 <select id="voiceSel"><option value="my-MM-ThihaNeural">Thiha (ကျား)</option><option value="my-MM-NilarNeural">Nilar (မ)</option></select>
 <button id="ttsBtn">🔊 အသံ ထုတ်ပါ</button>
 <div id="ttsText" class="small"></div></div>
-<div class="card"><h2>၅။ Preview + Export</h2>
+<button id="gotoExpBtn">Preview + Export ကို သွားပါ →</button></div><div id="screenB" style="display:none"><div id="modeNoteB" class="small"></div><button id="backBtn">← ပြန်</button><div class="card"><h2>၅။ Preview + Export</h2>
 <video id="vid" controls playsinline></video><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div>
 <div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
 <div id="grp-size" class="toolpanel"><label>အရွယ်အစား: <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select></label><br></div>
@@ -877,9 +880,9 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 <label>အသံ ရွှေ့ (စက္ကန့်): <input id="narrDelayInp" type="number" min="-30" max="30" step="0.5" value="0" style="width:70px"> <span class="small">(+ = နောက်ကျ, − = စော)</span></label><br>
 <label>နောက်ခံအသံ (Music): <input id="musicFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg"></label> <button id="musicUpBtn">🎵 Music တင်ပါ</button> <span id="musicText" class="small"></span><br>
 <label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br></div>
-<button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
+<div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ "← ပြန်" နှိပ်ပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
 <div id="expText" class="small"></div>
-<div id="dlBox"></div></div>
+<div id="dlBox"></div></div></div>
 <div class="card"><div id="msg"></div></div>
 <script>
 var pid = localStorage.getItem('sangbik-pid') || '';
@@ -943,12 +946,52 @@ el('fileInput').addEventListener('change', function(){
   try{ localFileUrl = URL.createObjectURL(f); el('vid').src = localFileUrl; }catch(e){}
   var saved = readUpPersist();
   var resumed = saved && saved.projectId === pid && saved.fileName === f.name && saved.fileSize === f.size && saved.lastModified === f.lastModified && upIdFor(f) === saved.uploadId;
-  msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — server ထဲ Export နှိပ်မှပဲ တင်မယ်, အခု မတင်သေးပါ။' + (resumed ? ' တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ Export နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
+  msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — server ထဲ \'📤 Video တင်ပါ\' နှိပ်မှပဲ တင်မယ်, အခု မတင်သေးပါ။' + (resumed ? ' တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ \'📤 Video တင်ပါ\' နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
   el('progText').textContent = 'Local preview — server ထဲ မတင်သေးပါ';
 });
 el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
 el('listBtn').onclick = function(){ api('/projects').then(function(ps){ var h=''; ps.forEach(function(p){ h += '<div>' + p.id + ' — ' + (p.status||'') + ' ' + (p.file ? '🎬' : '') + ' <button data-pid="' + p.id + '">ရွေးပါ</button></div>'; }); el('projList').innerHTML = h || '(မရှိပါ)'; var bs = el('projList').querySelectorAll('button'); bs.forEach(function(b){ b.onclick = function(){ setPid(b.getAttribute('data-pid')); clearLocalFile(); loadLines(); }; }); }).catch(function(e){ msg('List မရပါ: ' + e.message); }); };
-el('upBtn').onclick = function(){ msg('Video ကို server ထဲ Export နှိပ်မှပဲ တင်မယ် — အခု မတင်ပါ။'); };
+el('upBtn').onclick = function(){
+  if(currentMode() !== 'upload'){ msg('Zero-upload နည်းမှာ video မတင်ပါ။'); return; }
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  if(upState && upState.active){ msg('Video တင်နေပါတယ် — ခဏစောင့်ပါ။'); return; }
+  var f = (localFile && localFilePid === pid) ? localFile : null;
+  if(!f) f = el('fileInput').files[0] || null;
+  if(!f){ msg('Video အရင် ရွေးပါ'); return; }
+  if(!localFile || localFilePid !== pid){ localFile = f; localFilePid = pid; }
+  api('/projects/' + pid).then(function(p){
+    var hasLines = !!(p.translationLines && p.translationLines.length);
+    if(hasLines){
+      msg('Video တင်နေပါတယ်… (ရှိပြီးသား လိုင်းတွေ မထိပါ)');
+      uploadFile(f, {autoTranscript:false, autoTranslate:false});
+    } else {
+      msg('Video တင်နေပါတယ်… တင်ပြီးရင် စာသား အလိုအလျောက် ပြောင်းမယ်။');
+      uploadFile(f, {autoTranscript:true, autoTranslate:true});
+    }
+  }).catch(function(e){ msg('Project စစ်မရပါ: ' + e.message); });
+};
+function currentMode(){ var s = el('modeSel'); return (s && s.value) ? s.value : 'upload'; }
+function applyMode(){
+  var zero = currentMode() === 'zero';
+  if(zero && upState && upState.active){ upState.active = false; msg('Video တင်တာ ရပ်လိုက်ပါပြီ — Zero-upload နည်းမှာ video မတင်ပါ။'); }
+  el('fileInput').style.display = zero ? 'none' : '';
+  var tr = el('transcriptRow'); if(tr) tr.style.display = zero ? 'none' : '';
+  el('upBtn').style.display = zero ? 'none' : '';
+  var ur = el('urlRow'); if(ur) ur.style.display = zero ? 'none' : '';
+  el('expBtn').style.display = zero ? 'none' : '';
+  var zn = el('zeroNote'); if(zn) zn.style.display = zero ? '' : 'none';
+  var mn = el('modeNoteB'); if(mn) mn.textContent = 'Video နည်း: ' + (zero ? 'Zero-upload (SRT + MP3)' : 'Server တင်မယ်');
+}
+function showScreen(which){
+  el('screenA').style.display = (which === 'A') ? '' : 'none';
+  el('screenB').style.display = (which === 'B') ? '' : 'none';
+  window.scrollTo(0, 0);
+}
+el('modeSel').onchange = applyMode;
+el('gotoExpBtn').onclick = function(){ showScreen('B'); };
+el('backBtn').onclick = function(){ showScreen('A'); };
+applyMode();
+showScreen('A');
 function transcriptChoice(){ var s = el('transcriptSel'); return (s && s.value) ? s.value : 'auto'; }
 function uploadFile(f, opts){
   var CHUNK = 5*1024*1024;
@@ -1140,6 +1183,20 @@ el('translateBtn').onclick = function(){
     msg('ဘာသာပြန်မရပါ: ' + e.message);
   });
 };
+el('transSrtDlBtn').onclick = function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  if(linesDirty){ msg('အရင် "သိမ်းပါ" ကို နှိပ်ပါ — မသိမ်းရသေးတဲ့ လိုင်းတွေ ဒေါင်းလုဒ်မှာ မပါဘူး။'); return; }
+  fetch('/api/projects/' + pid + '/download/translation-srt').then(function(r){
+    if(!r.ok){ msg('ဘာသာပြန် SRT မရှိသေးပါ — လိုင်းတွေ ဘာသာပြန်ပြီး သိမ်းပြီးမှ ဒေါင်းလုဒ်လုပ်ပါ။'); return null; }
+    return r.blob();
+  }).then(function(b){
+    if(!b) return;
+    var u = URL.createObjectURL(b);
+    var a = document.createElement('a'); a.href = u; a.download = 'translation.srt'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(u); }, 1000);
+    msg('ဘာသာပြန် SRT ဒေါင်းလုဒ် စပါပြီ');
+  }).catch(function(e){ msg('ဒေါင်းလုဒ် မရပါ: ' + e.message); });
+};
 el('ttsBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
   el('ttsText').textContent = 'အသံ ထုတ်နေပါတယ်…';
@@ -1194,20 +1251,10 @@ function doExport(){
 }
 el('expBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
-  if(upState && upState.active){ msg('Export အတွက် video တင်နေပါတယ် — ပြီးရင် အလိုအလျောက် export ဆက်မယ်။'); return; }
+  if(upState && upState.active){ msg('Video တင်နေပါတယ် — ပြီးမှ Export နှိပ်ပါ။'); return; }
   api('/projects/' + pid).then(function(p){
     if(p.file){ doExport(); return; }
-    var f = (localFile && localFilePid === pid) ? localFile : null;
-    if(!f){ msg('Video အရင် ရွေးပါ'); return; }
-    var hasLines = !!(p.translationLines && p.translationLines.length);
-    el('expText').textContent = 'Export အတွက် video တင်နေပါတယ်…';
-    if(hasLines){
-      uploadFile(f, {autoTranscript:false, autoTranslate:false, onDone:function(){ doExport(); }});
-    } else {
-      pendingExportAfterJob = true;
-      uploadFile(f, {autoTranscript:true, autoTranslate:true});
-      el('expText').textContent = 'Video တင်ပြီးရင် စာသား အလိုအလျောက် ပြောင်းမယ် — ပြီးရင် လိုင်းတွေ စစ်ပြီး Export ကို နောက်တစ်ခါ နှိပ်ပါ။';
-    }
+    msg('Video ကို server ထဲ မတင်ရသေးပါ — အရင် "📤 Video တင်ပါ" ကို နှိပ်ပါ။');
   }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 };
 function pollExport(){
@@ -1223,12 +1270,12 @@ if(pid){ setPid(pid); }
 health();
 (function(){
   var saved = readUpPersist();
-  if(saved && saved.projectId === pid){ el('progText').textContent = 'တင်တာ မပြီးသေးဘူး (' + saved.fileName + ') — Export နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။'; }
+  if(saved && saved.projectId === pid){ el('progText').textContent = 'တင်တာ မပြီးသေးဘူး (' + saved.fileName + ') — \'📤 Video တင်ပါ\' နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။'; }
 })();
 if(pid){ refreshAll(); }
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible'){
-    if(upState && upState.active && upState.file && upState.projectId === pid && !upState.sending){ resumeUpload(); }
+    if(currentMode() === 'upload' && upState && upState.active && upState.file && upState.projectId === pid && !upState.sending){ resumeUpload(); }
     refreshAll();
   }
 });
