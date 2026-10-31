@@ -220,28 +220,25 @@ async function geminiTranslateBatch(texts, sourceLang) {
   return parseBatchResponse(content, texts.length);
 }
 async function withRetry(fn) { let last; for (let a = 0; a < 2; a++) { try { return await fn(); } catch (e) { last = e; if (a === 0) await new Promise(r => setTimeout(r, 5000)); } } throw last; }
+function withTimeout(promise, ms, label) { let timer; const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error((label || 'Call') + ' timed out after ' + Math.round(ms / 1000) + 's')), ms); }); return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)); }
 async function translateLinesWithGoogleOrFallback(lines, sourceLang) {
   // lines: [{original}] -> {translations, path, error}
-  // Order: Gemini batched first when a Gemini key is set (accuracy first),
-  // else Groq batched (fastest) -> Gemini batched ->
+  // Order: Groq batched first (fastest; empty/mismatch throws and falls
+  // through to Gemini) -> Gemini batched ->
   // Google batch -> MyMemory parallel -> NLLB offline -> Argos offline.
   // Every step is labelled in `path`; a failure never invents a translation.
   const originals = lines.map(l => l.original);
   const attempts = [];
+  try {
+    const translations = await withRetry(() => groqTranslateBatch(originals, sourceLang));
+    return { translations, path: 'groq-batch', googleLog: 'Translated in one Groq batch call (fastest path).', error: null };
+  } catch (ge) { attempts.push(`Groq batch: ${ge.message}`); }
   if (process.env.GEMINI_API_KEY) {
     try {
       const translations = await withRetry(() => geminiTranslateBatch(originals, sourceLang));
       return { translations, path: 'gemini-batch', googleLog: 'Translated in one Gemini batch call.', error: null };
     } catch (me) { attempts.push(`Gemini batch: ${me.message}`); }
   }
-  try {
-    const translations = await withRetry(() => groqTranslateBatch(originals, sourceLang));
-    return { translations, path: 'groq-batch', googleLog: 'Translated in one Groq batch call (fastest path).', error: null };
-  } catch (ge) { attempts.push(`Groq batch: ${ge.message}`); }
-  try {
-    const translations = await withRetry(() => geminiTranslateBatch(originals, sourceLang));
-    return { translations, path: 'gemini-batch', googleLog: 'Translated in one Gemini batch call.', error: null };
-  } catch (me) { attempts.push(`Gemini batch: ${me.message}`); }
   try {
     const translations = await googleTranslateBatch(originals, 'my', (sourceLang && sourceLang !== 'auto') ? sourceLang : 'auto');
     return { translations, path: 'google', googleLog: 'Translated via Google batch.', error: null };
@@ -919,8 +916,9 @@ async function runAutoJob(projectId, opts) {
     const totalSegments = Math.max(1, Math.ceil(duration / SEG_DUR));
     p.autoJob.totalSegments = totalSegments; p.autoJob.stage = 'extracting-audio'; p.autoJob.percent = 10; saveProjects(projects);
     const tmpDir = fs.mkdtempSync(path.join(OUT_DIR, 'auto-'));
-    const wavPath = path.join(tmpDir, 'audio.wav');
-    await run('ffmpeg', ['-y', '-i', p.file.path, '-vn', '-ac', '1', '-ar', '16000', wavPath]);
+    // SPEED: cut segments straight from the source (fast seek before -i) instead
+    // of decoding the whole file to an intermediate wav first — same 16kHz mono
+    // audio, one less full decode pass. Boundary error is <50ms, invisible to Whisper.
     // Segment jobs: transcribe (Whisper) then immediately translate that segment, in parallel workers.
     const jobs = [];
     for (let i = 0; i < totalSegments; i++) jobs.push({ index: i, start: i * SEG_DUR, end: Math.min((i + 1) * SEG_DUR, duration || SEG_DUR) });
@@ -928,7 +926,7 @@ async function runAutoJob(projectId, opts) {
     const segWavs = [];
     for (const job of jobs) {
       const segWav = path.join(tmpDir, `seg${job.index}.wav`);
-      await run('ffmpeg', ['-y', '-ss', String(job.start), '-t', String(job.end - job.start), '-i', wavPath, segWav]);
+      await run('ffmpeg', ['-y', '-ss', String(job.start), '-t', String(job.end - job.start), '-i', p.file.path, '-vn', '-ac', '1', '-ar', '16000', segWav]);
       segWavs.push(segWav);
     }
     p.autoJob.stage = 'transcribing-offline'; p.autoJob.percent = 20; saveProjects(projects);
@@ -977,27 +975,24 @@ async function runAutoJob(projectId, opts) {
     allPieces.forEach(l => { l.original = fixTranscriptDeterministic(l.original); });
     allPieces = splitTranscriptToMax(allPieces, 5);
     let polishNote = '';
-    if (process.env.GEMINI_API_KEY) {
+    // SPEED: skip the Gemini transcript polish on the Groq fast path — Groq +
+    // deterministic fixes + the human review gate carry accuracy, and skipping
+    // saves a full Gemini round-trip per job. Other engines still get polished.
+    if (process.env.GEMINI_API_KEY && transcriptProvider !== 'groq') {
       try {
         p.autoJob.stage = 'polishing-transcript'; saveProjects(projects);
-        const pr = await geminiPolishLines(allPieces.map(l => l.original), 'transcript');
+        const pr = await withTimeout(geminiPolishLines(allPieces.map(l => l.original), 'transcript'), 120000, 'Transcript auto-check');
         allPieces.forEach((l, i) => { l.original = pr.lines[i]; });
         allPieces.forEach(l => { l.original = fixTranscriptDeterministic(l.original); });
         polishNote = pr.fallback ? 'Transcript auto-check could not apply (response mismatch) — unpolished lines used.' : (pr.changed ? ('Transcript auto-checked inside (Gemini, ' + pr.changed + ' line(s) fixed).') : 'Transcript auto-checked inside (Gemini, no clear errors found).');
       } catch (e) { polishNote = 'Transcript auto-check skipped — unpolished lines used.'; }
-    }
+    } else if (transcriptProvider === 'groq') { polishNote = 'Transcript auto-check skipped for speed (Groq) — deterministic fixes + review apply.'; }
     p.autoJob.completedSegments = totalSegments; p.autoJob.stage = 'translating-google'; p.autoJob.percent = 70; saveProjects(projects);
     const gt = skipTranslate ? { translations: null, path: 'skipped-manual', error: 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' } : await translateLinesWithGoogleOrFallback(allPieces, sourceLang);
     if (gt.translations) gt.translations = gt.translations.map(t => sanitizeBurmese(t));
-    let checkResult = null;
-    if (!skipTranslate && gt.translations && process.env.GEMINI_API_KEY) {
-      try {
-        p.autoJob.stage = 'checking-translation'; saveProjects(projects);
-        const cr = await geminiPolishLines(allPieces.map((l, i) => ({ original: l.original, burmese: gt.translations[i] || '' })), 'translation', SOURCE_LANG_NAMES[sourceLang] || 'Chinese');
-        gt.translations = cr.lines;
-        checkResult = cr;
-      } catch (err) { checkResult = { skipped: true }; }
-    }
+    // CHECKFIX: publish lines FIRST, then run the check. A hung or slow check
+    // must never block lines again: lines are saved before the check runs, and
+    // the job finishes even if the check times out (120s) or fails.
     for (let i = 0; i < allPieces.length; i++) {
       const piece = allPieces[i];
       const burmese = skipTranslate ? piece.original : (gt.translations ? (gt.translations[i] || '') : '');
@@ -1006,12 +1001,27 @@ async function runAutoJob(projectId, opts) {
       if (!p.translationLines.some(l => l.start === line.start && l.original === line.original)) p.translationLines.push(line);
     }
     p.autoJob.translationPath = gt.path; p.autoJob.translationError = gt.error || null;
+    p.autoJob.percent = 85; p.autoJob.stage = 'checking-translation';
+    p.autoJob.message = 'လိုင်းများ ထုတ်ပြီးပါပြီ — ဘာသာပြန် စစ်နေပါတယ်။ စစ်တာ မပြီးလည်း လိုင်းတွေ ဖွင့်သုံးလို့ရပါပြီ။';
+    saveProjects(projects);
+    let checkResult = null;
+    if (!skipTranslate && gt.translations && process.env.GEMINI_API_KEY) {
+      try {
+        const cr = await withTimeout(geminiPolishLines(allPieces.map((l, i) => ({ original: l.original, burmese: gt.translations[i] || '' })), 'translation', SOURCE_LANG_NAMES[sourceLang] || 'Chinese'), 120000, 'Translation auto-check');
+        if (cr && !cr.fallback && Array.isArray(cr.lines) && cr.lines.length === p.autoJob.lines.length) {
+          p.autoJob.lines.forEach((l, i) => { if (cr.lines[i]) l.burmese = sanitizeBurmese(cr.lines[i]); });
+          p.translationLines.forEach((l) => { const m = p.autoJob.lines.find(x => x.start === l.start && x.original === l.original); if (m) l.burmese = m.burmese; });
+          checkResult = cr;
+        } else { checkResult = { fallback: true }; }
+        saveProjects(projects);
+      } catch (err) { checkResult = { skipped: true, timeout: /timed out/.test((err && err.message) || '') }; }
+    }
     p.autoJob.percent = 95; saveProjects(projects);
     p.autoJob.lines.sort((a, b) => a.start - b.start);
     p.translationLines.sort((a, b) => a.start - b.start);
     let checkNote = '';
     if (checkResult) {
-      if (checkResult.skipped) { checkNote = 'Translation auto-check skipped — unpolished translations used.'; }
+      if (checkResult.skipped) { checkNote = checkResult.timeout ? 'Translation auto-check timed out (120s) — published lines kept as-is.' : 'Translation auto-check skipped — unpolished translations used.'; }
       else {
         const finalLeaks = p.autoJob.lines.filter(l => l.burmese && !validateBurmese(l.burmese)).length;
         checkNote = checkResult.fallback ? 'Translation auto-check could not apply (response mismatch) — unpolished translations used.' : ('Translation auto-checked inside (Gemini' + (checkResult.changed ? ', ' + checkResult.changed + ' line(s) fixed' : ', no clear errors found') + ').');
@@ -1111,6 +1121,7 @@ body{padding-bottom:76px}
 <button id="srtImportBtn">📄 SRT ထည့်ပါ</button>
 <button id="translateBtn">🌐 ဘာသာပြန်ပါ</button>
 <button id="transSrtDlBtn">⬇ ဘာသာပြန် SRT ဒေါင်းလုဒ်</button>
+<div id="cacheBox" class="small" style="display:none">⚡ ဒီ video ရဲ့ လိုင်းတွေ ဖုန်းထဲမှာ သိမ်းထားပြီးသား — <button id="useCacheBtn">သိမ်းထားတဲ့ လိုင်းတွေ သုံး (upload မလို)</button></div>
 <div id="linesBox"></div></div>
 <div class="card"><h2>၄။ မြန်မာအသံ</h2>
 <select id="voiceSel"><option value="my-MM-ThihaNeural">Thiha (ကျား)</option><option value="my-MM-NilarNeural">Nilar (မ)</option></select>
@@ -1153,7 +1164,7 @@ body{padding-bottom:76px}
 <label>နောက်ခံအသံ (Music): <input id="musicFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg"></label> <button id="musicUpBtn">🎵 Music တင်ပါ</button> <span id="musicText" class="small"></span><br>
 <label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br></div></div></div>
 <div id="tab-videos" class="tabPanel" style="display:none"><div class="card"><h2>📹 Videos</h2>
-<div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
+<div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><label style="display:block;margin:6px 0"><input type="checkbox" id="fastMuxChk" checked> ⚡ မြန်မြန် export (video ပြန်မရိုက်ဘူး, စာတန်း မကပ်ဘူး — စာတန်းက ဖွင့်/ပိတ်လို့ရတဲ့ track အဖြစ် ပါမယ်)</label><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
 <div id="expText" class="small"></div>
 <div id="dlBox"></div></div></div>
 <div id="tab-profile" class="tabPanel" style="display:none"><div class="card"><h2>👤 Profile</h2><div id="profileHealth" class="small">ဆာဗာ စစ်နေပါတယ်…</div><div id="modeNoteB" class="small"></div><div class="small">Sangbik website — video တွေကို ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div></div></div>
@@ -1215,6 +1226,54 @@ function refreshExport(){
   }).catch(function(){});
 }
 el('linesBox').addEventListener('input', function(){ linesDirty = true; });
+// LINES-CACHE: same video re-picked after a deploy wipe reloads its lines
+// from the phone (localStorage) instead of re-uploading + re-transcribing.
+// Fingerprint = size + SHA-256 of first+last 1MB (fast, no full-file hash).
+var cachedFp = null; var cachedEntry = null;
+function readLinesCache(){ try { return JSON.parse(localStorage.getItem('sangbikLinesCache') || '{}'); } catch(e){ return {}; } }
+function writeLinesCache(fp, entry){
+  try {
+    var c = readLinesCache(); c[fp] = entry;
+    var keys = Object.keys(c);
+    while(keys.length > 3){ var oldest = keys[0]; for(var k = 0; k < keys.length; k++){ if((c[keys[k]].savedAt || 0) < (c[oldest].savedAt || 0)) oldest = keys[k]; } delete c[oldest]; keys = Object.keys(c); }
+    localStorage.setItem('sangbikLinesCache', JSON.stringify(c));
+  } catch(e){}
+}
+function bufToHex(buf){ var a = new Uint8Array(buf); var h = ''; for(var i = 0; i < a.length; i++) h += ('0' + a[i].toString(16)).slice(-2); return h; }
+function fileFingerprint(f){
+  var size = f.size || 0;
+  var head = f.slice(0, Math.min(1048576, size));
+  var tail = size > 1048576 ? f.slice(size - 1048576, size) : null;
+  function readBlob(b){ return new Promise(function(res, rej){ var r = new FileReader(); r.onload = function(){ res(r.result); }; r.onerror = rej; r.readAsArrayBuffer(b); }); }
+  return Promise.all([readBlob(head)].concat(tail ? [readBlob(tail)] : [])).then(function(parts){
+    var total = 0; parts.forEach(function(p){ total += p.byteLength; });
+    var all = new Uint8Array(total); var off = 0;
+    parts.forEach(function(p){ all.set(new Uint8Array(p), off); off += p.byteLength; });
+    if(window.crypto && window.crypto.subtle && window.crypto.subtle.digest) return window.crypto.subtle.digest('SHA-256', all).then(function(d){ return size + '-' + bufToHex(d); });
+    return size + '-' + (f.name || '') + '-' + (f.lastModified || 0);
+  }).catch(function(){ return size + '-' + (f.name || '') + '-' + (f.lastModified || 0); });
+}
+function checkLinesCache(f){
+  var box = el('cacheBox'); if(box) box.style.display = 'none';
+  cachedFp = null; cachedEntry = null;
+  return fileFingerprint(f).then(function(fp){
+    cachedFp = fp;
+    var entry = readLinesCache()[fp];
+    if(entry && entry.lines && entry.lines.length){
+      cachedEntry = entry;
+      if(box) box.style.display = '';
+      msg('⚡ ဒီ video ရဲ့ လိုင်းတွေ ဖုန်းထဲမှာ သိမ်းထားပြီးသား (' + entry.lines.length + ' လိုင်း) — အောက်က ခလုတ် နှိပ်ရင် upload မလို၊ လိုင်းတွေ တန်းရမယ်။');
+    }
+  });
+}
+el('useCacheBtn').onclick = function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  if(!cachedEntry || !cachedEntry.lines || !cachedEntry.lines.length){ msg('သိမ်းထားတဲ့ လိုင်း မရှိပါ'); return; }
+  lines = cachedEntry.lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; });
+  linesDirty = true;
+  renderLines(); renderTimeline();
+  msg('သိမ်းထားတဲ့ ' + lines.length + ' လိုင်း ဖွင့်ပါပြီ — စစ်ပြီး "သိမ်းပါ" နှိပ်ပါ (ပြီးရင် အသံ ထုတ်လို့ရပြီ, upload မလို)။');
+};
 el('fileInput').addEventListener('change', function(){
   var f = el('fileInput').files[0]; if(!f) return;
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
@@ -1225,6 +1284,7 @@ el('fileInput').addEventListener('change', function(){
   var resumed = saved && saved.projectId === pid && saved.fileName === f.name && saved.fileSize === f.size && saved.lastModified === f.lastModified && upIdFor(f) === saved.uploadId;
   msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — server ထဲ \\'📤 Video တင်ပါ\\' နှိပ်မှပဲ တင်မယ်, အခု မတင်သေးပါ။' + (resumed ? ' တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ \\'📤 Video တင်ပါ\\' နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
   el('progText').textContent = 'Local preview — server ထဲ မတင်သေးပါ';
+  checkLinesCache(f);
 });
 el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
 el('listBtn').onclick = function(){ api('/projects').then(function(ps){ var h=''; ps.forEach(function(p){ h += '<div>' + p.id + ' — ' + (p.status||'') + ' ' + (p.file ? '🎬' : '') + ' <button data-pid="' + p.id + '">ရွေးပါ</button></div>'; }); el('projList').innerHTML = h || '(မရှိပါ)'; var bs = el('projList').querySelectorAll('button'); bs.forEach(function(b){ b.onclick = function(){ setPid(b.getAttribute('data-pid')); clearLocalFile(); loadLines(); }; }); }).catch(function(e){ msg('List မရပါ: ' + e.message); }); };
@@ -1414,7 +1474,7 @@ el('saveBtn').onclick = function(){
   tinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-tidx'), 10); if(!tvals[idx]) tvals[idx] = {}; tvals[idx][inp.getAttribute('data-kind')] = parseMmSs(inp.value); });
   var badTimes = 0;
   Object.keys(tvals).forEach(function(k){ var idx = parseInt(k, 10); var tv = tvals[idx]; if(!lines[idx] || !isFinite(tv.start) || !isFinite(tv.end) || tv.end <= tv.start) { badTimes++; return; } lines[idx].start = tv.start; lines[idx].end = tv.end; });
-  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ linesDirty = false; msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : '')); }).catch(function(e){ msg('သိမ်းမရပါ: ' + e.message); });
+  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ linesDirty = false; if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; }), savedAt: Date.now() }); msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : '')); }).catch(function(e){ msg('သိမ်းမရပါ: ' + e.message); });
 };
 el('addLineBtn').onclick = function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
@@ -1528,32 +1588,20 @@ el('phoneTtsBtn').onclick = function(){
   var btn = el('phoneTtsBtn'); btn.disabled = true;
   el('phoneTtsText').textContent = 'ဖုန်းကနေ အသံထုတ်နေပါတယ်… (0/' + items.length + ')';
   loadPhoneTtsBundle().then(function(){
-    var clips = []; var idx = 0;
-    function next(){
-      if(idx >= items.length){
-        var fd = new FormData();
-        clips.forEach(function(c, ci){ fd.append('clips', c.blob, 'clip' + ci + '.mp3'); });
-        fd.append('lineIndex', JSON.stringify(clips.map(function(c){ return c.lineIndex; })));
-        fd.append('voice', voice); fd.append('pause', '0.5');
-        el('phoneTtsText').textContent = 'အသံတွေ server ကို တင်နေပါတယ်…';
-        return fetch('/api/projects/' + pid + '/narration-phone', { method: 'POST', body: fd }).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).then(function(j){
-          el('phoneTtsText').innerHTML = 'ဖုန်းအသံ အဆင်သင့်ဖြစ်ပါပြီ။ <a href="/api/projects/' + pid + '/download/audio">အသံ (MP3) နားထောင်ရန် / ဒေါင်းလုဒ်</a>';
-          var na = el('narrAudio'); if(na){ na.src = '/api/projects/' + pid + '/download/audio'; na.style.display = ''; }
-          msg('ဖုန်းအသံ ရပါပြီ'); btn.disabled = false;
-        });
-      }
-      var it = items[idx];
-      var attempt = 0;
+    var clips = new Array(items.length); var done = 0;
+    // PARALLEL-TTS: 3 lines at a time, order preserved (clips indexed by items
+    // order). Same per-line 3x retry + diag error codes as the sequential version.
+    function synthOne(pos){
+      var it = items[pos]; var attempt = 0;
       function tryLine(){
         attempt++;
         var tts = new window.EdgeTTS();
         return tts.synthesize(it.text, voice).then(function(){
           var data = tts.getAudioData();
           if(!data || !data.length) throw new Error('No audio data');
-          clips.push({ blob: new Blob([data], { type: 'audio/mpeg' }), lineIndex: it.lineIndex });
-          idx++;
-          el('phoneTtsText').textContent = 'ဖုန်းကနေ အသံထုတ်နေပါတယ်… (' + idx + '/' + items.length + ')';
-          return new Promise(function(res){ setTimeout(res, 400); }).then(next);
+          clips[pos] = { blob: new Blob([data], { type: 'audio/mpeg' }), lineIndex: it.lineIndex };
+          done++;
+          el('phoneTtsText').textContent = 'ဖုန်းကနေ အသံထုတ်နေပါတယ်… (' + done + '/' + items.length + ')';
         }).catch(function(e){
           if(attempt < 3) return new Promise(function(res){ setTimeout(res, 2000 * attempt); }).then(tryLine);
           var ne = new Error('လိုင်း ' + (it.lineIndex + 1) + ' အသံမရပါ: ' + e.message); ne.code = e.code; ne.status = e.status; throw ne;
@@ -1561,7 +1609,24 @@ el('phoneTtsBtn').onclick = function(){
       }
       return tryLine();
     }
-    return next();
+    function runGroup(start){
+      if(start >= items.length) return Promise.resolve();
+      var group = [];
+      for(var k = 0; k < 3 && start + k < items.length; k++) group.push(synthOne(start + k));
+      return Promise.all(group).then(function(){ return new Promise(function(res){ setTimeout(res, 400); }).then(function(){ return runGroup(start + 3); }); });
+    }
+    return runGroup(0).then(function(){
+      var fd = new FormData();
+      clips.forEach(function(c, ci){ fd.append('clips', c.blob, 'clip' + ci + '.mp3'); });
+      fd.append('lineIndex', JSON.stringify(clips.map(function(c){ return c.lineIndex; })));
+      fd.append('voice', voice); fd.append('pause', '0.5');
+      el('phoneTtsText').textContent = 'အသံတွေ server ကို တင်နေပါတယ်…';
+      return fetch('/api/projects/' + pid + '/narration-phone', { method: 'POST', body: fd }).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).then(function(j){
+        el('phoneTtsText').innerHTML = 'ဖုန်းအသံ အဆင်သင့်ဖြစ်ပါပြီ။ <a href="/api/projects/' + pid + '/download/audio">အသံ (MP3) နားထောင်ရန် / ဒေါင်းလုဒ်</a>';
+        var na = el('narrAudio'); if(na){ na.src = '/api/projects/' + pid + '/download/audio'; na.style.display = ''; }
+        msg('ဖုန်းအသံ ရပါပြီ'); btn.disabled = false;
+      });
+    });
   }).catch(function(e){ el('phoneTtsText').textContent = 'ဖုန်းအသံ မရပါ: ' + e.message + ' [code=' + (e.code || '?') + (e.status ? (' status=' + e.status) : '') + '] — ဒီ code ကို ကျွန်တော့်ကို ပြောပါ'; btn.disabled = false; });
 };
 el('vidSpeedSel').onchange = function(){ var v = el('vid'); if(v) v.playbackRate = parseFloat(el('vidSpeedSel').value) || 1; };
@@ -1621,7 +1686,8 @@ function buildExportBody(){
 }
 function doExport(){
   var body = buildExportBody();
-  el('expText').textContent = 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
+  body.fastMux = !!el('fastMuxChk').checked;
+  el('expText').textContent = body.fastMux ? 'Fast export လုပ်နေပါတယ် — စက္ကန့်ပိုင်းပဲ ကြာမယ်…' : 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 }
 el('expBtn').onclick = function(){
@@ -2120,6 +2186,56 @@ app.post('/api/projects/:id/tts', async (req, res) => {
 app.post('/api/projects/:id/export', async (req, res) => {
   const p = projects[req.params.id]; if (!p || !p.file) return res.status(400).json({ error: 'Project or video not found' });
   const o = req.body || {};
+  // FAST-EXPORT: stream-copy mux (no video re-encode, no subtitle burn-in).
+  // Video is copied as-is; audio is mixed (narration + original) with a fast
+  // audio-only encode; subtitles go in as a toggleable mov_text track, NOT
+  // burned in. Timed narration alignment is NOT applied (continuous narration).
+  // Split ranges are rejected here (they need re-encode) — use full export.
+  if (o.fastMux === true) {
+    if (Array.isArray(o.removeRanges) && o.removeRanges.length) return res.status(400).json({ error: 'Fast export does not support split ranges — use full export.' });
+    const fStart = Math.max(0, parseFloat(o.trimStart || 0) || 0);
+    const fEndRaw = parseFloat(o.trimEnd);
+    const fEnd = Number.isFinite(fEndRaw) && fEndRaw > fStart ? fEndRaw : (p.metadata?.duration || 0);
+    const fDur = Math.max(fEnd - fStart, 0.1);
+    const fSubOn = o.subtitlesOn !== false;
+    const fSubFrom = o.subtitlesFrom || 'translation';
+    let fSegs = [];
+    if (fSubOn) {
+      if (fSubFrom === 'translation' && p.translationLines?.length) fSegs = p.translationLines.map(l => ({ start: l.start, end: l.end, text: l.burmese }));
+      else if (p.script) fSegs = scriptToSegments(p.script, fDur);
+    }
+    const fSrt = fSegs.length ? writeSrt(p, fSegs) : null;
+    const fNarr = (p.tts && p.tts.file && fs.existsSync(p.tts.file)) ? p.tts.file : null;
+    const fNarrVol = parseFloat(o.narrationVolume ?? 1); const fOrigVol = parseFloat(o.originalVolume ?? 0.12);
+    const fHasAudio = !!p.metadata?.audioCodec;
+    const fOut = path.join(OUT_DIR, `${p.id}-recap.mp4`);
+    p.export = { status: 'processing', progress: 'fast-mux started', fastMux: true, srt: fSrt };
+    saveProjects(projects);
+    (async () => {
+      try {
+        const args = ['-y', '-ss', String(fStart), '-t', String(fDur), '-i', p.file.path];
+        if (fNarr) args.push('-i', fNarr);
+        let srtIdx = -1;
+        if (fSrt) { args.push('-i', fSrt); srtIdx = fNarr ? 2 : 1; }
+        if (fNarr && fHasAudio) args.push('-filter_complex', `[0:a]volume=${fOrigVol}[a0];[1:a]volume=${fNarrVol}[a1];[a0][a1]amix=inputs=2:normalize=0,apad=whole_dur=${fDur}[aout]`, '-map', '0:v', '-map', '[aout]');
+        else if (fNarr) args.push('-filter_complex', `[1:a]volume=${fNarrVol},apad=whole_dur=${fDur}[aout]`, '-map', '0:v', '-map', '[aout]');
+        else if (fHasAudio) args.push('-map', '0:v', '-map', '0:a');
+        else args.push('-map', '0:v');
+        args.push('-c:v', 'copy');
+        if (fNarr || fHasAudio) args.push('-c:a', 'aac');
+        else args.push('-an');
+        if (fSrt) args.push('-map', srtIdx + ':s', '-c:s', 'mov_text', '-metadata:s:s:0', 'language=bur');
+        args.push('-t', String(fDur), fOut);
+        await run('ffmpeg', args);
+        p.export = { ...p.export, status: 'ready', file: fOut, fastMux: true, fastNote: 'Fast export: video copied without re-encode; subtitles are a toggleable track (not burned in); narration mixed continuously (not timed to subtitle times); trim (if any) is keyframe-approximate.' };
+        saveProjects(projects);
+      } catch (e) {
+        p.export = { ...p.export, status: 'failed', error: 'Fast export failed: ' + e.message };
+        saveProjects(projects);
+      }
+    })();
+    return res.json({ started: true, fastMux: true });
+  }
   const dubbing = !!o.dubbingPreset;
   const start = parseFloat(o.trimStart || 0); const end = parseFloat(o.trimEnd || p.metadata?.duration || 0);
   const aspect = o.aspect || (dubbing ? '9:16' : '16:9'); const quality = o.quality || '720p';
