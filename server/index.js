@@ -1200,7 +1200,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey3</h1>
+<h1>🎬 Sangbik — Website · phonekey4</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div></div>
 <div id="tab-dashboard" class="tabPanel"><div class="card"><div id="health">ဆာဗာ စစ်နေပါတယ်…</div><div class="small">ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video ပဲ တင်ပါ။ Zoom / blur / crop က မူပိုင်ခွင့်ကို တရားဝင်မဖြစ်စေပါ။</div></div>
 <div class="card"><h2>၁။ Project</h2>
@@ -1510,10 +1510,16 @@ el('phoneKeyTestBtn').onclick = async function(){
   phoneKeyMsg('Key တွေ စစ်နေပါတယ်…');
   var outs = [];
   for(var i = 0; i < ks.length; i++){
-    try {
-      var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=' + ks[i], { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with OK' }] }] }) });
-      outs.push('Key ' + (i + 1) + ': ' + (r.ok ? '✓ ရတယ်' : '✗ (' + r.status + ')'));
-    } catch(e){ outs.push('Key ' + (i + 1) + ': ✗ (' + e.message + ')'); }
+    var done = null; var fails = [];
+    for(var m = 0; m < PHONE_GEMINI_MODELS.length; m++){
+      var short = PHONE_GEMINI_MODELS[m].replace('gemini-', '').replace('-flash', '');
+      try {
+        var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + ks[i], { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: 'Reply with OK' }] }] }) });
+        if(r.ok){ done = short; break; }
+        fails.push(short + ':' + r.status);
+      } catch(e){ fails.push(short + ':ERR'); }
+    }
+    outs.push('Key ' + (i + 1) + ': ' + (done ? '✓ (' + done + ')' : '✗ (' + fails.join(', ') + ')'));
   }
   phoneKeyMsg(outs.join(' | '));
 };
@@ -1546,19 +1552,22 @@ function phoneParseBatch(text, count){
   if(rawLines.length === count) return rawLines;
   throw new Error('Batch translation returned the wrong number of lines.');
 }
+var PHONE_GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'];
 async function geminiPhoneTranslateBatch(texts, sourceLang){
   var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။');
   var prompt = phoneBatchPrompt(texts, sourceLang);
   var lastErr = null;
   for(var i = 0; i < keys.length; i++){
-    try {
-      var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=' + keys[i], { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
-      if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
-      var jj = await r.json();
-      var txt = '';
-      if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
-      return phoneParseBatch(txt, texts.length);
-    } catch(e){ lastErr = e; }
+    for(var m = 0; m < PHONE_GEMINI_MODELS.length; m++){
+      try {
+        var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + keys[i], { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+        if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
+        var jj = await r.json();
+        var txt = '';
+        if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
+        return phoneParseBatch(txt, texts.length);
+      } catch(e){ lastErr = e; }
+    }
   }
   throw lastErr || new Error('Phone translation failed.');
 }
