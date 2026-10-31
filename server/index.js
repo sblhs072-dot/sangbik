@@ -1120,7 +1120,7 @@ body{padding-bottom:76px}
 <div id="tab-recap" class="tabPanel" style="display:none"><div class="card"><h2>၂။ Video တင်ပါ</h2>
 <input type="file" id="fileInput" accept="video/*">
 <div class="small" id="transcriptRow"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label> <label>မူရင်းစကား: <select id="sourceLangSel"><option value="auto" selected>Auto</option><option value="zh">တရုတ်</option><option value="en">English</option><option value="ko">ကိုရီးယား</option><option value="ja">ဂျပန်</option><option value="hi">ဟိန္ဒီ (India)</option><option value="th">ထိုင်း</option></select></label></div>
-<div class="small"><label>Video နည်း: <select id="modeSel"><option value="upload">Server တင်မယ်</option><option value="zero">Zero-upload (SRT + MP3)</option><option value="phone">Phone-only (video ဖုန်းထဲမှာပဲ)</option></select></label></div>
+<div class="small"><label>Video နည်း: <select id="modeSel"><option value="phone">Phone-only (video ဖုန်းထဲမှာပဲ)</option><option value="zero">Zero-upload (SRT + MP3)</option></select></label></div>
 <button id="upBtn">📤 Video တင်ပါ</button><button id="phoneAudioBtn" style="display:none">🎙️ Audio ပို့ပြီး စာသားပြောင်း</button><div id="phoneNote" class="small" style="display:none">Phone-only နည်းမှာ video ကို server ပေါ် လုံးဝ မတင်ပါ — ဖုန်းထဲမှာပဲ ထားပြီး audio အသေးစားပဲ ပို့မယ်။ Transcript + ဘာသာပြန် ရပြီးရင် လိုင်းတွေ ပြင်လို့ရတယ်။ Export လုပ်ဖို့ကျမှ video ကို တစ်ခါတည်း တင်ရမယ်။</div>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
 <div id="jobText"></div>
@@ -1426,7 +1426,7 @@ el('phoneAudioBtn').onclick = async function(){
     msg('Phone-only audio မရပါ: ' + e.message + ' — Server တင်တဲ့ နည်းနဲ့ ပြောင်းပြီး 📤 Video တင်ပါ ကို နှိပ်ပါ။');
   }
 };
-function currentMode(){ var s = el('modeSel'); return (s && s.value) ? s.value : 'upload'; }
+function currentMode(){ var s = el('modeSel'); return (s && s.value) ? s.value : 'phone'; }
 function applyMode(){
   var mode = currentMode();
   var zero = mode === 'zero';
@@ -1440,7 +1440,7 @@ function applyMode(){
   var zn = el('zeroNote'); if(zn) zn.style.display = zero ? '' : 'none';
   var pb = el('phoneAudioBtn'); if(pb) pb.style.display = phone ? '' : 'none';
   var pn = el('phoneNote'); if(pn) pn.style.display = phone ? '' : 'none';
-  var mn = el('modeNoteB'); if(mn) mn.textContent = 'Video နည်း: ' + (zero ? 'Zero-upload (SRT + MP3)' : (phone ? 'Phone-only (video ဖုန်းထဲမှာပဲ)' : 'Server တင်မယ်'));
+  var mn = el('modeNoteB'); if(mn) mn.textContent = 'Video နည်း: ' + (zero ? 'Zero-upload (SRT + MP3)' : 'Phone-only (video ဖုန်းထဲမှာပဲ)');
 }
 function showTab(which){
   var tabs = ['dashboard','recap','tools','videos','profile'];
@@ -1810,10 +1810,11 @@ el('expBtn').onclick = function(){
     if(p.audioOnly){
       var f2 = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
       if(!f2){ msg('Phone-only project — Export လုပ်ဖို့ video ပြန်ရွေးပြီး တင်ရမယ်။'); return; }
+      if(!localFile || localFilePid !== pid){ localFile = f2; localFilePid = pid; }
       pendingExportAfterJob = true;
-      el('modeSel').value = 'upload'; applyMode();
       msg('Export လုပ်ဖို့ video ကို တစ်ခါတည်း တင်နေပါတယ် — တင်ပြီးရင် Export ကို နောက်တစ်ခါ နှိပ်ပါ။');
-      el('upBtn').onclick();
+      var hasLines = !!(p.translationLines && p.translationLines.length);
+      uploadFile(f2, {autoTranscript:!hasLines, autoTranslate:!hasLines});
       return;
     }
     msg('Video ကို server ထဲ မတင်ရသေးပါ — အရင် "📤 Video တင်ပါ" ကို နှိပ်ပါ။');
