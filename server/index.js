@@ -1073,6 +1073,8 @@ async function runAutoJob(projectId, opts) {
         else sceneNote = 'Scene-checked against video frames (Gemini, no clear errors found).';
       } catch (e) { sceneNote = 'Scene check skipped — uncorrected lines used.'; }
     }
+    else if (!p.frames || !p.frames.length) sceneNote = 'Scene check skipped — no video frames received from phone.';
+    else sceneNote = 'Scene check skipped — no Gemini key on server.';
     p.autoJob.completedSegments = totalSegments; p.autoJob.stage = 'translating-google'; p.autoJob.percent = 70; saveProjects(projects);
     const gt = skipTranslate ? { translations: null, path: 'skipped-manual', error: 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' } : await translateLinesWithGoogleOrFallback(allPieces, sourceLang);
     if (gt.translations) gt.translations = gt.translations.map(t => sanitizeBurmese(t));
@@ -1198,7 +1200,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website</h1>
+<h1>🎬 Sangbik — Website · scene2</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div></div>
 <div id="tab-dashboard" class="tabPanel"><div class="card"><div id="health">ဆာဗာ စစ်နေပါတယ်…</div><div class="small">ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video ပဲ တင်ပါ။ Zoom / blur / crop က မူပိုင်ခွင့်ကို တရားဝင်မဖြစ်စေပါ။</div></div>
 <div class="card"><h2>၁။ Project</h2>
@@ -1487,16 +1489,17 @@ function extractSceneFrames(file, count){
   return new Promise(function(resolve){
     var url = URL.createObjectURL(file); var v = document.createElement('video');
     v.preload = 'metadata'; v.muted = true; v.playsInline = true; v.src = url;
-    var frames = []; var times = []; var done = false;
-    function finish(){ if(done) return; done = true; try{ URL.revokeObjectURL(url); }catch(e){} resolve(frames); }
-    setTimeout(finish, 20000);
+    var frames = []; var times = []; var done = false; var seekTimer = null; var seekPending = false;
+    function finish(){ if(done) return; done = true; if(seekTimer) clearTimeout(seekTimer); try{ URL.revokeObjectURL(url); }catch(e){} resolve(frames); }
+    setTimeout(finish, 25000);
     v.onerror = finish;
     v.onloadedmetadata = function(){
       var dur = v.duration || 0; if(!dur || !isFinite(dur)){ finish(); return; }
       for(var i = 0; i < count; i++) times.push(dur * (i + 0.5) / count);
       var idx = 0;
-      function next(){ if(idx >= times.length){ finish(); return; } v.currentTime = times[idx]; }
+      function next(){ if(idx >= times.length){ finish(); return; } seekPending = true; v.currentTime = times[idx]; if(seekTimer) clearTimeout(seekTimer); seekTimer = setTimeout(function(){ if(seekPending){ seekPending = false; idx++; next(); } }, 3000); }
       v.onseeked = function(){
+        if(!seekPending) return; seekPending = false; if(seekTimer) clearTimeout(seekTimer);
         try {
           var c = document.createElement('canvas'); var scale = Math.min(1, 480 / (v.videoWidth || 480));
           c.width = Math.max(2, Math.round((v.videoWidth || 480) * scale)); c.height = Math.max(2, Math.round((v.videoHeight || 270) * scale));
