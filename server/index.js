@@ -1120,8 +1120,8 @@ body{padding-bottom:76px}
 <div id="tab-recap" class="tabPanel" style="display:none"><div class="card"><h2>၂။ Video တင်ပါ</h2>
 <input type="file" id="fileInput" accept="video/*">
 <div class="small" id="transcriptRow"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label> <label>မူရင်းစကား: <select id="sourceLangSel"><option value="auto" selected>Auto</option><option value="zh">တရုတ်</option><option value="en">English</option><option value="ko">ကိုရီးယား</option><option value="ja">ဂျပန်</option><option value="hi">ဟိန္ဒီ (India)</option><option value="th">ထိုင်း</option></select></label></div>
-<div class="small"><label>Video နည်း: <select id="modeSel"><option value="upload">Server တင်မယ်</option><option value="zero">Zero-upload (SRT + MP3)</option></select></label></div>
-<button id="upBtn">📤 Video တင်ပါ</button>
+<div class="small"><label>Video နည်း: <select id="modeSel"><option value="upload">Server တင်မယ်</option><option value="zero">Zero-upload (SRT + MP3)</option><option value="phone">Phone-only (video ဖုန်းထဲမှာပဲ)</option></select></label></div>
+<button id="upBtn">📤 Video တင်ပါ</button><button id="phoneAudioBtn" style="display:none">🎙️ Audio ပို့ပြီး စာသားပြောင်း</button><div id="phoneNote" class="small" style="display:none">Phone-only နည်းမှာ video ကို server ပေါ် လုံးဝ မတင်ပါ — ဖုန်းထဲမှာပဲ ထားပြီး audio အသေးစားပဲ ပို့မယ်။ Transcript + ဘာသာပြန် ရပြီးရင် လိုင်းတွေ ပြင်လို့ရတယ်။ Export လုပ်ဖို့ကျမှ video ကို တစ်ခါတည်း တင်ရမယ်။</div>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
 <div id="jobText"></div>
 <div id="urlRow"><div class="small">Link နဲ့ ယူမလား (တိုက်ရိုက် .mp4 link ပဲ ရမယ်)</div>
@@ -1228,7 +1228,7 @@ function refreshAll(){
   if(!pid) return;
   api('/projects/' + pid).then(function(p){
     duration = (p.metadata && p.metadata.duration) || duration;
-    if(p.file && !p.file.sourceUrl) el('vid').src = '/api/projects/' + pid + '/preview';
+    if(p.file && !p.file.sourceUrl && !p.audioOnly) el('vid').src = '/api/projects/' + pid + '/preview';
     if(!linesDirty){ lines = p.translationLines || []; renderLines(); renderTimeline(); }
   }).catch(function(){});
   pollJob();
@@ -1316,7 +1316,7 @@ function clearAllProjects(){
 }
 el('clearAllBtn').onclick = clearAllProjects;
 el('upBtn').onclick = function(){
-  if(currentMode() !== 'upload'){ msg('Zero-upload နည်းမှာ video မတင်ပါ။'); return; }
+  if(currentMode() !== 'upload'){ msg(currentMode() === 'phone' ? 'Phone-only နည်းမှာ video မတင်ပါ — 🎙️ Audio ပို့တဲ့ ခလုတ်ကို နှိပ်ပါ။' : 'Zero-upload နည်းမှာ video မတင်ပါ။'); return; }
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   if(upState && upState.active){ msg('Video တင်နေပါတယ် — ခဏစောင့်ပါ။'); return; }
   var f = (localFile && localFilePid === pid) ? localFile : null;
@@ -1334,17 +1334,113 @@ el('upBtn').onclick = function(){
     }
   }).catch(function(e){ msg('Project စစ်မရပါ: ' + e.message); });
 };
+var mp4boxPromise = null;
+function loadMp4Box(){
+  if(typeof MP4Box !== 'undefined') return Promise.resolve();
+  if(mp4boxPromise) return mp4boxPromise;
+  mp4boxPromise = new Promise(function(resolve, reject){
+    var sc = document.createElement('script');
+    sc.src = 'https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js';
+    sc.onload = function(){ if(typeof MP4Box !== 'undefined') resolve(); else reject(new Error('mp4box load မရပါ')); };
+    sc.onerror = function(){ reject(new Error('mp4box load မရပါ — internet စစ်ပါ')); };
+    document.head.appendChild(sc);
+  });
+  return mp4boxPromise;
+}
+function adtsPack(samples, sr, ch, profile){
+  var srIdx = {96000:0,88200:1,64000:2,48000:3,44100:4,32000:5,24000:6,22050:7,16000:8,12000:9,11025:10,8000:11,7350:12}[sr];
+  if(srIdx === undefined) throw new Error('Audio sample rate မသိပါ: ' + sr);
+  var parts = [];
+  for(var i = 0; i < samples.length; i++){
+    var d = samples[i];
+    var fl = d.length + 7;
+    var h = new Uint8Array(7);
+    h[0] = 255; h[1] = 241;
+    h[2] = ((profile - 1) << 6) | (srIdx << 2) | (ch >> 2);
+    h[3] = ((ch & 3) << 6) | (fl >> 11);
+    h[4] = (fl >> 3) & 255;
+    h[5] = ((fl & 7) << 5) | 31;
+    h[6] = 252;
+    parts.push(h, d);
+  }
+  return new Blob(parts, {type: 'audio/aac'});
+}
+async function extractAudioAAC(file){
+  await loadMp4Box();
+  var mp4boxFile = MP4Box.createFile();
+  var samples = [];
+  var audioTrack = null;
+  var ready = new Promise(function(resolve, reject){
+    mp4boxFile.onReady = function(info){
+      var t = null;
+      for(var i = 0; i < info.tracks.length; i++){ if(info.tracks[i].type === 'audio'){ t = info.tracks[i]; break; } }
+      if(!t){ reject(new Error('Audio track မတွေ့ပါ')); return; }
+      audioTrack = t;
+      mp4boxFile.setExtractionOptions(t.id, null, { nbSamples: Infinity });
+      mp4boxFile.start();
+      resolve();
+    };
+    mp4boxFile.onError = function(e){ reject(new Error('Video ဖတ်မရပါ')); };
+    mp4boxFile.onSamples = function(id, user, samps){
+      for(var i = 0; i < samps.length; i++){ samples.push(new Uint8Array(samps[i].data)); }
+    };
+  });
+  ready.catch(function(){});
+  var feed = (async function(){
+    var CH = 1024 * 1024;
+    for(var off = 0; off < file.size; off += CH){
+      var ab = await file.slice(off, off + CH).arrayBuffer();
+      ab.fileStart = off;
+      mp4boxFile.appendBuffer(ab);
+    }
+    mp4boxFile.flush();
+  })();
+  await Promise.race([ready, feed.then(function(){ if(!audioTrack) throw new Error('Audio track မတွေ့ပါ'); })]);
+  await feed;
+  if(!samples.length) throw new Error('Audio sample မရပါ');
+  var a = audioTrack.audio || {};
+  var sr = a.sample_rate || a.samplerate || 44100;
+  var ch = a.channel_count || a.channelcount || 2;
+  var profile = (audioTrack.codec && audioTrack.codec.indexOf('mp4a.40.5') >= 0) ? 4 : 2;
+  return adtsPack(samples, sr, ch, profile);
+}
+el('phoneAudioBtn').onclick = async function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  var f = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
+  if(!f){ msg('Video အရင် ရွေးပါ'); return; }
+  if(!localFile || localFilePid !== pid){ localFile = f; localFilePid = pid; }
+  try{
+    msg('Phone ထဲမှာ audio ထုတ်နေပါတယ်…');
+    var aac = await extractAudioAAC(f);
+    msg('Audio ရပါပြီ (' + Math.round(aac.size / 1048576 * 10) / 10 + ' MB) — server ကို ပို့နေပါတယ်…');
+    var fd = new FormData();
+    fd.append('audio', aac, f.name.replace(/[^A-Za-z0-9._-]/g, '_') + '.aac');
+    fd.append('transcript', transcriptChoice());
+    fd.append('sourceLang', sourceLangChoice());
+    var r = await fetch('/api/projects/' + pid + '/audio', { method: 'POST', body: fd });
+    var j = await r.json();
+    if(!r.ok) throw new Error(j.error || 'audio upload failed');
+    msg('Audio တင်ပြီးပါပြီ — စာသား အလိုအလျောက် ပြောင်းနေပါတယ်။');
+    pollJob();
+  }catch(e){
+    msg('Phone-only audio မရပါ: ' + e.message + ' — Server တင်တဲ့ နည်းနဲ့ ပြောင်းပြီး 📤 Video တင်ပါ ကို နှိပ်ပါ။');
+  }
+};
 function currentMode(){ var s = el('modeSel'); return (s && s.value) ? s.value : 'upload'; }
 function applyMode(){
-  var zero = currentMode() === 'zero';
+  var mode = currentMode();
+  var zero = mode === 'zero';
+  var phone = mode === 'phone';
   if(zero && upState && upState.active){ upState.active = false; msg('Video တင်တာ ရပ်လိုက်ပါပြီ — Zero-upload နည်းမှာ video မတင်ပါ။'); }
   el('fileInput').style.display = zero ? 'none' : '';
   var tr = el('transcriptRow'); if(tr) tr.style.display = zero ? 'none' : '';
-  el('upBtn').style.display = zero ? 'none' : '';
-  var ur = el('urlRow'); if(ur) ur.style.display = zero ? 'none' : '';
+  el('upBtn').style.display = (zero || phone) ? 'none' : '';
+  var ur = el('urlRow'); if(ur) ur.style.display = (zero || phone) ? 'none' : '';
   el('expBtn').style.display = zero ? 'none' : '';
   var zn = el('zeroNote'); if(zn) zn.style.display = zero ? '' : 'none';
-  var mn = el('modeNoteB'); if(mn) mn.textContent = 'Video နည်း: ' + (zero ? 'Zero-upload (SRT + MP3)' : 'Server တင်မယ်');
+  var pb = el('phoneAudioBtn'); if(pb) pb.style.display = phone ? '' : 'none';
+  var pn = el('phoneNote'); if(pn) pn.style.display = phone ? '' : 'none';
+  var mn = el('modeNoteB'); if(mn) mn.textContent = 'Video နည်း: ' + (zero ? 'Zero-upload (SRT + MP3)' : (phone ? 'Phone-only (video ဖုန်းထဲမှာပဲ)' : 'Server တင်မယ်'));
 }
 function showTab(which){
   var tabs = ['dashboard','recap','tools','videos','profile'];
@@ -1437,7 +1533,7 @@ function loadLines(){
   api('/projects/' + pid).then(function(p){
     lines = p.translationLines || [];
     duration = (p.metadata && p.metadata.duration) || duration;
-    if(p.file && !p.file.sourceUrl) el('vid').src = '/api/projects/' + pid + '/preview';
+    if(p.file && !p.file.sourceUrl && !p.audioOnly) el('vid').src = '/api/projects/' + pid + '/preview';
     renderLines();
     renderTimeline();
     msg(lines.length + ' လိုင်း ဖွင့်ပါပြီ။' + (pendingExportAfterJob ? ' လိုင်းတွေ စစ်ပြီး Export ကို နောက်တစ်ခါ နှိပ်ပါ။' : ''));
@@ -1710,7 +1806,16 @@ el('expBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
   if(upState && upState.active){ msg('Video တင်နေပါတယ် — ပြီးမှ Export နှိပ်ပါ။'); return; }
   api('/projects/' + pid).then(function(p){
-    if(p.file){ doExport(); return; }
+    if(p.file && !p.audioOnly){ doExport(); return; }
+    if(p.audioOnly){
+      var f2 = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
+      if(!f2){ msg('Phone-only project — Export လုပ်ဖို့ video ပြန်ရွေးပြီး တင်ရမယ်။'); return; }
+      pendingExportAfterJob = true;
+      el('modeSel').value = 'upload'; applyMode();
+      msg('Export လုပ်ဖို့ video ကို တစ်ခါတည်း တင်နေပါတယ် — တင်ပြီးရင် Export ကို နောက်တစ်ခါ နှိပ်ပါ။');
+      el('upBtn').onclick();
+      return;
+    }
     msg('Video ကို server ထဲ မတင်ရသေးပါ — အရင် "📤 Video တင်ပါ" ကို နှိပ်ပါ။');
   }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 };
@@ -1771,9 +1876,23 @@ app.post('/api/upload', upload.single('video'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const meta = await probe(req.file.path); // throws if not a real media file
     p.file = { path: req.file.path, name: req.file.originalname, storedName: path.basename(req.file.path), size: req.file.size };
-    p.metadata = meta; p.status = 'uploaded'; saveProjects(projects); enqueueAutoJob(p.id);
+    p.metadata = meta; p.status = 'uploaded'; p.audioOnly = false; saveProjects(projects); enqueueAutoJob(p.id);
     res.json({ project: p, metadata: meta });
   } catch (e) { res.status(400).json({ error: `File validation failed: ${e.message}` }); }
+});
+
+const audioUpload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
+app.post('/api/projects/:id/audio', audioUpload.single('audio'), async (req, res) => {
+  try {
+    const p = projects[req.params.id];
+    if (!p) { if (req.file) fs.unlinkSync(req.file.path); return res.status(404).json({ error: 'Project not found' }); }
+    if (!req.file) return res.status(400).json({ error: 'No audio uploaded' });
+    const meta = await probe(req.file.path);
+    p.file = { path: req.file.path, name: req.file.originalname, storedName: path.basename(req.file.path), size: req.file.size };
+    p.audioOnly = true; p.metadata = meta; p.status = 'audio-only'; saveProjects(projects);
+    enqueueAutoJob(p.id, { transcript: req.body.transcript, sourceLang: req.body.sourceLang });
+    res.json({ project: p, metadata: meta });
+  } catch (e) { res.status(400).json({ error: `Audio validation failed: ${e.message}` }); }
 });
 
 // ---- Chunked + resumable upload ----
@@ -1820,7 +1939,7 @@ app.post('/api/upload-complete', async (req, res) => {
     if (assembled !== meta.totalBytes) return res.status(400).json({ error: `Assembled size mismatch: ${assembled} vs chunk total ${meta.totalBytes}` });
     const fileMeta = await probe(dest);
     p.file = { path: dest, name: meta.fileName, storedName: path.basename(dest), size: assembled };
-    p.metadata = fileMeta; p.status = 'uploaded'; saveProjects(projects);
+    p.metadata = fileMeta; p.status = 'uploaded'; p.audioOnly = false; saveProjects(projects);
     // Cleanup chunks (best effort, after successful assembly).
     for (let i = 0; i < meta.totalChunks; i++) { try { fs.unlinkSync(path.join(CHUNK_DIR, `${uploadId}.part${i}`)); } catch {} }
     try { fs.unlinkSync(chunkMetaPath(uploadId)); } catch {}
@@ -1892,7 +2011,7 @@ app.post('/api/projects/:id/url', async (req, res) => {
     fs.writeFileSync(filePath, buf);
     const meta = await probe(filePath);
     p.file = { path: filePath, name: path.basename(url), storedName: path.basename(filePath), size: buf.length, sourceUrl: url };
-    p.metadata = meta; p.status = 'uploaded'; saveProjects(projects); enqueueAutoJob(p.id);
+    p.metadata = meta; p.status = 'uploaded'; p.audioOnly = false; saveProjects(projects); enqueueAutoJob(p.id);
     res.json({ project: p, metadata: meta });
   } catch (e) { res.status(400).json({ error: `URL download failed (not attempted for DRM/platform content): ${e.message}` }); }
 });
@@ -2201,6 +2320,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
 
 app.post('/api/projects/:id/export', async (req, res) => {
   const p = projects[req.params.id]; if (!p || !p.file) return res.status(400).json({ error: 'Project or video not found' });
+  if (p.audioOnly) return res.status(400).json({ error: 'Phone-only project — export လုပ်ဖို့ video ကို တစ်ခါတည်း တင်ရမယ်။' });
   const o = req.body || {};
   // FAST-EXPORT: stream-copy mux (no video re-encode, no subtitle burn-in).
   // Video is copied as-is; audio is mixed (narration + original) with a fast
