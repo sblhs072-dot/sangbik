@@ -970,7 +970,9 @@ var localFilePid = '';
 var localFileUrl = '';
 var pendingExportAfterJob = false;
 var UP_KEY = 'sangbik-upload';
-function upIdFor(f){ return (pid + '-' + f.name + '-' + f.size + '-' + f.lastModified).replace(/[^A-Za-z0-9._-]/g,'_'); }
+// Upload scheme version: c1m = 1 MB chunks. Old 5 MB partial uploads get a
+// fresh uploadId, so they restart from 0 instead of resuming with mismatched parts.
+function upIdFor(f){ return (pid + '-' + f.name + '-' + f.size + '-' + f.lastModified + '-c1m').replace(/[^A-Za-z0-9._-]/g,'_'); }
 function saveUpPersist(){ try{ if(upState && upState.active){ localStorage.setItem(UP_KEY, JSON.stringify({uploadId:upState.uploadId, projectId:upState.projectId, fileName:upState.file.name, fileSize:upState.file.size, lastModified:upState.file.lastModified, totalChunks:upState.total})); } }catch(e){} }
 function clearUpPersist(){ try{ localStorage.removeItem(UP_KEY); }catch(e){} }
 function clearLocalFile(){ if(localFileUrl){ try{ URL.revokeObjectURL(localFileUrl); }catch(e){} localFileUrl = ''; } localFile = null; localFilePid = ''; }
@@ -1063,7 +1065,7 @@ applyMode();
 showTab('dashboard');
 function transcriptChoice(){ var s = el('transcriptSel'); return (s && s.value) ? s.value : 'auto'; }
 function uploadFile(f, opts){
-  var CHUNK = 5*1024*1024;
+  var CHUNK = 1*1024*1024;
   var uploadId = upIdFor(f);
   upState = {file:f, uploadId:uploadId, projectId:pid, total:Math.ceil(f.size/CHUNK), chunk:CHUNK, received:{}, next:0, active:true, retries:0, sending:false, uploadOpts: opts || {}};
   saveUpPersist();
@@ -1087,7 +1089,7 @@ function resumeUpload(){
     var fd = new FormData();
     fd.append('chunk', st.file.slice(i*st.chunk, (i+1)*st.chunk));
     fd.append('uploadId', st.uploadId); fd.append('chunkIndex', String(i)); fd.append('totalChunks', String(st.total)); fd.append('fileName', st.file.name);
-    fetch('/api/upload-chunk', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error||'chunk failed'); return j; }); }).then(function(){
+    fetch('/api/upload-chunk', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok){ var er = new Error(j.error||'chunk failed'); er.status = r.status; throw er; } return j; }); }).then(function(){
       st.sending = false; st.received[i]=1; st.retries=0;
       var done = 0; Object.keys(st.received).forEach(function(k){ done += Math.min(st.chunk, st.file.size - k*st.chunk); });
       var pc = Math.round(done/st.file.size*100); el('progBar').style.width = pc + '%'; el('progText').textContent = 'တင်နေပါတယ်: ' + pc + '% (' + (i+1) + '/' + st.total + ' အပိုင်း)';
@@ -1096,9 +1098,11 @@ function resumeUpload(){
       if(st.next >= st.total){ finishUpload(); } else { sendChunk(); }
     }).catch(function(e){
       st.sending = false;
+      if(e && e.status && e.status >= 400 && e.status < 500){ st.active = false; msg('တင်တာ မအောင်ပါ: ' + e.message + ' — Project အသစ် လုပ်ပြီး video ပြန်ရွေးပြီး ပြန်တင်ပါ'); return; }
       st.retries++;
-      if(st.retries <= 5){ var wait = Math.min(30000, 2000 * Math.pow(2, st.retries - 1)); el('progText').textContent = 'တင်တာ ရပ်သွားတယ် — ' + Math.round(wait/1000) + ' စက္ကန့်အကြာမှာ အလိုအလျောက် ပြန်တင်မယ် (' + st.retries + '/5)'; setTimeout(function(){ if(st.active && !st.sending) sendChunk(); }, wait); }
-      else { st.active = false; msg('တင်တာ မအောင်ပါ: ' + e.message + ' — ပြန်လာပြီး file ကို ပြန်ရွေးရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်'); }
+      var wait = Math.min(30000, 2000 * Math.pow(2, st.retries - 1));
+      el('progText').textContent = 'လိုင်းမကောင်းလို့ ခဏစောင့်နေတယ် — ' + Math.round(wait/1000) + ' စက္ကန့်အကြာမှာ ပြန်တင်မယ် (ကြိုးစားမှု ' + st.retries + ')';
+      setTimeout(function(){ if(st.active && !st.sending) sendChunk(); }, wait);
     });
   }
   function finishUpload(){
