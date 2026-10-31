@@ -414,6 +414,43 @@ function fitTempo(clipDuration, windowSec) {
   const tempo = Math.min(clipDuration / windowSec, 2.0);
   return { tempo, fitted: true, overflow: (clipDuration / tempo) > windowSec + 1e-6 };
 }
+// Split transcript pieces so no piece is longer than maxSec (default 10s).
+// Sentences end on Chinese/full-width or ASCII marks; time is shared
+// proportionally by character count; a single sentence longer than maxSec
+// is split by characters. Text is never lost or reordered.
+function splitTranscriptToMax(pieces, maxSec) {
+  maxSec = maxSec || 10;
+  const out = [];
+  for (const piece of (pieces || [])) {
+    const span = piece.end - piece.start;
+    if (!(span > maxSec) || !piece.original) { out.push(piece); continue; }
+    const sents = (piece.original.match(/[^\u3002\uff01\uff1f\uff1b!?]+[\u3002\uff01\uff1f\uff1b!?]?/g) || [piece.original]).map(s => s.trim()).filter(Boolean);
+    const total = sents.reduce((a, s) => a + s.length, 0) || 1;
+    const chunks = []; let cur = '', curChars = 0, pos = 0;
+    for (let s of sents) {
+      const pt = (ch) => span * ch / total;
+      if (cur && pt(curChars + s.length) > maxSec) { chunks.push([cur, pos - curChars, pos]); cur = ''; curChars = 0; }
+      while (pt(s.length) > maxSec) {
+        const take = Math.max(1, Math.floor(maxSec * total / span));
+        if (cur) { chunks.push([cur, pos - curChars, pos]); cur = ''; curChars = 0; }
+        chunks.push([s.slice(0, take), pos, pos + take]);
+        s = s.slice(take); pos += take;
+        if (!s) break;
+      }
+      if (s) { cur += s; curChars += s.length; pos += s.length; }
+    }
+    if (cur) chunks.push([cur, pos - curChars, pos]);
+    const built = chunks.map(([text, cs, ce], j) => ({
+      start: j === 0 ? piece.start : +(piece.start + span * cs / total).toFixed(2),
+      end: j === chunks.length - 1 ? piece.end : +(piece.start + span * ce / total).toFixed(2),
+      original: text, burmese: piece.burmese || ''
+    }));
+    for (let j = 1; j < built.length; j++) built[j].start = built[j - 1].end;
+    built[built.length - 1].end = piece.end;
+    out.push(...built);
+  }
+  return out;
+}
 function splitText(text) {
   const parts = text.split(/(?<=[။!?])\s+/).map(s => s.trim()).filter(Boolean);
   const segments = []; let buf = '';
@@ -688,7 +725,7 @@ async function groqTranscribeSegment(wavPath, segDur) {
   fd.append('temperature', '0');
   // Hint tuned for the user's Chinese content: biases Whisper toward natural
   // colloquial Simplified Chinese and correct set phrases (not phonetic lookalikes).
-  fd.append('prompt', '这是一段中文日常对话,请使用自然标准的简体中文口语进行转录,注意使用正确的惯用语。');
+  fd.append('prompt', '这是一段中文日常对话,请使用自然标准的简体中文口语进行转录。注意使用正确的惯用语和同音字,例如一瘸一拐、马蹄、队伍,不要写成发音相近的错字。人名要保持一致。');
   fd.append('response_format', 'verbose_json');
   const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd });
   if (!res.ok) {
@@ -711,12 +748,72 @@ async function transcribeSegmentsWithGroq(segWavs, jobs, onProgress) {
   }
   return out;
 }
+// ---- In-pipeline careful reading: transcript polish + translation check ----
+// These run INSIDE the auto job, before the user ever sees the lines, so the
+// next videos come out cleaner without per-video fix loops. Both use Gemini
+// (server env key only) in batched calls, with a conservative rule: only fix
+// what is CLEARLY wrong; anything uncertain stays unchanged (never guessed,
+// never invented). Any failure falls back to the unpolished lines — the job
+// never fails because of a polish step.
+function validateBurmese(text) {
+  if (!text || !text.trim()) return false;
+  let hasMyanmar = false;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    if (cp >= 0x1000 && cp <= 0x109F) { hasMyanmar = true; continue; }
+    if ((cp >= 0x0E00 && cp <= 0x0E7F) || (cp >= 0x0E80 && cp <= 0x0EFF)) return false; // Thai/Lao leak
+    if ((cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF)) return false; // CJK leak
+    if (cp >= 0xAC00 && cp <= 0xD7AF) return false; // Hangul leak
+  }
+  return hasMyanmar;
+}
+function parseNumberedCorrections(text, count) {
+  const out = [];
+  for (const row of (text || '').split(/\r?\n/)) {
+    const line = row.trim(); if (!line) continue;
+    const m = /^(\d+)\.\s?(.*)$/.exec(line);
+    if (!m) continue;
+    out[parseInt(m[1], 10) - 1] = m[2] || '';
+  }
+  if (out.length !== count || out.some(x => x === undefined)) throw new Error('Polish response line count mismatch');
+  return out;
+}
+async function geminiPolishLines(items, mode) {
+  const key = process.env.GEMINI_API_KEY || '';
+  if (!key) throw new Error('GEMINI_API_KEY not configured.');
+  const out = [];
+  for (let base = 0; base < items.length; base += 100) {
+    const chunk = items.slice(base, base + 100);
+    try {
+      const numbered = chunk.map((it, i) => {
+        if (mode === 'translation') return (base + i + 1) + '. ' + it.original + ' ||| ' + it.burmese;
+        return (base + i + 1) + '. ' + it;
+      }).join('\n');
+      const prompt = mode === 'translation'
+        ? 'Check the Burmese translations against their Chinese originals. Input lines are "N. <Chinese> ||| <Burmese>". For each line, return the corrected Burmese. Rules: (1) ONLY fix what is CLEARLY wrong — wrong numbers, wrong person names, wrong meaning, non-Burmese characters (Thai, Chinese, or other scripts leaked into the Burmese), garbled words. (2) Names must be transliterated consistently into Burmese script, never left in Chinese characters. (3) If a translation is already correct, return it EXACTLY unchanged. (4) Do NOT guess at unclear parts, do NOT add or remove sentences. (5) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, each line containing ONLY the corrected Burmese, nothing else.\n\n' + numbered
+        : 'Correct Chinese speech-recognition errors in the numbered lines below. These lines come from automatic transcription of Chinese dialogue and contain homophone mistakes, broken idioms, and inconsistent names. For each line, return the corrected Chinese. Rules: (1) ONLY fix what is CLEARLY wrong in context — wrong homophones (for example horse hoof must be 蹄 not 提, a squad must be 队 not 对), broken set phrases (for example limping must be 一瘸一拐 not 一拳一拐), inconsistent person names, obvious wrong characters. (2) If a line is not clearly wrong, return it EXACTLY unchanged. (3) Do NOT guess at unclear parts, do NOT add or remove sentences, do NOT change the meaning. (4) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, nothing else.\n\n' + numbered;
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+      if (!res.ok) { let detail = ''; try { const j = await res.json(); detail = j.error?.message || j.error?.status || ''; } catch {} throw new Error('Gemini polish failed (HTTP ' + res.status + (detail ? ': ' + detail : '') + ')'); }
+      const j = await res.json();
+      const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('');
+      if (!text.trim()) throw new Error('Gemini polish returned no text');
+      const fixed = parseNumberedCorrections(text, chunk.length);
+      for (let k = 0; k < chunk.length; k++) {
+        const t = (fixed[k] || '').trim();
+        out.push(mode === 'transcript' ? (t ? t : chunk[k]) : t);
+      }
+    } catch (e) {
+      for (const it of chunk) out.push(mode === 'translation' ? it.burmese : it);
+    }
+  }
+  return out;
+}
 // ---- Auto transcript+translation job (background, never blocks upload) ----
 async function runAutoJob(projectId, opts) {
   const skipTranslate = !!(opts && opts.skipTranslate);
   const rawTranscriptChoice = (opts && opts.transcript) || 'auto';
   const transcriptChoice = ['auto', 'gemini', 'groq', 'whisper'].includes(rawTranscriptChoice) ? rawTranscriptChoice : 'auto';
-  const transcriptCandidates = transcriptChoice === 'auto' ? ['groq', 'gemini', 'whisper'] : [transcriptChoice].concat(['groq', 'gemini', 'whisper'].filter(function(e){ return e !== transcriptChoice; }));
+  const transcriptCandidates = transcriptChoice === 'auto' ? ['gemini', 'groq', 'whisper'] : [transcriptChoice].concat(['groq', 'gemini', 'whisper'].filter(function(e){ return e !== transcriptChoice; }));
   const p = projects[projectId]; if (!p || !p.file) return;
   if (p.autoJob && p.autoJob.status === 'running') return;
   const initialTranscriptMsg = transcriptChoice === 'groq' ? 'Auto transcript job started: scenes skipped (FAST), Groq စာသားပြောင်းနေပါတယ်။' : transcriptChoice === 'gemini' ? 'Auto transcript job started: scenes skipped (FAST), Gemini စာသားပြောင်းနေပါတယ်။' : transcriptChoice === 'whisper' ? 'Auto transcript job started: scenes skipped (FAST), Whisper စာသားပြောင်းနေပါတယ်။' : (process.env.GEMINI_API_KEY ? 'Auto transcript job started: scenes skipped (FAST), Gemini စာသားပြောင်းနေပါတယ်။' : 'Auto transcript job started: scenes skipped (FAST), Whisper စာသားပြောင်းနေပါတယ်။');
@@ -783,13 +880,33 @@ async function runAutoJob(projectId, opts) {
       saveProjects(projects); return;
     }
     if (fallbackNotes.length && transcriptProvider) transcriptNote = fallbackNotes.join(' ') + ' — ' + engineDisplay[transcriptProvider] + ' သို့ ပြန်ကျပါပြီ။';
-    const allPieces = [];
+    let allPieces = [];
     whisperResults.forEach((res, idx) => {
       const job = jobs[idx];
       for (const sg of (res.segments || [])) allPieces.push({ start: +(job.start + sg.start).toFixed(2), end: +(job.start + sg.end).toFixed(2), original: sg.text.trim() });
     });
+    allPieces = splitTranscriptToMax(allPieces, 10);
+    let polishNote = '';
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        p.autoJob.stage = 'polishing-transcript'; saveProjects(projects);
+        const polished = await geminiPolishLines(allPieces.map(l => l.original), 'transcript');
+        allPieces.forEach((l, i) => { l.original = polished[i]; });
+        polishNote = 'Transcript auto-checked inside (Gemini).';
+      } catch (e) { polishNote = 'Transcript auto-check skipped — unpolished lines used.'; }
+    }
     p.autoJob.completedSegments = totalSegments; p.autoJob.stage = 'translating-google'; p.autoJob.percent = 70; saveProjects(projects);
     const gt = skipTranslate ? { translations: null, path: 'skipped-manual', error: 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' } : await translateLinesWithGoogleOrFallback(allPieces);
+    let checkNote = '';
+    if (!skipTranslate && gt.translations && process.env.GEMINI_API_KEY) {
+      try {
+        p.autoJob.stage = 'checking-translation'; saveProjects(projects);
+        const checked = await geminiPolishLines(allPieces.map((l, i) => ({ original: l.original, burmese: gt.translations[i] || '' })), 'translation');
+        gt.translations = checked;
+        const leaks = checked.filter(t => !validateBurmese(t)).length;
+        checkNote = leaks ? ('Translation auto-checked inside (Gemini); ' + leaks + ' line(s) still need a human look.') : 'Translation auto-checked inside (Gemini).';
+      } catch (err) { checkNote = 'Translation auto-check skipped — unpolished translations used.'; }
+    }
     for (let i = 0; i < allPieces.length; i++) {
       const piece = allPieces[i];
       const burmese = skipTranslate ? piece.original : (gt.translations ? (gt.translations[i] || '') : '');
@@ -803,7 +920,7 @@ async function runAutoJob(projectId, opts) {
     p.translationLines.sort((a, b) => a.start - b.start);
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     p.autoJob.transcriptionProvider = transcriptProvider;
-    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}`, finishedAt: new Date().toISOString() };
+    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${polishNote ? ' ' + polishNote : ''}${checkNote ? ' ' + checkNote : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}`, finishedAt: new Date().toISOString() };
     saveProjects(projects);
   } catch (e) {
     p.autoJob = { ...p.autoJob, status: 'failed', stage: 'failed', message: `Auto transcript job failed: ${e.message}`, error: e.message, finishedAt: new Date().toISOString() };
@@ -901,7 +1018,7 @@ body{padding-bottom:76px}
 <div id="ttsText" class="small"></div></div></div>
 <div id="tab-tools" class="tabPanel" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
-<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
+<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-chunks">အပိုင်းခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
 <div id="grp-size" class="toolpanel"><label>အရွယ်အစား: <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select></label><br></div>
 <div id="grp-text" class="toolpanel"><label>စာသား: <input id="ovTextInp" type="text" placeholder="ထည့်မယ့် စာသား" style="width:220px"></label>
 <label>နေရာ: <select id="ovPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option><option value="center">အလယ်</option></select></label>
@@ -911,6 +1028,7 @@ body{padding-bottom:76px}
 <label>အရောင်: <select id="ovColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option><option value="#FF0000">အနီ</option></select></label><br></div>
 <div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br></div>
 <div id="grp-split" class="toolpanel"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
+<div id="grp-chunks" class="toolpanel"><label>အပိုင်း အရှည်: <select id="chunkMinSel"><option value="5" selected>5 မိနစ်</option><option value="10">10 မိနစ်</option><option value="15">15 မိနစ်</option><option value="20">20 မိနစ်</option><option value="custom">ကိုယ်ကြိုက်…</option></select></label> <label id="chunkCustomBox" style="display:none">မိနစ်: <input id="chunkMinInp" type="number" min="1" max="60" value="30" style="width:70px"></label> <button id="chunkSplitBtn">✂ အပိုင်းခွဲပါ</button> <span id="chunkText" class="small"></span><div id="chunkList"></div><br></div>
 <div id="grp-blur" class="toolpanel"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
 <label>Blur အပြင်း: <select id="blurStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
 <label>Blur နေရာ: <select id="blurPosSel"><option value="subtitle">စာတန်းနေရာ</option><option value="top">အပေါ်</option><option value="bottom">အောက်</option><option value="left">ဘယ်</option><option value="right">ညာ</option><option value="centre">အလယ်</option><option value="full">အပြည့်</option><option value="custom">ကိုယ်တိုင်ရွေး</option></select></label><br>
@@ -1297,6 +1415,20 @@ el('musicUpBtn').onclick = function(){
   el('musicText').textContent = 'Music တင်နေပါတယ်…';
   fetch('/api/projects/' + pid + '/music', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).then(function(j){ el('musicText').textContent = 'Music ရပါပြီ: ' + (j.music ? j.music.name : f.name); msg('Music သိမ်းပါပြီ — နောက် export မှာ ပါမယ်'); }).catch(function(e){ el('musicText').textContent = 'Music မရပါ: ' + e.message; });
 };
+el('chunkMinSel').onchange = function(){ el('chunkCustomBox').style.display = (el('chunkMinSel').value === 'custom') ? '' : 'none'; };
+el('chunkSplitBtn').onclick = function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  var mins = el('chunkMinSel').value === 'custom' ? parseFloat(el('chunkMinInp').value) : parseFloat(el('chunkMinSel').value);
+  if(!isFinite(mins) || mins < 1 || mins > 60){ msg('မိနစ် 1 ကနေ 60 အတွင်း ထည့်ပါ'); return; }
+  el('chunkText').textContent = 'ဖြတ်နေပါတယ်…';
+  api('/projects/' + pid + '/split-video', 'POST', {minutes: mins}).then(function(j){
+    el('chunkText').textContent = 'အပိုင်း ' + j.parts.length + ' ခု ရပါပြီ — တစ်ခုချင်း ဒေါင်းလုဒ်လုပ်ပါ။';
+    el('chunkList').innerHTML = j.parts.map(function(pt, i){
+      var mm = Math.floor(pt.duration / 60), ss = Math.round(pt.duration % 60);
+      return '<div><a href="' + pt.url + '"><button>⬇ အပိုင်း ' + (i + 1) + ' (' + mm + ':' + (ss < 10 ? '0' : '') + ss + ')</button></a></div>';
+    }).join('');
+  }).catch(function(e){ el('chunkText').textContent = 'မအောင်ပါ: ' + e.message; });
+};
 document.querySelectorAll('#toolBar button').forEach(function(b){ b.onclick = function(){ var g = el(b.getAttribute('data-goto')); if(!g) return; var wasOpen = g.classList.contains('open'); document.querySelectorAll('.toolpanel').forEach(function(p){ p.classList.remove('open'); }); document.querySelectorAll('#toolBar button').forEach(function(x){ x.classList.remove('active'); }); if(!wasOpen){ g.classList.add('open'); b.classList.add('active'); g.scrollIntoView({behavior:'smooth', block:'center'}); } }; });
 el('urlBtn').onclick = function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
@@ -1573,8 +1705,12 @@ app.post('/api/projects/:id/transcribe', async (req, res) => {
       segWavs.push(segWav);
     }
     const results = await transcribeOfflineFiles(segWavs);
-    const lines = [];
-    results.forEach((res, idx) => { for (const sg of (res.segments || [])) lines.push({ start: +(idx * 60 + sg.start).toFixed(2), end: +(idx * 60 + sg.end).toFixed(2), original: sg.text.trim(), burmese: '' }); });
+    const rawLines = [];
+    results.forEach((res, idx) => { for (const sg of (res.segments || [])) rawLines.push({ start: +(idx * 60 + sg.start).toFixed(2), end: +(idx * 60 + sg.end).toFixed(2), original: sg.text.trim(), burmese: '' }); });
+    const lines = splitTranscriptToMax(rawLines, 10);
+    if (process.env.GEMINI_API_KEY) {
+      try { const polished = await geminiPolishLines(lines.map(l => l.original), 'transcript'); lines.forEach((l, i) => { l.original = polished[i]; }); } catch {}
+    }
     const language = results[0]?.language || null;
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     p.transcript = { text: lines.map(l => l.original).join(' '), segments: lines, provider: 'whisper-offline-tiny', language, model: WHISPER_MODEL_NAME };
@@ -2376,6 +2512,43 @@ app.get('/api/projects/:id/workflow', (req, res) => {
 });
 
 app.get('/api/projects/:id/export-status', (req, res) => { const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' }); res.json(p.export || { status: 'not-started' }); });
+// Split an uploaded video into equal parts of N minutes (stream copy: no
+// re-encode, no quality loss; cuts land on the nearest keyframe, so a part
+// may be a few seconds longer or shorter than N minutes).
+app.post('/api/projects/:id/split-video', async (req, res) => {
+  const p = projects[req.params.id]; if (!p || !p.file || !fs.existsSync(p.file.path)) return res.status(400).json({ error: 'Project or video not found — upload a video first.' });
+  const minutes = parseFloat(req.body?.minutes);
+  if (!isFinite(minutes) || minutes < 1 || minutes > 60) return res.status(400).json({ error: 'Minutes must be between 1 and 60.' });
+  try {
+    const meta = await probe(p.file.path); const duration = meta.duration || 0;
+    if (!duration) return res.status(400).json({ error: 'Video duration unknown.' });
+    const segSec = Math.round(minutes * 60);
+    const nParts = Math.ceil(duration / segSec);
+    if (nParts < 2) return res.status(400).json({ error: 'Video is shorter than one part — no split needed.' });
+    if (nParts > 48) return res.status(400).json({ error: `That makes ${nParts} parts (max 48) — pick a longer part length.` });
+    const ext = path.extname(p.file.path) || '.mp4';
+    const base = `split-${p.id}`;
+    for (const f of fs.readdirSync(OUT_DIR)) { if (f.startsWith(base)) { try { fs.unlinkSync(path.join(OUT_DIR, f)); } catch {} } }
+    const pattern = path.join(OUT_DIR, `${base}-%03d${ext}`);
+    await run('ffmpeg', ['-y', '-i', p.file.path, '-c', 'copy', '-f', 'segment', '-segment_time', String(segSec), '-reset_timestamps', '1', pattern]);
+    const parts = [];
+    for (let i = 0; i < nParts; i++) {
+      const f = path.join(OUT_DIR, `${base}-${String(i).padStart(3, '0')}${ext}`);
+      if (!fs.existsSync(f)) break;
+      const m = await probe(f);
+      parts.push({ index: i, file: f, duration: m.duration || 0, url: `/api/projects/${p.id}/download/chunk/${i}` });
+    }
+    if (!parts.length) return res.status(500).json({ error: 'Split produced no parts.' });
+    p.splits = parts; saveProjects(projects);
+    res.json({ parts: parts.map(({ index, duration, url }) => ({ index, duration, url })) });
+  } catch (e) { res.status(500).json({ error: `Split failed: ${e.message}` }); }
+});
+app.get('/api/projects/:id/download/chunk/:index', (req, res) => {
+  const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
+  const part = (p.splits || []).find(s => s.index === parseInt(req.params.index, 10));
+  if (!part || !fs.existsSync(part.file)) return res.status(404).json({ error: 'Split part not found — run the split again.' });
+  res.download(part.file, `part${part.index + 1}${path.extname(part.file) || '.mp4'}`);
+});
 app.get('/api/projects/:id/download/:kind', (req, res) => {
   const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
   const kind = req.params.kind;
