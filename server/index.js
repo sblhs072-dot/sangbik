@@ -171,43 +171,86 @@ print(json.dumps([tr(t) for t in json.load(sys.stdin)], ensure_ascii=False))`;
   if (!Array.isArray(parsed) || parsed.length !== texts.length) throw new Error('Argos returned the wrong number of translations.');
   return parsed;
 }
+// Batched LLM translation: ALL lines in ONE call (fastest path). The model must
+// return one numbered translation per input line, in order. A count mismatch
+// throws so the caller falls through -- lines are never misaligned or invented.
+function buildBatchPrompt(texts) {
+  const numbered = texts.map((t, i) => (i + 1) + '. ' + t).join('\n');
+  return 'Translate each numbered line into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber.\n' + numbered;
+}
+function parseBatchResponse(text, count) {
+  if (!text || !text.trim()) throw new Error('Empty batch translation response.');
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const numbered = new Array(count);
+  let numberedCount = 0;
+  for (const l of lines) {
+    const m = l.match(/^(\d+)[.)]\s*(.*)$/);
+    if (m) {
+      const idx = parseInt(m[1], 10) - 1;
+      if (idx >= 0 && idx < count && numbered[idx] === undefined) { numbered[idx] = (m[2] || '').trim(); numberedCount++; }
+    }
+  }
+  if (numberedCount === count && numbered.every(t => t)) return numbered;
+  if (lines.length === count) return lines;
+  throw new Error('Batch translation returned the wrong number of lines.');
+}
+async function groqTranslateBatch(texts) {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) throw new Error('GROQ_API_KEY not configured.');
+  // Default model: cheapest self-serve Groq chat model (Llama 3.3/3.1 are
+  // Enterprise-only since Aug 2026 and error on free keys). Override with
+  // GROQ_TRANSLATE_MODEL if Groq changes its lineup again.
+  const model = process.env.GROQ_TRANSLATE_MODEL || 'openai/gpt-oss-20b';
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify({ model, temperature: 0.2, max_completion_tokens: 16384, messages: [{ role: 'user', content: buildBatchPrompt(texts) }] }) });
+  const body = await res.text();
+  if (!res.ok) throw new Error(`Groq HTTP ${res.status}: ${body.slice(0, 300)}`);
+  let j; try { j = JSON.parse(body); } catch { throw new Error('Groq returned unparseable output.'); }
+  const content = (j.choices?.[0]?.message?.content || '').trim();
+  return parseBatchResponse(content, texts.length);
+}
+async function geminiTranslateBatch(texts) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('GEMINI_API_KEY not configured.');
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: buildBatchPrompt(texts) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+  const body = await res.text();
+  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 300)}`);
+  let j; try { j = JSON.parse(body); } catch { throw new Error('Gemini returned unparseable output.'); }
+  const content = (j.candidates?.[0]?.content?.parts?.map(x => x.text).join('') || '').trim();
+  return parseBatchResponse(content, texts.length);
+}
 async function translateLinesWithGoogleOrFallback(lines) {
   // lines: [{original}] -> {translations, path, error}
-  // Order: Google -> MyMemory (free, no key) -> NLLB offline (no key) -> Argos offline (no key, likely no en-my package) -> AI (only if configured).
-  // Every step is labelled in `path`/`googleLog`; a failure never invents a translation.
+  // Order, fastest first: Groq batched (1 call) -> Gemini batched (1 call) ->
+  // Google batch -> MyMemory parallel -> NLLB offline -> Argos offline.
+  // Every step is labelled in `path`; a failure never invents a translation.
   const originals = lines.map(l => l.original);
   const attempts = [];
   try {
-    const t0 = Date.now();
+    const translations = await groqTranslateBatch(originals);
+    return { translations, path: 'groq-batch', googleLog: 'Translated in one Groq batch call (fastest path).', error: null };
+  } catch (ge) { attempts.push(`Groq batch: ${ge.message}`); }
+  try {
+    const translations = await geminiTranslateBatch(originals);
+    return { translations, path: 'gemini-batch', googleLog: 'Translated in one Gemini batch call.', error: null };
+  } catch (me) { attempts.push(`Gemini batch: ${me.message}`); }
+  try {
     const translations = await googleTranslateBatch(originals, 'my');
-    const ms = Date.now() - t0;
-    return { translations, path: 'google', googleLog: `Google batch 1/1 ok via translate.googleapis.com (${(ms / 1000).toFixed(1)}s)`, error: null };
+    return { translations, path: 'google', googleLog: 'Translated via Google batch.', error: null };
   } catch (ge) { attempts.push(`Google: ${ge.message}`); }
   try {
     const translations = await myMemoryTranslateBatch(originals, 'my');
-    return { translations, path: 'mymemory', googleLog: 'Translated via MyMemory free API (no key) — Google failed in this sandbox, see Workflow log for the exact Google error.', error: `Google failed: ${attempts.join(' ')} — MyMemory fallback used instead.` };
+    return { translations, path: 'mymemory', googleLog: 'Translated via MyMemory free API.', error: `Groq + Gemini + Google failed: ${attempts.join(' ')} — MyMemory fallback used instead.` };
   } catch (me) { attempts.push(`MyMemory: ${me.message}`); }
   try {
     const translations = await nllbTranslateBatch(originals);
-    return { translations, path: 'nllb-offline', googleLog: 'Translated offline with NLLB-200 en->mya_Mymr on this server (no key, no network).', error: `Google + MyMemory failed: ${attempts.join(' ')} — NLLB offline fallback used instead.` };
+    return { translations, path: 'nllb-offline', googleLog: 'Translated offline with NLLB-200 en->mya_Mymr on this server (no key, no network).', error: `Groq + Gemini + Google + MyMemory failed: ${attempts.join(' ')} — NLLB offline fallback used instead.` };
   } catch (ne) { attempts.push(`NLLB offline: ${ne.message}`); }
   try {
     const translations = await argosTranslateBatch(originals);
-    return { translations, path: 'argos-offline', googleLog: 'Translated offline with Argos Translate en->my on this server (no key, no network).', error: `Google + MyMemory + NLLB failed: ${attempts.join(' ')} — Argos offline fallback used instead.` };
+    return { translations, path: 'argos-offline', googleLog: 'Translated offline with Argos Translate en->my on this server (no key, no network).', error: `Groq + Gemini + Google + MyMemory + NLLB failed: ${attempts.join(' ')} — Argos offline fallback used instead.` };
   } catch (ae) { attempts.push(`Argos offline: ${ae.message}`); }
-  // Last fallback: per-line AI translation, only if an AI key is configured.
-  const aiConfigured = !!(process.env.AI_PROVIDER && (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY));
-  if (!aiConfigured) return { translations: null, path: 'failed', googleLog: null, error: `All free translation paths failed (${attempts.join(' ')}), and no AI key is configured for fallback, so no translation was invented.` };
-  try {
-    const translations = [];
-    for (const o of originals) translations.push((await translateTextToBurmese(o)) || '');
-    if (translations.some(t => t)) return { translations, path: 'ai-fallback', googleLog: null, error: `Free translation paths failed (${attempts.join(' ')}), AI fallback used instead.` };
-    return { translations: null, path: 'failed', googleLog: null, error: `All translation paths failed (${attempts.join(' ')}), AI fallback also returned nothing, so no translation was invented.` };
-  } catch (aie) {
-    return { translations: null, path: 'failed', googleLog: null, error: `All translation paths failed (${attempts.join(' ')}), AI fallback failed: ${aie.message}. No translation was invented.` };
-  }
+  return { translations: null, path: 'failed', googleLog: null, error: `All translation paths failed (${attempts.join(' ')}), so no translation was invented.` };
 }
-
 
 const PORT = process.env.PORT || 4000;
 const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || './uploads');
@@ -528,12 +571,12 @@ async function detectScenes(filePath) {
 
 // ---- Translation of one segment (AI only; never invented) ----
 async function translateTextToBurmese(text) {
-  const provider = (process.env.AI_PROVIDER || '').toLowerCase();
+  const provider = (process.env.AI_PROVIDER || (process.env.GEMINI_API_KEY ? 'gemini' : '')).toLowerCase();
   const key = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY;
   if (!provider || !key) return null;
   const prompt = `Translate the following spoken text into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Return ONLY the Burmese translation, no explanation, no extra text:\n\n${text}`;
   if (provider === 'gemini') {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
     const j = await res.json();
     const out = j.candidates?.[0]?.content?.parts?.map(x => x.text).join('').trim();
     return out || null;
