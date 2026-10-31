@@ -871,6 +871,7 @@ body{padding-bottom:76px}
 <div class="card"><h2>၁။ Project</h2>
 <button id="newBtn">＋ Project အသစ်</button>
 <button id="listBtn">Project များ ကြည့်ပါ</button>
+<button id="clearAllBtn">🗑 Clear Project — အားလုံး ဖျက်</button>
 <div id="pidText" class="small">Project မရွေးရသေးပါ</div>
 <div id="projList"></div></div></div>
 <div id="tab-recap" class="tabPanel" style="display:none"><div class="card"><h2>၂။ Video တင်ပါ</h2>
@@ -1006,6 +1007,17 @@ el('fileInput').addEventListener('change', function(){
 });
 el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
 el('listBtn').onclick = function(){ api('/projects').then(function(ps){ var h=''; ps.forEach(function(p){ h += '<div>' + p.id + ' — ' + (p.status||'') + ' ' + (p.file ? '🎬' : '') + ' <button data-pid="' + p.id + '">ရွေးပါ</button></div>'; }); el('projList').innerHTML = h || '(မရှိပါ)'; var bs = el('projList').querySelectorAll('button'); bs.forEach(function(b){ b.onclick = function(){ setPid(b.getAttribute('data-pid')); clearLocalFile(); loadLines(); }; }); }).catch(function(e){ msg('List မရပါ: ' + e.message); }); };
+function clearAllProjects(){
+  if (!confirm('Project အားလုံးနဲ့ တင်ထားတဲ့ video တွေ အကုန်ဖျက်မှာလား? ဒါကို ပြန်ယူလို့မရပါ။')) return;
+  api('/projects', 'DELETE').then(function(){
+    setPid(''); el('pidText').textContent = 'Project မရွေးရသေးပါ'; el('projList').innerHTML = '';
+    upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src');
+    linesDirty = false; lines = []; renderLines();
+    msg('Project အားလုံး ဖျက်ပြီးပါပြီ။');
+    showTab('dashboard');
+  }).catch(function(e){ msg('ဖျက်မရပါ: ' + e.message); });
+}
+el('clearAllBtn').onclick = clearAllProjects;
 el('upBtn').onclick = function(){
   if(currentMode() !== 'upload'){ msg('Zero-upload နည်းမှာ video မတင်ပါ။'); return; }
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
@@ -1043,6 +1055,7 @@ function showTab(which){
     var p = el('tab-' + t); if(p) p.style.display = (t === which) ? '' : 'none';
     var b = el('tabbtn-' + t); if(b) b.classList.toggle('active', t === which);
   });
+  var tp = el('topPreview'); if (tp) tp.style.display = (which === 'videos') ? '' : 'none';
   window.scrollTo(0, 0);
 }
 el('modeSel').onchange = applyMode;
@@ -1352,6 +1365,12 @@ app.post('/api/projects', (req, res) => {
   const id = newId();
   projects[id] = { id, title: req.body.title || 'Untitled Recap', mode: ['recap', 'dubbing'].includes(req.body.mode) ? req.body.mode : 'recap', createdAt: new Date().toISOString(), status: 'created', metadata: null, file: null, scenes: [], analysis: null, script: '', scriptEstimate: null, translationLines: [], transcript: null, tts: null, export: null, urlNote: null, music: null, sceneOrder: null };
   saveProjects(projects); res.json(projects[id]);
+});
+app.delete('/api/projects', (req, res) => {
+  projects = {};
+  try { saveProjects(projects); } catch (e) {}
+  try { fs.rmSync(UPLOAD_DIR, { recursive: true, force: true }); fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch (e) {}
+  res.json({ ok: true });
 });
 app.get('/api/projects', (req, res) => res.json(Object.values(projects).sort((a, b) => b.createdAt.localeCompare(a.createdAt))));
 app.get('/api/projects/:id', (req, res) => { const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' }); res.json(p); });
