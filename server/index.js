@@ -177,7 +177,7 @@ print(json.dumps([tr(t) for t in json.load(sys.stdin)], ensure_ascii=False))`;
 function buildBatchPrompt(texts, sourceLang) {
   const numbered = texts.map((t, i) => (i + 1) + '. ' + t).join('\n');
   const fromPart = (sourceLang && sourceLang !== 'auto') ? ('from ' + (SOURCE_LANG_NAMES[sourceLang] || sourceLang) + ' ') : '';
-  return 'Translate each numbered line ' + fromPart + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber.\n' + numbered;
+  return 'Translate each numbered line ' + fromPart + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout.\n' + numbered;
 }
 function parseBatchResponse(text, count) {
   if (!text || !text.trim()) throw new Error('Empty batch translation response.');
@@ -191,6 +191,7 @@ function parseBatchResponse(text, count) {
       if (idx >= 0 && idx < count && numbered[idx] === undefined) { numbered[idx] = (m[2] || '').trim(); numberedCount++; }
     }
   }
+  if (numbered.some(t => t && t.includes('\ufffd')) || lines.some(t => t.includes('\ufffd'))) throw new Error('Batch translation contains corrupted characters.');
   if (numberedCount === count && numbered.every(t => t)) return numbered;
   if (lines.length === count) return lines;
   throw new Error('Batch translation returned the wrong number of lines.');
@@ -212,7 +213,7 @@ async function groqTranslateBatch(texts, sourceLang) {
 async function geminiTranslateBatch(texts, sourceLang) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_TRANSLATE_MODEL || GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
   const body = await res.text();
   if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 300)}`);
   let j; try { j = JSON.parse(body); } catch { throw new Error('Gemini returned unparseable output.'); }
@@ -604,7 +605,7 @@ async function aiDraft(project, scenes, notes, spoilerMode) {
   const prompt = `Write an ORIGINAL, commentary-style Burmese movie recap script draft (not a transcript, do not reproduce long dialogue). Scene timestamps (seconds): ${scenes.join(', ')}. Duration: ${project.metadata?.duration || '?'}s. Spoiler mode: ${spoilerMode}. User notes: ${notes || '(none)'}. Structure: hook, beginning, middle, climax, ending. Keep it transformative commentary, no invented plot events beyond the notes/timestamps.`;
   try {
     if (provider === 'gemini') {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
       const j = await res.json();
       const text = j.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
       if (!text) throw new Error('Empty Gemini response');
@@ -694,8 +695,8 @@ async function geminiTranscribeSegment(wavPath, segDur, lang) {
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) throw new Error('Gemini key missing');
   const b64 = fs.readFileSync(wavPath).toString('base64');
-  const prompt = (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. If a part is unclear, transcribe your best guess rather than skipping it.';
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }] }] }) });
+  const prompt = (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. When two characters sound the same, choose the one that fits the story context (for example, the guidance of a Buddha, a dragon scale, a proverb about lazy hands). Never invent words that were not spoken. If a part is unclear, transcribe your best guess rather than skipping it.';
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } }) });
   if (!res.ok) {
     let detail = '';
     try { const j = await res.json(); detail = j.error?.message || j.error?.status || ''; } catch {}
@@ -757,7 +758,7 @@ async function groqTranscribeSegment(wavPath, segDur, lang) {
   // Hint tuned for the user's Chinese content: biases Whisper toward natural
   // colloquial Simplified Chinese and correct set phrases (not phonetic lookalikes).
   if (lang && lang !== 'auto' && lang !== 'zh') fd.append('prompt', 'Transcribe the speech verbatim in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. Use natural conversational language.');
-  else fd.append('prompt', '这是一段中文日常对话,请使用自然标准的简体中文口语进行转录。注意使用正确的惯用语和同音字,例如一瘸一拐、马蹄、队伍,不要写成发音相近的错字。人名要保持一致。');
+  else fd.append('prompt', '这是一段中文日常对话,请使用自然标准的简体中文口语进行转录。注意使用正确的惯用语和同音字,例如一瘸一拐、马蹄、队伍,不要写成发音相近的错字。遇到同音字时,根据上下文和故事逻辑选择正确的写法,例如点化不是电话,鳞不是林,手懒不是手揽,石化不是实化,至诚不是至成。人名要保持一致。不要编造没有说过的内容。');
   if (lang && lang !== 'auto') fd.append('language', lang);
   fd.append('response_format', 'verbose_json');
   const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd });
@@ -808,6 +809,8 @@ function fixTranscriptDeterministic(text) {
   t = t.replace(/右后提/g, '右后蹄').replace(/左后提/g, '左后蹄').replace(/右前提/g, '右前蹄').replace(/左前提/g, '左前蹄');
   t = t.replace(/全对人的命/g, '全队人的命');
   t = t.replace(/巴鸡嘴/g, '吧唧嘴');
+  t = t.replace(/不怕命薄,就怕手揽/g, '不怕命薄,就怕手懒');
+  t = t.replace(/心意至成/g, '心意至诚');
   return t;
 }
 function sanitizeBurmese(text) {
@@ -856,8 +859,10 @@ async function geminiPolishLines(items, mode, sourceLangName) {
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
   const out = []; let changed = 0; let fallbackChunks = 0;
-  for (let base = 0; base < items.length; base += 100) {
-    const chunk = items.slice(base, base + 100);
+  for (let base = 0; base < items.length; base += 48) {
+    const chunk = items.slice(base, base + 48);
+    let chunkDone = false;
+    for (let attempt = 0; attempt < 2 && !chunkDone; attempt++) {
     try {
       const numbered = chunk.map((it, i) => {
         if (mode === 'translation') return (base + i + 1) + '. ' + it.original + ' ||| ' + it.burmese;
@@ -865,8 +870,8 @@ async function geminiPolishLines(items, mode, sourceLangName) {
       }).join('\n');
       const prompt = mode === 'translation'
         ? 'Check the Burmese translations against their ' + (sourceLangName || 'Chinese') + ' originals. Input lines are "N. <Chinese> ||| <Burmese>". For each line, return the corrected Burmese. Rules: (1) ONLY fix what is CLEARLY wrong — wrong numbers, wrong person names, wrong meaning, non-Burmese characters (Thai, Chinese, or other scripts leaked into the Burmese), garbled words, reversed word order (noun must come BEFORE number+classifier: fix နှစ်ကောင်မြင်း to မြင်းနှစ်ကောင်). (2) Names must be transliterated consistently into Burmese script, never left in Chinese characters. (3) If a translation is already correct, return it EXACTLY unchanged. (4) Do NOT guess at unclear parts, do NOT add or remove sentences. (5) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, each line containing ONLY the corrected Burmese, nothing else.\n\n' + numbered
-        : 'Correct Chinese speech-recognition errors in the numbered lines below. These lines come from automatic transcription of Chinese dialogue and contain homophone mistakes, broken idioms, and inconsistent names. For each line, return the corrected Chinese. Rules: (1) ONLY fix what is CLEARLY wrong in context — wrong homophones (for example horse hoof must be 蹄 not 提, a squad must be 队 not 对), broken set phrases (for example limping must be 一瘸一拐 not 一拳一拐), inconsistent person names, obvious wrong characters. (2) If a line is not clearly wrong, return it EXACTLY unchanged. (3) Do NOT guess at unclear parts, do NOT add or remove sentences, do NOT change the meaning. (4) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, nothing else.\n\n' + numbered;
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+        : 'Correct Chinese speech-recognition errors in the numbered lines below. These lines come from automatic transcription of Chinese dialogue and contain homophone mistakes, broken idioms, and inconsistent names. For each line, return the corrected Chinese. Rules: (1) ONLY fix what is CLEARLY wrong in context — wrong homophones (for example horse hoof must be 蹄 not 提, a squad must be 队 not 对), broken set phrases (for example limping must be 一瘸一拐 not 一拳一拐), story-context same-sound errors (the guidance of a Buddha is 点化 not 电话; a dragon scale is 鳞 not 林; the lazy-hands proverb is 手懒 not 手揽; petrified is 石化 not 实化; utmost sincerity is 至诚 not 至成), inconsistent person names, obvious wrong characters. (2) If a line is not clearly wrong, return it EXACTLY unchanged. (3) Do NOT guess at unclear parts, do NOT add or remove sentences, do NOT change the meaning. (4) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, nothing else.\n\n' + numbered;
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_POLISH_MODEL || GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
       if (!res.ok) { let detail = ''; try { const j = await res.json(); detail = j.error?.message || j.error?.status || ''; } catch {} throw new Error('Gemini polish failed (HTTP ' + res.status + (detail ? ': ' + detail : '') + ')'); }
       const j = await res.json();
       const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('');
@@ -875,12 +880,19 @@ async function geminiPolishLines(items, mode, sourceLangName) {
       for (let k = 0; k < chunk.length; k++) {
         const t = (fixed[k] || '').trim();
         const orig = mode === 'translation' ? chunk[k].burmese : chunk[k];
-        if (t && t !== orig) changed++;
-        out.push(mode === 'transcript' ? (t ? t : chunk[k]) : t);
+        const clean = (t && !t.includes('\ufffd')) ? t : orig;
+        if (clean !== orig) changed++;
+        out.push(clean);
       }
+        chunkDone = true;
     } catch (e) {
-      fallbackChunks++;
-      for (const it of chunk) out.push(mode === 'translation' ? it.burmese : it);
+      if (attempt === 1) {
+        fallbackChunks++;
+        for (const it of chunk) out.push(mode === 'translation' ? it.burmese : it);
+      } else {
+        await new Promise(r => setTimeout(r, 10000));
+      }
+    }
     }
   }
   return { lines: out, changed, fallback: fallbackChunks > 0 };
@@ -983,7 +995,7 @@ async function runAutoJob(projectId, opts) {
     if (process.env.GEMINI_API_KEY) {
       try {
         p.autoJob.stage = 'polishing-transcript'; saveProjects(projects);
-        const pr = await withTimeout(geminiPolishLines(allPieces.map(l => l.original), 'transcript'), 120000, 'Transcript auto-check');
+        const pr = await withTimeout(geminiPolishLines(allPieces.map(l => l.original), 'transcript'), 180000, 'Transcript auto-check');
         allPieces.forEach((l, i) => { l.original = pr.lines[i]; });
         allPieces.forEach(l => { l.original = fixTranscriptDeterministic(l.original); });
         polishNote = pr.fallback ? 'Transcript auto-check could not apply (response mismatch) — unpolished lines used.' : (pr.changed ? ('Transcript auto-checked inside (Gemini, ' + pr.changed + ' line(s) fixed).') : 'Transcript auto-checked inside (Gemini, no clear errors found).');
@@ -1009,7 +1021,7 @@ async function runAutoJob(projectId, opts) {
     let checkResult = null;
     if (!skipTranslate && gt.translations && process.env.GEMINI_API_KEY) {
       try {
-        const cr = await withTimeout(geminiPolishLines(allPieces.map((l, i) => ({ original: l.original, burmese: gt.translations[i] || '' })), 'translation', SOURCE_LANG_NAMES[sourceLang] || 'Chinese'), 120000, 'Translation auto-check');
+        const cr = await withTimeout(geminiPolishLines(allPieces.map((l, i) => ({ original: l.original, burmese: gt.translations[i] || '' })), 'translation', SOURCE_LANG_NAMES[sourceLang] || 'Chinese'), 180000, 'Translation auto-check');
         if (cr && !cr.fallback && Array.isArray(cr.lines) && cr.lines.length === p.autoJob.lines.length) {
           p.autoJob.lines.forEach((l, i) => { if (cr.lines[i]) l.burmese = sanitizeBurmese(cr.lines[i]); });
           p.translationLines.forEach((l) => { const m = p.autoJob.lines.find(x => x.start === l.start && x.original === l.original); if (m) l.burmese = m.burmese; });
