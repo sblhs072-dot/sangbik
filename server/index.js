@@ -1385,7 +1385,7 @@ app.post('/api/projects', (req, res) => {
 app.delete('/api/projects', (req, res) => {
   projects = {};
   try { saveProjects(projects); } catch (e) {}
-  try { fs.rmSync(UPLOAD_DIR, { recursive: true, force: true }); fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch (e) {}
+  try { fs.rmSync(UPLOAD_DIR, { recursive: true, force: true }); fs.mkdirSync(UPLOAD_DIR, { recursive: true }); fs.mkdirSync(CHUNK_DIR, { recursive: true }); } catch (e) {}
   res.json({ ok: true });
 });
 app.get('/api/projects', (req, res) => res.json(Object.values(projects).sort((a, b) => b.createdAt.localeCompare(a.createdAt))));
@@ -1413,6 +1413,7 @@ app.post('/api/upload-chunk', chunkUpload.single('chunk'), (req, res) => {
   const meta = loadChunkMeta(uploadId) || { uploadId, fileName: fileName || 'video', totalChunks: total, received: [], totalBytes: 0, createdAt: new Date().toISOString() };
   if (meta.totalChunks !== total) return res.status(400).json({ error: 'totalChunks mismatch for this uploadId' });
   const chunkPath = path.join(CHUNK_DIR, `${uploadId}.part${idx}`);
+  fs.mkdirSync(CHUNK_DIR, { recursive: true });
   fs.writeFileSync(chunkPath, req.file.buffer);
   if (!meta.received.includes(idx)) { meta.received.push(idx); meta.received.sort((a, b) => a - b); }
   meta.totalBytes = meta.received.reduce((sum, i) => { try { return sum + fs.statSync(path.join(CHUNK_DIR, `${uploadId}.part${i}`)).size; } catch { return sum; } }, 0);
