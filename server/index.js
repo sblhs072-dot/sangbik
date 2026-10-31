@@ -703,12 +703,19 @@ function parseGeminiTranscript(text, segDur) {
   if (!plain) return [];
   return [{ start: 0, end: +segDur.toFixed(2), text: plain }];
 }
-async function geminiTranscribeSegment(wavPath, segDur, lang) {
+async function geminiTranscribeSegment(wavPath, segDur, lang, frames) {
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) throw new Error('Gemini key missing');
   const b64 = fs.readFileSync(wavPath).toString('base64');
   const prompt = (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. When two characters sound the same, choose the one that fits the story context (for example, the guidance of a Buddha, a dragon scale, a proverb about lazy hands). Never invent words that were not spoken. If a part is unclear, transcribe your best guess rather than skipping it.';
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(300000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } }) });
+  const geminiParts = [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }];
+  const segFrames = [];
+  for (const fr of (frames || [])) { try { const fb = fs.readFileSync(fr.file).toString('base64'); if (fb) segFrames.push(fb); } catch {} }
+  if (segFrames.length) {
+    geminiParts.unshift({ text: 'Scene images from this clip are attached. Use them to disambiguate homophones: choose the word that matches what is visible (for example, packing vs ramming, a forest vs a scale).' });
+    for (const fb of segFrames) geminiParts.push({ inlineData: { mimeType: 'image/jpeg', data: fb } });
+  }
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(300000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: geminiParts }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } }) });
   if (!res.ok) {
     let detail = '';
     try { const j = await res.json(); detail = j.error?.message || j.error?.status || ''; } catch {}
@@ -721,12 +728,13 @@ async function geminiTranscribeSegment(wavPath, segDur, lang) {
 }
 // Sequential on purpose: the free tier is rate-limited, and one failure must
 // fall the WHOLE job back to Whisper (never a half-Gemini, half-Whisper mix).
-async function transcribeSegmentsWithGemini(segWavs, jobs, onProgress, lang) {
+async function transcribeSegmentsWithGemini(segWavs, jobs, onProgress, lang, frames) {
   const out = [];
   for (let i = 0; i < segWavs.length; i++) {
     const job = jobs[i];
     const segDur = Math.max(0.1, job.end - job.start);
-    out.push(await geminiTranscribeSegment(segWavs[i], segDur, lang));
+    const segFrames = (frames || []).filter(fr => fr.t >= job.start - 1 && fr.t <= job.end + 1).slice(0, 2);
+    out.push(await geminiTranscribeSegment(segWavs[i], segDur, lang, segFrames));
     if (onProgress) onProgress(i + 1);
   }
   return out;
@@ -823,6 +831,10 @@ function fixTranscriptDeterministic(text) {
   t = t.replace(/巴鸡嘴/g, '吧唧嘴');
   t = t.replace(/不怕命薄,就怕手揽/g, '不怕命薄,就怕手懒');
   t = t.replace(/心意至成/g, '心意至诚');
+  t = t.replace(/往西西走/g, '往西走');
+  t = t.replace(/^[?？]行/gm, '行');
+  t = t.replace(/所谓的所谓的/g, '所谓的');
+  t = t.replace(/凭凭/g, '凭');
   return t;
 }
 function sanitizeBurmese(text) {
@@ -846,6 +858,7 @@ function sanitizeBurmese(text) {
 // never fails because of a polish step.
 function validateBurmese(text) {
   if (!text || !text.trim()) return false;
+  if (/[A-Za-z]/.test(text)) return false; // Latin-script leak: untranslated words / brand spam (MyStyle, Bullshit, Xitian) must never pass as Burmese
   let hasMyanmar = false;
   for (const ch of text) {
     const cp = ch.codePointAt(0);
@@ -855,6 +868,14 @@ function validateBurmese(text) {
     if (cp >= 0xAC00 && cp <= 0xD7AF) return false; // Hangul leak
   }
   return hasMyanmar;
+}
+function lineNeedsRepair(orig, burmese, nextOrig) {
+  const o = (orig || '').trim(), b = (burmese || '').trim();
+  if (/[A-Za-z]/.test(b)) return true;
+  const origComplete = /[。？！.!?]$/.test(o);
+  const nextContinues = nextOrig && /^[,，、]/.test((nextOrig || '').trim());
+  if (origComplete && !nextContinues && b && !/[။.？?！!]$/.test(b)) return true;
+  return false;
 }
 function parseNumberedCorrections(text, count) {
   const out = [];
@@ -908,6 +929,37 @@ async function geminiPolishLines(items, mode, sourceLangName) {
     }
   }
   return { lines: out, changed, fallback: fallbackChunks > 0 };
+}
+async function geminiSceneCorrect(lines, frames, sourceLangName) {
+  const key = process.env.GEMINI_API_KEY || '';
+  if (!key) throw new Error('GEMINI_API_KEY not configured.');
+  if (!frames || !frames.length) return { lines: lines.map(l => l.original), changed: 0 };
+  const parts = [{ text: 'These are scene frames from a video, in time order, plus the automatic transcript of its dialogue (numbered, with timestamps). The transcript may contain homophone mistakes where two words sound the same but only one matches what is visible (for example packing vs ramming, a forest vs a scale, a garden vs an elder). For each line, return the corrected ' + (sourceLangName || 'Chinese') + ' text. Rules: (1) ONLY change a line when the visible scene CLEARLY contradicts it or clearly resolves a homophone the other way — if the scene does not show the action, do not guess. (2) If a line is not clearly contradicted, return it EXACTLY unchanged. (3) Do NOT add, remove, merge, or split lines. (4) Do NOT change the meaning beyond the scene-supported correction. (5) Return exactly ' + lines.length + ' lines, numbered exactly like the input, each line containing ONLY the corrected text, nothing else.\n\nScene frames (each image follows its timestamp label):\n' }];
+  let attached = 0;
+  for (const fr of frames) {
+    let b64 = '';
+    try { b64 = fs.readFileSync(fr.file).toString('base64'); } catch {}
+    if (!b64) continue;
+    parts.push({ text: 'Frame at ' + fr.t + 's:' }, { inlineData: { mimeType: 'image/jpeg', data: b64 } });
+    attached++;
+  }
+  if (!attached) return { lines: lines.map(l => l.original), changed: 0 };
+  const numbered = lines.map((l, i) => (i + 1) + '. [' + l.start + '-' + l.end + '] ' + l.original).join('\n');
+  parts.push({ text: 'Transcript:\n' + numbered });
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+  if (!res.ok) throw new Error('Gemini scene check failed (HTTP ' + res.status + ')');
+  const j = await res.json();
+  const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('');
+  if (!text.trim()) throw new Error('Gemini scene check returned no text');
+  const fixed = parseNumberedCorrections(text, lines.length);
+  let changed = 0;
+  const out = lines.map((l, i) => {
+    const t = (fixed[i] || '').trim();
+    const clean = (t && !t.includes('\ufffd')) ? t : l.original;
+    if (clean !== l.original) changed++;
+    return clean;
+  });
+  return { lines: out, changed };
 }
 // ---- Auto transcript+translation job (background, never blocks upload) ----
 async function runAutoJob(projectId, opts) {
@@ -970,10 +1022,10 @@ async function runAutoJob(projectId, opts) {
         } else if (engine === 'gemini') {
           if (!process.env.GEMINI_API_KEY) { if (transcriptChoice === 'gemini') fallbackNotes.push('Gemini key မရှိ'); continue; }
           try {
-            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang);
+            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang, p.frames || []);
           } catch (e1) {
             await new Promise(r => setTimeout(r, 8000));
-            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang);
+            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang, p.frames || []);
           }
         } else {
           if (!whisperInstalled()) { if (transcriptChoice === 'whisper') fallbackNotes.push('Whisper မတပ်ဆင်ထားပါ'); continue; }
@@ -1012,9 +1064,36 @@ async function runAutoJob(projectId, opts) {
         polishNote = pr.fallback ? 'Transcript auto-check could not apply (response mismatch) — unpolished lines used.' : (pr.changed ? ('Transcript auto-checked inside (Gemini, ' + pr.changed + ' line(s) fixed).') : 'Transcript auto-checked inside (Gemini, no clear errors found).');
       } catch (e) { polishNote = 'Transcript auto-check skipped — unpolished lines used.'; }
     } else if (transcriptProvider === 'groq') { polishNote = 'Transcript auto-check skipped for speed (Groq) — deterministic fixes + review apply.'; }
+    let sceneNote = '';
+    if (p.frames && p.frames.length && process.env.GEMINI_API_KEY) {
+      try {
+        p.autoJob.stage = 'scene-check'; saveProjects(projects);
+        const sr = await withTimeout(geminiSceneCorrect(allPieces, p.frames, SOURCE_LANG_NAMES[sourceLang] || 'Chinese'), 180000, 'Scene check');
+        if (sr && sr.changed) { allPieces.forEach((l, i) => { l.original = sr.lines[i]; }); allPieces.forEach(l => { l.original = fixTranscriptDeterministic(l.original); }); sceneNote = 'Scene-checked against video frames (Gemini, ' + sr.changed + ' line(s) fixed).'; }
+        else sceneNote = 'Scene-checked against video frames (Gemini, no clear errors found).';
+      } catch (e) { sceneNote = 'Scene check skipped — uncorrected lines used.'; }
+    }
     p.autoJob.completedSegments = totalSegments; p.autoJob.stage = 'translating-google'; p.autoJob.percent = 70; saveProjects(projects);
     const gt = skipTranslate ? { translations: null, path: 'skipped-manual', error: 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' } : await translateLinesWithGoogleOrFallback(allPieces, sourceLang);
     if (gt.translations) gt.translations = gt.translations.map(t => sanitizeBurmese(t));
+    let repairedCount = 0, repairWarnCount = 0;
+    if (gt.translations && !skipTranslate) {
+      const flagged = [];
+      for (let i = 0; i < allPieces.length; i++) {
+        const nextOrig = i + 1 < allPieces.length ? allPieces[i + 1].original : null;
+        if (lineNeedsRepair(allPieces[i].original, gt.translations[i] || '', nextOrig)) flagged.push(i);
+      }
+      if (flagged.length) {
+        try {
+          const retry = await googleTranslateBatch(flagged.map(i => allPieces[i].original), 'my', sourceLang);
+          for (let k = 0; k < flagged.length; k++) {
+            const i = flagged[k]; const nb = sanitizeBurmese(retry[k] || '');
+            const nextOrig = i + 1 < allPieces.length ? allPieces[i + 1].original : null;
+            if (nb && !lineNeedsRepair(allPieces[i].original, nb, nextOrig)) { gt.translations[i] = nb; repairedCount++; } else repairWarnCount++;
+          }
+        } catch (e) { repairWarnCount += flagged.length; }
+      }
+    }
     // CHECKFIX: publish lines FIRST, then run the check. A hung or slow check
     // must never block lines again: lines are saved before the check runs, and
     // the job finishes even if the check times out (120s) or fails.
@@ -1057,7 +1136,7 @@ async function runAutoJob(projectId, opts) {
     const weakPath = ['mymemory', 'nllb-offline', 'argos-offline'].includes(p.autoJob.translationPath);
     const fallbackWarning = weakPath ? ' ⚠️ ဘာသာပြန်က အရန်လမ်း (' + p.autoJob.translationPath + ') က ရတာ — လိုင်းတွေ သေချာစစ်ပြီးမှ အသံထုတ်ပါ။' : '';
     p.autoJob.transcriptionProvider = transcriptProvider;
-    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${polishNote ? ' ' + polishNote : ''}${checkNote ? ' ' + checkNote : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}${fallbackWarning}`, finishedAt: new Date().toISOString() };
+    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${polishNote ? ' ' + polishNote : ''}${checkNote ? ' ' + checkNote : ''}${sceneNote ? ' ' + sceneNote : ''}${repairedCount ? ' Line repair: ' + repairedCount + ' line(s) re-translated.' : ''}${repairWarnCount ? ' ' + repairWarnCount + ' line(s) still need a human look.' : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}${fallbackWarning}`, finishedAt: new Date().toISOString() };
     saveProjects(projects);
   } catch (e) {
     p.autoJob = { ...p.autoJob, status: 'failed', stage: 'failed', message: `Auto transcript job failed: ${e.message}`, error: e.message, finishedAt: new Date().toISOString() };
@@ -1404,6 +1483,33 @@ async function extractAudioAAC(file){
   if(isHEv2) ch = 1;
   return adtsPack(samples, sr, ch, 2);
 }
+function extractSceneFrames(file, count){
+  return new Promise(function(resolve){
+    var url = URL.createObjectURL(file); var v = document.createElement('video');
+    v.preload = 'metadata'; v.muted = true; v.playsInline = true; v.src = url;
+    var frames = []; var times = []; var done = false;
+    function finish(){ if(done) return; done = true; try{ URL.revokeObjectURL(url); }catch(e){} resolve(frames); }
+    setTimeout(finish, 20000);
+    v.onerror = finish;
+    v.onloadedmetadata = function(){
+      var dur = v.duration || 0; if(!dur || !isFinite(dur)){ finish(); return; }
+      for(var i = 0; i < count; i++) times.push(dur * (i + 0.5) / count);
+      var idx = 0;
+      function next(){ if(idx >= times.length){ finish(); return; } v.currentTime = times[idx]; }
+      v.onseeked = function(){
+        try {
+          var c = document.createElement('canvas'); var scale = Math.min(1, 480 / (v.videoWidth || 480));
+          c.width = Math.max(2, Math.round((v.videoWidth || 480) * scale)); c.height = Math.max(2, Math.round((v.videoHeight || 270) * scale));
+          c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+          var data = c.toDataURL('image/jpeg', 0.7);
+          if(data && data.length > 1000) frames.push({ t: Math.round(times[idx] * 100) / 100, data: data });
+        } catch(e){}
+        idx++; next();
+      };
+      next();
+    };
+  });
+}
 el('phoneAudioBtn').onclick = async function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   var f = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
@@ -1412,9 +1518,15 @@ el('phoneAudioBtn').onclick = async function(){
   try{
     msg('Phone ထဲမှာ audio ထုတ်နေပါတယ်…');
     var aac = await extractAudioAAC(f);
-    msg('Audio ရပါပြီ (' + Math.round(aac.size / 1048576 * 10) / 10 + ' MB) — server ကို ပို့နေပါတယ်…');
+    var sceneFrames = [];
+    try { sceneFrames = await extractSceneFrames(f, 8); } catch(e){ sceneFrames = []; }
+    var framesJson = JSON.stringify(sceneFrames);
+    if (framesJson.length > 700000 && sceneFrames.length > 4) { sceneFrames = sceneFrames.filter(function(_, i){ return i % 2 === 0; }); framesJson = JSON.stringify(sceneFrames); }
+    if (framesJson.length > 700000) { sceneFrames = []; framesJson = '[]'; }
+    msg('Audio ရပါပြီ (' + Math.round(aac.size / 1048576 * 10) / 10 + ' MB) — ' + (sceneFrames.length ? ('scene ပုံ ' + sceneFrames.length + ' ပုံနဲ့အတူ ') : 'scene ပုံ မရလို့ audio ပဲ ') + 'server ကို ပို့နေပါတယ်…');
     var fd = new FormData();
     fd.append('audio', aac, f.name.replace(/[^A-Za-z0-9._-]/g, '_') + '.aac');
+    fd.append('framesJson', framesJson);
     fd.append('transcript', transcriptChoice());
     fd.append('sourceLang', sourceLangChoice());
     var r = await fetch('/api/projects/' + pid + '/audio', { method: 'POST', body: fd });
@@ -1895,6 +2007,24 @@ app.post('/api/projects/:id/audio', audioUpload.single('audio'), async (req, res
       return res.status(400).json({ error: `Audio decode မရပါ — ဒီ audio file ကို server က ဖတ်မရဘူး: ${de.message}` });
     }
     p.file = { path: req.file.path, name: req.file.originalname, storedName: path.basename(req.file.path), size: req.file.size };
+    let sceneFrames = [];
+    try {
+      const fj = req.body.framesJson ? JSON.parse(req.body.framesJson) : [];
+      if (Array.isArray(fj) && fj.length) {
+        const framesDir = path.join(OUT_DIR, p.id + '-frames');
+        fs.mkdirSync(framesDir, { recursive: true });
+        try { for (const old of fs.readdirSync(framesDir)) fs.unlinkSync(path.join(framesDir, old)); } catch {}
+        for (let i = 0; i < Math.min(fj.length, 12); i++) {
+          const fr = fj[i]; if (!fr || typeof fr.data !== 'string') continue;
+          const m = /^data:image\/jpeg;base64,(.+)$/.exec(fr.data);
+          if (!m || m[1].length > 300000) continue;
+          const fp = path.join(framesDir, 'frame-' + i + '.jpg');
+          fs.writeFileSync(fp, Buffer.from(m[1], 'base64'));
+          sceneFrames.push({ t: Number(fr.t) || 0, file: fp });
+        }
+      }
+    } catch {}
+    p.frames = sceneFrames;
     p.audioOnly = true; p.metadata = meta; p.status = 'audio-only'; saveProjects(projects);
     enqueueAutoJob(p.id, { transcript: req.body.transcript, sourceLang: req.body.sourceLang });
     res.json({ project: p, metadata: meta });
