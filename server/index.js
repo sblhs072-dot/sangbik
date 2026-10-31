@@ -1076,7 +1076,7 @@ function resumeUpload(){
   var st = upState;
   if(!st || !st.active || st.sending || st.projectId !== pid) return;
   api('/upload-status/' + st.uploadId).then(function(s){
-    (s.received||[]).forEach(function(i){ st.received[i]=1; });
+    st.received = {}; (s.received||[]).forEach(function(i){ st.received[i]=1; });
     st.next = nextIncomplete(st.received, st.total);
     if(st.next >= st.total){ finishUpload(); return; }
     sendChunk();
@@ -1089,8 +1089,8 @@ function resumeUpload(){
     var fd = new FormData();
     fd.append('chunk', st.file.slice(i*st.chunk, (i+1)*st.chunk));
     fd.append('uploadId', st.uploadId); fd.append('chunkIndex', String(i)); fd.append('totalChunks', String(st.total)); fd.append('fileName', st.file.name);
-    fetch('/api/upload-chunk', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok){ var er = new Error(j.error||'chunk failed'); er.status = r.status; throw er; } return j; }); }).then(function(){
-      st.sending = false; st.received[i]=1; st.retries=0;
+    fetch('/api/upload-chunk', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok){ var er = new Error(j.error||'chunk failed'); er.status = r.status; throw er; } return j; }); }).then(function(j){
+      st.sending = false; st.received = {}; (j.received||[]).forEach(function(k){ st.received[k]=1; }); if(!st.received[i]) st.received[i]=1; st.retries=0;
       var done = 0; Object.keys(st.received).forEach(function(k){ done += Math.min(st.chunk, st.file.size - k*st.chunk); });
       var pc = Math.round(done/st.file.size*100); el('progBar').style.width = pc + '%'; el('progText').textContent = 'တင်နေပါတယ်: ' + pc + '% (' + (i+1) + '/' + st.total + ' အပိုင်း)';
       st.next = nextIncomplete(st.received, st.total);
@@ -1107,10 +1107,22 @@ function resumeUpload(){
   }
   function finishUpload(){
     if(!st.active) return;
-    api('/upload-complete','POST',{uploadId:st.uploadId, projectId:st.projectId, autoTranscript: !(st.uploadOpts && st.uploadOpts.autoTranscript === false), autoTranslate: !(st.uploadOpts && st.uploadOpts.autoTranslate === false), transcript: transcriptChoice()}).then(function(cj){
+    var body = {uploadId:st.uploadId, projectId:st.projectId, autoTranscript: !(st.uploadOpts && st.uploadOpts.autoTranscript === false), autoTranslate: !(st.uploadOpts && st.uploadOpts.autoTranslate === false), transcript: transcriptChoice()};
+    fetch('/api/upload-complete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(function(r){ return r.json().then(function(j){ if(!r.ok){ var er = new Error(j.error||'upload-complete failed'); er.status = r.status; er.missing = j.missing; throw er; } return j; }); }).then(function(cj){
       duration = (cj.metadata && cj.metadata.duration) || 0; el('vid').src = '/api/projects/' + st.projectId + '/preview'; el('progText').textContent = 'တင်တာ ပြီးပါပြီ — ' + Math.round(duration) + ' စက္ကန့်။ စာသားပြောင်းနေပါတယ်…';
       st.active = false; upState = null; clearUpPersist(); if(st.uploadOpts && st.uploadOpts.onDone){ st.uploadOpts.onDone(); } else { pollJob(); }
-    }).catch(function(e){ msg('Upload-complete မရပါ: ' + e.message); });
+    }).catch(function(e){
+      if(e && e.status === 409 && e.missing && e.missing.length){
+        st.completeTries = (st.completeTries || 0) + 1;
+        if(st.completeTries > 3){ st.active = false; msg('တင်တာ မအောင်ပါ: အပိုင်းတွေ ထပ်ခါထပ်ခါ ပျောက်နေတယ် — Project အသစ် လုပ်ပြီး video ပြန်ရွေးပြီး ပြန်တင်ပါ'); return; }
+        msg('အပိုင်းအချို့ server မှာ ပျောက်နေလို့ ပြန်တင်နေပါတယ်…');
+        st.next = e.missing[0];
+        sendChunk();
+        return;
+      }
+      if(e && e.status === 404){ st.active = false; msg('တင်တာ မအောင်ပါ: ' + e.message + ' — Project အသစ် လုပ်ပြီး video ပြန်ရွေးပြီး ပြန်တင်ပါ'); return; }
+      msg('Upload-complete မရပါ: ' + e.message);
+    });
   }
 }
 function pollJob(){
@@ -1421,8 +1433,8 @@ app.post('/api/upload-complete', async (req, res) => {
     const meta = loadChunkMeta(uploadId);
     if (!meta) return res.status(404).json({ error: 'Upload session not found — re-upload the missing chunks' });
     const missing = [];
-    for (let i = 0; i < meta.totalChunks; i++) if (!meta.received.includes(i)) missing.push(i);
-    if (missing.length) return res.status(400).json({ error: 'Missing chunks', missing });
+    for (let i = 0; i < meta.totalChunks; i++) { const pp = path.join(CHUNK_DIR, `${uploadId}.part${i}`); if (!meta.received.includes(i) || !fs.existsSync(pp)) missing.push(i); }
+    if (missing.length) return res.status(409).json({ error: 'Missing chunks', missing });
     const ext = path.extname(meta.fileName || '').toLowerCase();
     if (!ALLOWED_EXT.includes(ext)) return res.status(400).json({ error: `Unsupported file type: ${ext}. Allowed: ${ALLOWED_EXT.join(', ')}` });
     const safeName = String(meta.fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
