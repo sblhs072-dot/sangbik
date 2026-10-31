@@ -467,6 +467,28 @@ function splitText(text) {
   if (buf) segments.push(buf);
   return segments.length ? segments : [text];
 }
+// ESPEAK-FIX helper: word-safe chunking so no single espeak-ng call gets a
+// long input (an ~800-char Burmese segment crashed espeak with a buffer
+// overflow). Packs space-separated phrases into <=maxLen-char pieces; an
+// over-long single phrase is hard-split. Never drops text.
+function chunkTextForEspeak(text, maxLen = 200) {
+  const t = (text || '').trim();
+  if (!t) return [text];
+  if (t.length <= maxLen) return [t];
+  const words = t.split(/\s+/);
+  const out = []; let buf = '';
+  for (const w of words) {
+    if (!w) continue;
+    if ((buf ? buf.length + 1 + w.length : w.length) > maxLen) {
+      if (buf) { out.push(buf); buf = ''; }
+      let rest = w;
+      while (rest.length > maxLen) { out.push(rest.slice(0, maxLen)); rest = rest.slice(maxLen); }
+      buf = rest;
+    } else buf = buf ? buf + ' ' + w : w;
+  }
+  if (buf) out.push(buf);
+  return out.length ? out : [t];
+}
 async function geminiTtsSegment(text, voice, model, key, outMp3) {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } }) });
   const j = await res.json();
@@ -1093,6 +1115,7 @@ body{padding-bottom:76px}
 <div class="card"><h2>၄။ မြန်မာအသံ</h2>
 <select id="voiceSel"><option value="my-MM-ThihaNeural">Thiha (ကျား)</option><option value="my-MM-NilarNeural">Nilar (မ)</option></select>
 <button id="ttsBtn">🔊 အသံ ထုတ်ပါ</button>
+<button id="phoneTtsBtn">📱 ဖုန်းကနေ အသံထုတ် (Thiha/Nilar)</button><div id="phoneTtsText" class="small">ဖုန်းကနေ တိုက်ရိုက် Edge အသံထုတ်မယ် (server ထိန်းတာ မထိဘူး) — Microsoft Edge browser လိုတယ်။</div>
 <div id="ttsText" class="small"></div><audio id="narrAudio" controls style="width:100%;display:none"></audio><label>အသံ အမြန်နှုန်း: <select id="narrSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label></div></div>
 <div id="tab-tools" class="tabPanel" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1488,6 +1511,59 @@ el('ttsBtn').onclick = function(){
     msg('အသံ ရပါပြီ');
   }).catch(function(e){ el('ttsText').textContent = 'အသံ မရပါ: ' + e.message; });
 };
+function loadPhoneTtsBundle(){ return new Promise(function(resolve, reject){
+  if(window.EdgeTTS){ resolve(); return; }
+  var s = document.createElement('script'); s.src = '/edge-tts-bundle.js';
+  s.onload = function(){ if(window.EdgeTTS) resolve(); else reject(new Error('EdgeTTS bundle loaded but window.EdgeTTS missing')); };
+  s.onerror = function(){ reject(new Error('Bundle load failed')); };
+  document.head.appendChild(s);
+}); }
+el('phoneTtsBtn').onclick = function(){
+  if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
+  if(linesDirty){ msg('အရင် "သိမ်းပါ" ကို နှိပ်ပါ — မသိမ်းရသေးတဲ့ လိုင်းတွေ အသံမှာ မပါဘူး'); return; }
+  var items = [];
+  (lines || []).forEach(function(l, li){ var t = (l.burmese || '').trim(); if(t) items.push({ text: t, lineIndex: li }); });
+  if(!items.length){ msg('ဘာသာပြန် လိုင်းမရှိသေးပါ'); return; }
+  var voice = el('voiceSel').value;
+  var btn = el('phoneTtsBtn'); btn.disabled = true;
+  el('phoneTtsText').textContent = 'ဖုန်းကနေ အသံထုတ်နေပါတယ်… (0/' + items.length + ')';
+  loadPhoneTtsBundle().then(function(){
+    var clips = []; var idx = 0;
+    function next(){
+      if(idx >= items.length){
+        var fd = new FormData();
+        clips.forEach(function(c, ci){ fd.append('clips', c.blob, 'clip' + ci + '.mp3'); });
+        fd.append('lineIndex', JSON.stringify(clips.map(function(c){ return c.lineIndex; })));
+        fd.append('voice', voice); fd.append('pause', '0.5');
+        el('phoneTtsText').textContent = 'အသံတွေ server ကို တင်နေပါတယ်…';
+        return fetch('/api/projects/' + pid + '/narration-phone', { method: 'POST', body: fd }).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).then(function(j){
+          el('phoneTtsText').innerHTML = 'ဖုန်းအသံ အဆင်သင့်ဖြစ်ပါပြီ။ <a href="/api/projects/' + pid + '/download/audio">အသံ (MP3) နားထောင်ရန် / ဒေါင်းလုဒ်</a>';
+          var na = el('narrAudio'); if(na){ na.src = '/api/projects/' + pid + '/download/audio'; na.style.display = ''; }
+          msg('ဖုန်းအသံ ရပါပြီ'); btn.disabled = false;
+        });
+      }
+      var it = items[idx];
+      var attempt = 0;
+      function tryLine(){
+        attempt++;
+        var tts = new window.EdgeTTS();
+        return tts.synthesize(it.text, voice).then(function(){
+          var data = tts.getAudioData();
+          if(!data || !data.length) throw new Error('No audio data');
+          clips.push({ blob: new Blob([data], { type: 'audio/mpeg' }), lineIndex: it.lineIndex });
+          idx++;
+          el('phoneTtsText').textContent = 'ဖုန်းကနေ အသံထုတ်နေပါတယ်… (' + idx + '/' + items.length + ')';
+          return new Promise(function(res){ setTimeout(res, 400); }).then(next);
+        }).catch(function(e){
+          if(attempt < 3) return new Promise(function(res){ setTimeout(res, 2000 * attempt); }).then(tryLine);
+          throw new Error('လိုင်း ' + (it.lineIndex + 1) + ' အသံမရပါ: ' + e.message);
+        });
+      }
+      return tryLine();
+    }
+    return next();
+  }).catch(function(e){ el('phoneTtsText').textContent = 'ဖုန်းအသံ မရပါ: ' + e.message + ' (Microsoft Edge browser နဲ့ ဖွင့်ကြည့်ပါ)'; btn.disabled = false; });
+};
 el('vidSpeedSel').onchange = function(){ var v = el('vid'); if(v) v.playbackRate = parseFloat(el('vidSpeedSel').value) || 1; };
 el('narrSpeedSel').onchange = function(){ var a = el('narrAudio'); if(a) a.playbackRate = parseFloat(el('narrSpeedSel').value) || 1; };
 el('musicUpBtn').onclick = function(){
@@ -1836,6 +1912,33 @@ app.post('/api/projects/:id/translate-lines', async (req, res) => {
   idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: sanitizeBurmese(gt.translations[k] || '') }); });
   res.json({ lines: out, path: gt.path, note: gt.error || null });
 });
+// PHONE-TTS: browser Edge TTS bundle, vendored as one string so the deploy stays
+// a SINGLE index.js file. Served at /edge-tts-bundle.js; the page loads it only
+// when the user taps the phone-voice button. No key, no server Edge call.
+const PHONE_TTS_BUNDLE = "\"use strict\";var EdgeTTSModule=(()=>{var T=Object.defineProperty;var j=Object.getOwnPropertyDescriptor;var q=Object.getOwnPropertyNames;var J=Object.prototype.hasOwnProperty;var X=(r,e,t)=>e in r?T(r,e,{enumerable:!0,configurable:!0,writable:!0,value:t}):r[e]=t;var Z=(r,e)=>{for(var t in e)T(r,t,{get:e[t],enumerable:!0})},Q=(r,e,t,n)=>{if(e&&typeof e==\"object\"||typeof e==\"function\")for(let o of q(e))!J.call(r,o)&&o!==t&&T(r,o,{get:()=>e[o],enumerable:!(n=j(e,o))||n.enumerable});return r};var Y=r=>Q(T({},\"__esModule\",{value:!0}),r);var m=(r,e,t)=>X(r,typeof e!=\"symbol\"?e+\"\":e,t);var pe={};Z(pe,{EdgeTTS:()=>k,EdgeTTSError:()=>l,toSRT:()=>A,toVTT:()=>O});var ee;function b(){let r=ee??globalThis.crypto;if(!r)throw new Error(\"Web Crypto is not available in this environment\");return r}var y={TRUSTED_CLIENT_TOKEN:\"6A5AA1D4EAFF4E9FB37E23D68491D6F4\",BASE_URL:\"https://speech.platform.bing.com/consumer/speech/synthesize/readaloud\",WSS_URL:\"wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1\",VOICES_URL:\"https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list\",CHROMIUM_FULL_VERSION:\"155.0.0.0\",CHROMIUM_MAJOR_VERSION:\"155\",VERSION_MS_GEC:\"1-155.0.4283.45\",token32(){let r=new Uint8Array(16);return b().getRandomValues(r),Array.from(r).map(e=>e.toString(16).padStart(2,\"0\")).join(\"\").toUpperCase()},getBaseHeaders(){return{\"User-Agent\":\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0\",\"Accept-Encoding\":\"gzip, deflate, br, zstd\",\"Accept-Language\":\"en-US,en;q=0.9\",Cookie:\"MUID=\"+this.token32()}},WSS_HEADERS:{Pragma:\"no-cache\",\"Cache-Control\":\"no-cache\",Origin:\"chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold\",\"User-Agent\":\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0\"},VOICE_HEADERS:{\"Sec-CH-UA\":'\"Microsoft Edge\";v=\"155\", \"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\"',\"Sec-CH-UA-Mobile\":\"?0\",\"Sec-CH-UA-Platform\":'\"Windows\"',Accept:\"*/*\",\"Sec-Fetch-Site\":\"none\",\"Sec-Fetch-Mode\":\"cors\",\"Sec-Fetch-Dest\":\"empty\"},OUTPUT_FORMAT:{AUDIO_24KHZ_48KBITRATE_MONO_MP3:\"audio-24khz-48kbitrate-mono-mp3\",AUDIO_24KHZ_96KBITRATE_MONO_MP3:\"audio-24khz-96kbitrate-mono-mp3\",WEBM_24KHZ_16BIT_MONO_OPUS:\"webm-24khz-16bit-mono-opus\"}};var te=0;function M(){return Date.now()+te}var l=class extends Error{constructor(t,n,o={}){super(t,o.cause===void 0?void 0:{cause:o.cause});m(this,\"code\");m(this,\"status\");this.name=\"EdgeTTSError\",this.code=n,o.status!==void 0&&(this.status=o.status)}};var S=\"audio-24khz-48kbitrate-mono-mp3\",re=new TextDecoder;function N(r,e,t,n,o){return`${r}?Ocp-Apim-Subscription-Key=${e}&Sec-MS-GEC=${t}&Sec-MS-GEC-Version=${n}&ConnectionId=${o}`}function V(r,e){return`X-Timestamp:${r}\\r\nContent-Type:application/json; charset=utf-8\\r\nPath:speech.config\\r\n\\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":true,\"wordBoundaryEnabled\":true},\"outputFormat\":\"${e}\"}}}}`}function B(r,e,t){return`X-RequestId:${r}\\r\nContent-Type:application/ssml+xml\\r\nX-Timestamp:${e}\\r\nPath:ssml\\r\n\\r\n${t}`}function ne(r){return r.replace(/&/g,\"&amp;\").replace(/</g,\"&lt;\").replace(/>/g,\"&gt;\").replace(/\"/g,\"&quot;\").replace(/'/g,\"&apos;\")}function L(r,e,t,n,o){return`<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xmlns:mstts=\"https://www.w3.org/2001/mstts\" xml:lang=\"en-US\">\n                    <voice name=\"${e}\">\n                        <prosody pitch=\"${t}\" rate=\"${n}\" volume=\"${o}\">\n                            ${ne(r)}\n                        </prosody>\n                    </voice>\n                </speak>`}function v(r){return/Path:([^\\r\\n]*)/i.exec(r)?.[1]?.trim()??\"\"}function $(r){let e=r.indexOf(`\\r\n\\r\n`);return e===-1?{path:v(r),body:\"\"}:{path:v(r.slice(0,e)),body:r.slice(e+4)}}function D(r){if(r.length<2)return{path:\"\",body:new Uint8Array(0)};let e=r[0]<<8|r[1];return{path:v(re.decode(r.subarray(2,2+e))),body:r.slice(2+e)}}function R(r){let e;try{e=JSON.parse(r)}catch{return[]}if(!Array.isArray(e?.Metadata))return[];let t=[];for(let n of e.Metadata)n?.Type!==\"WordBoundary\"&&n?.Type!==\"SentenceBoundary\"||t.push({type:n.Type,offset:n.Data.Offset,duration:n.Data.Duration,text:n.Data.text?.Text});return t}var oe=`\\xBF\\xA1\\xAB\"'\\u201C\\u2018([`;function I(r){let e=0;return t=>{let n=t?r.indexOf(t,e):-1;if(n===-1)return t;let o=n;for(;o>e&&oe.includes(r[o-1]);)o--;return e=n+t.length,r.slice(o,e)}}async function W(r,e){let t=Math.floor(e/1e3)+11644473600,o=(t-t%300)*1e7,a=new TextEncoder().encode(`${o}${r}`),c=await b().subtle.digest(\"SHA-256\",a);return Array.from(new Uint8Array(c)).map(i=>i.toString(16).padStart(2,\"0\")).join(\"\").toUpperCase()}function P(){return\"xxxxxxxx-xxxx-xxxx-yxxx-xxxxxxxxxxxx\".replace(/[xy]/g,function(r){let e=Math.random()*16|0;return(r===\"x\"?e:e&3|8).toString(16)})}function F(r){return r.includes(\"mp3\")?\"mp3\":r.includes(\"opus\")&&r.includes(\"webm\")?\"webm\":r.includes(\"opus\")&&r.includes(\"ogg\")?\"ogg\":r.includes(\"wav\")||r.includes(\"riff\")?\"wav\":r.includes(\"pcm\")&&r.includes(\"raw\")?\"pcm\":r.includes(\"alaw\")?\"alaw\":r.includes(\"mulaw\")?\"mulaw\":r.includes(\"truesilk\")?\"silk\":r.includes(\"g722\")?\"g722\":r.includes(\"amr\")?\"amr\":\"audio\"}function H(r,e){let t=Number(/(\\d+)kbitrate/.exec(e)?.[1]??48);return r*8/(t*1e3)}function w(r){let e=new Uint8Array(r.reduce((n,o)=>n+o.length,0)),t=0;for(let n of r)e.set(n,t),t+=n.length;return e}function G(r){let e=[];for(let t of r||[]){let n=t?.ShortName||\"\",o=t?.Locale||\"\",a=n.replace(/^[a-z]{2}-[A-Z]{2}-/,\"\");a=a.replace(/NeuralHD$/,\"\").replace(/Neural$/,\"\").trim();let c=`${t?.Name||\"\"} ${n}`,i=t?.VoiceType||(/NeuralHD/i.test(c)?\"NeuralHD\":\"Neural\"),u=t?.LocaleName||o||null,s=t?.DisplayName||t?.FriendlyName||a||n;s=s.replace(/^Microsoft\\s+/i,\"\"),s=s.split(\" - \")[0].trim(),s=s.replace(/\\s*Online\\s*\\(Natural\\)\\s*/i,\" \"),s=s.replace(/\\s*Online\\s*/i,\" \"),s=s.replace(/\\s+/g,\" \").trim();let p=t?.VoiceTag&&typeof t.VoiceTag==\"object\"?t.VoiceTag:{},d=Array.isArray(p.TailoredScenarios)?p.TailoredScenarios:Array.isArray(p.ContentCategories)?p.ContentCategories:[],g=Array.isArray(p.VoicePersonalities)?p.VoicePersonalities:[];e.push({Name:n||t?.Name||\"\",DisplayName:s,LocalName:s,ShortName:n||t?.Name||\"\",Gender:t?.Gender??null,Locale:o||null,LocaleName:u,SecondaryLocaleList:Array.isArray(t?.SecondaryLocaleList)?t.SecondaryLocaleList:[],VoiceType:i,VoiceTag:{TailoredScenarios:d,VoicePersonalities:g},FriendlyName:`${s} (${i}) - ${u}`})}return e}var se=0,ie=1,ae=[1e3,1005,1006];function ce(r){let e=r?.code;if(typeof e!=\"number\"||ae.includes(e))return;let t=typeof r?.reason==\"string\"&&r.reason!==\"\"?r.reason:`close code ${e}`;return new l(`The service refused the request: ${t}`,\"REFUSED\",{status:e})}function E(r){if(r.reason!==void 0)return r.reason;let e=new Error(\"This operation was aborted\");return e.name=\"AbortError\",e}function ue(r){return r instanceof ArrayBuffer?new Uint8Array(r):ArrayBuffer.isView(r)?new Uint8Array(r.buffer,r.byteOffset,r.byteLength):new Uint8Array(0)}function z(r,e){return new Promise((t,n)=>{if(e.signal?.aborted){n(E(e.signal));return}let o=r();o.binaryType=\"arraybuffer\";let a=!1,c=!1,i,u=d=>{if(!a){if(a=!0,clearTimeout(i),e.signal?.removeEventListener(\"abort\",p),d===void 0){t();return}(o.readyState===se||o.readyState===ie)&&o.close(),n(d)}},s=()=>{clearTimeout(i),i=setTimeout(()=>{u(new l(\"WebSocket inactivity timeout - no response from server\",\"TIMEOUT\"))},e.timeout)},p=()=>u(E(e.signal));e.signal?.addEventListener(\"abort\",p,{once:!0}),s(),o.onopen=()=>{a||(c=!0,s(),o.send(e.configMessage),o.send(e.ssmlMessage))},o.onmessage=d=>{if(a)return;if(s(),typeof d.data==\"string\"){let h=$(d.data);if(h.path===\"audio.metadata\")for(let f of R(h.body))e.onBoundary(f);else h.path===\"turn.end\"&&o.close();return}let g=D(ue(d.data));g.path===\"audio\"&&e.onAudio(g.body)},o.onerror=d=>u(e.toError(d,c)),o.onclose=d=>u(ce(d))})}function x(r,e){let t=Math.max(0,Math.round(r/1e4)),n=t%1e3,o=Math.floor(t/1e3)%60,a=Math.floor(t/6e4)%60,c=Math.floor(t/36e5),i=(u,s=2)=>String(u).padStart(s,\"0\");return`${i(c)}:${i(a)}:${i(o)}${e}${i(n,3)}`}function A(r){return r.map((e,t)=>`${t+1}\n${x(e.offset,\",\")} --> ${x(e.offset+e.duration,\",\")}\n${e.text}\n`).join(`\n`)}function O(r){return`WEBVTT\n\n${r.map(t=>`${x(t.offset,\".\")} --> ${x(t.offset+t.duration,\".\")}\n${t.text}\n`).join(`\n`)}`}var de=3e4,le=10*6e4,K=\"The service returned no audio. Voices are locale specific, so a voice cannot read text written in another script. Check that the voice matches the language of the text.\";function U(r){let e=Object.values(y.OUTPUT_FORMAT);return e.includes(r)?K:`${K} The output format \"${r}\" may also be the cause: the service is known to support ${e.join(\", \")}.`}function C(r,e,t){let n=I(r);return o=>{o.type===\"WordBoundary\"?e.push(o):t.push({...o,text:n(o.text)})}}var _=class{constructor(e={}){m(this,\"audio_stream\",[]);m(this,\"output_format\",S);m(this,\"word_boundaries\",[]);m(this,\"sentence_boundaries\",[]);m(this,\"options\");m(this,\"voicesCache\");this.options={...e}}async recoverHandshake(){return!1}signature(){return W(y.TRUSTED_CLIENT_TOKEN,M())}async normalizeVoices(e){return G(e)}async getVoices(){if(this.voicesCache&&this.voicesCache.expires>Date.now())return JSON.parse(JSON.stringify(this.voicesCache.voices));let e=await this.signature(),t=`${this.options.voicesUrl??y.VOICES_URL}?TrustedClientToken=${y.TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${e}&Sec-MS-GEC-Version=${this.options.secMsGecVersion??y.VERSION_MS_GEC}`,n=await this.normalizeVoices(await this.requestVoices(t)),o=this.options.voicesCacheTtl??le;return o>0&&(this.voicesCache={expires:Date.now()+o,voices:JSON.parse(JSON.stringify(n))}),n}async getVoicesByLanguage(e){return(await this.getVoices()).filter(n=>n.Locale?.startsWith(e))}async getVoicesByGender(e){return(await this.getVoices()).filter(n=>n.Gender===e)}async synthesize(e,t=this.defaultVoice,n={}){let o=[],a=[],c=[];this.audio_stream=o,this.word_boundaries=a,this.sentence_boundaries=c,this.output_format=n.outputFormat||S,await this.run(e,t,n,i=>o.push(i),C(e,a,c))}async*synthesizeStream(e,t=this.defaultVoice,n={}){let o=[],a=[],c=[];this.audio_stream=o,this.word_boundaries=a,this.sentence_boundaries=c,this.output_format=n.outputFormat||S;let i=new AbortController,u=()=>i.abort(E(n.signal));n.signal?.aborted?u():n.signal?.addEventListener(\"abort\",u,{once:!0});let s=[],p=null,d=!1,g,h=()=>{p?.(),p=null};this.run(e,t,{...n,signal:i.signal},f=>{o.push(f),s.push(f),h()},C(e,a,c)).then(()=>{d=!0,h()},f=>{g=f,d=!0,h()});try{for(;!d||s.length>0;){if(s.length===0){await new Promise(f=>p=f);continue}yield s.shift()}if(g!==void 0)throw g}finally{n.signal?.removeEventListener(\"abort\",u),d||i.abort()}}async generate(e,t=this.defaultVoice,n={}){let o=[],a=[],c=[];await this.run(e,t,n,s=>o.push(s),C(e,a,c));let i=w(o),u=n.outputFormat||S;if(i.length===0)throw new l(U(u),\"NO_AUDIO\");return{audio:i,format:F(u),outputFormat:u,wordBoundaries:a,sentenceBoundaries:c,duration:H(i.length,u)}}getWordBoundaries(){return this.word_boundaries}getSentenceBoundaries(){return this.sentence_boundaries}toSRT(){return A(this.sentence_boundaries.length>0?this.sentence_boundaries:this.word_boundaries)}toVTT(){return O(this.sentence_boundaries.length>0?this.sentence_boundaries:this.word_boundaries)}async run(e,t,n,o,a){if(e.trim()===\"\")throw new l(\"The text is empty.\",\"INVALID_OPTION\");let c=this.buildSSML(e,t,n),i=n.outputFormat||S,u=async()=>{let s=P(),p=N(this.options.wssUrl??y.WSS_URL,y.TRUSTED_CLIENT_TOKEN,await this.signature(),this.options.secMsGecVersion??y.VERSION_MS_GEC,s);await z(()=>this.openSocket(p),{configMessage:V(this.timestamp(),i),ssmlMessage:B(s,this.timestamp(),c),timeout:n.timeout??this.options.timeout??de,signal:n.signal,onAudio:o,onBoundary:a,toError:(d,g)=>this.socketError(d,g)})};try{await u()}catch(s){if(!(s instanceof l&&s.code===\"HANDSHAKE\")||!await this.recoverHandshake())throw s;await u()}}};var k=class extends _{constructor(t={}){super(t);m(this,\"defaultVoice\",\"en-US-JennyNeural\");m(this,\"ws\")}openSocket(t){return this.ws=new WebSocket(t),this.ws}async requestVoices(t){let n=await fetch(t,{headers:y.getBaseHeaders()});if(!n.ok)throw new l(`Voice list request failed with status ${n.status}`,\"VOICES\",{status:n.status});let o=await n.json();return Array.isArray(o)?o:o?.voices||[]}buildSSML(t,n,o){let a=this.validatePitch(o.pitch??0),c=this.validateRate(o.rate??0),i=this.validateVolume(o.volume??0);return L(t,n,a,c,i)}timestamp(){return new Date().toUTCString()}socketError(t,n){return new l(\"WebSocket error\",n?\"NETWORK\":\"HANDSHAKE\")}validatePitch(t){return typeof t==\"number\"?t>=0?`+${t}Hz`:`${t}Hz`:t}validateRate(t){let n;return typeof t==\"string\"?n=parseFloat(t.replace(\"%\",\"\")):n=t,n>=0?`+${n}%`:`${n}%`}validateVolume(t){let n;return typeof t==\"string\"?n=parseInt(t.replace(\"%\",\"\"),10):n=t,`${n}%`}getAudioData(){if(this.audio_stream.length===0)throw new l(\"No audio data available\",\"NO_AUDIO\");let t=w(this.audio_stream);if(t.length===0)throw new l(U(this.output_format),\"NO_AUDIO\");return t}};return Y(pe);})();\nwindow.EdgeTTS = EdgeTTSModule.EdgeTTS; window.EdgeTTSVoice = EdgeTTSModule.Voice;\n";
+app.get('/edge-tts-bundle.js', (req, res) => { res.type('application/javascript'); res.send(PHONE_TTS_BUNDLE); });
+const phoneUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+app.post('/api/projects/:id/narration-phone', phoneUpload.array('clips', 300), async (req, res) => {
+  const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
+  const files0 = req.files || []; if (!files0.length) return res.status(400).json({ error: 'No audio clips uploaded' });
+  let lineIndex = null;
+  try { const li = JSON.parse(req.body?.lineIndex || 'null'); if (Array.isArray(li) && li.length === files0.length) lineIndex = li.map(x => parseInt(x, 10)); } catch {}
+  if (!lineIndex) lineIndex = files0.map((_, i) => i);
+  const pauseSec = parseFloat(req.body?.pause || 0.5);
+  const voice = req.body?.voice || TTS_VOICES[0];
+  const tmpDir = fs.mkdtempSync(path.join(OUT_DIR, 'tts-phone-'));
+  try {
+    const files = [];
+    for (let i = 0; i < files0.length; i++) { const segFile = path.join(tmpDir, `seg${i}.mp3`); fs.writeFileSync(segFile, files0[i].buffer); if (!fs.statSync(segFile).size) throw new Error(`Empty clip ${i}`); files.push(segFile); }
+    const lineClips = await buildLineClips(files, lineIndex, p.id);
+    const outMp3 = path.join(OUT_DIR, `${p.id}-narration.mp3`);
+    await concatMp3s(files, outMp3, pauseSec, tmpDir);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    const meta = await probe(outMp3);
+    p.tts = { provider: 'phone-edge', voice, source: 'translation', segments: files.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
+    return res.json({ project: p, tts: p.tts });
+  } catch (e) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} return res.status(500).json({ error: `Phone narration failed: ${e.message}` }); }
+});
 app.post('/api/projects/:id/tts', async (req, res) => {
   const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
   const provider = (req.body?.provider || defaultTtsProvider()).toLowerCase();
@@ -1912,12 +2015,21 @@ app.post('/api/projects/:id/tts', async (req, res) => {
       // Speed slider 0.5-2.0 maps to espeak-ng words-per-minute (default 175).
       if (!localTtsConfigured()) return res.status(501).json({ error: 'Local TTS needs espeak-ng on the server: sudo apt-get install espeak-ng, then restart the server. No local audio was generated.', downloadScript: `/api/projects/${p.id}/download/script` });
       const wpm = Math.min(450, Math.max(80, Math.round(175 * speed)));
+      // ESPEAK-FIX: re-chunk to <=200 chars so espeak-ng never sees the long
+      // segments that crashed it; keep the per-line mapping aligned.
+      if (segmentLineIndex) {
+        const newSegs = []; const newIdx = [];
+        segments.forEach((s, si) => { for (const c of chunkTextForEspeak(s)) { newSegs.push(c); newIdx.push(segmentLineIndex[si]); } });
+        segments = newSegs; segmentLineIndex = newIdx;
+      } else segments = segments.flatMap(s => chunkTextForEspeak(s));
       for (let i = 0; i < segments.length; i++) {
         const wavFile = path.join(tmpDir, `seg${i}.wav`);
         const segFile = path.join(tmpDir, `seg${i}.mp3`);
-        await run('espeak-ng', ['-v', 'my', '-s', String(wpm), '-w', wavFile, segments[i]]);
-        const st = fs.statSync(wavFile);
-        if (!st.size) throw new Error('espeak-ng produced an empty WAV for a segment — no audio was generated');
+        try {
+          await run('espeak-ng', ['-v', 'my', '-s', String(wpm), '-w', wavFile, segments[i]]);
+          const st = fs.statSync(wavFile);
+          if (!st.size) throw new Error('empty WAV');
+        } catch (e) { throw new Error(`espeak-ng failed on local segment ${i} (${JSON.stringify(segments[i].slice(0, 60))}): ${e.message}`); }
         await run('ffmpeg', ['-y', '-i', wavFile, '-c:a', 'libmp3lame', segFile]);
         files.push(segFile);
       }
@@ -1964,23 +2076,33 @@ app.post('/api/projects/:id/tts', async (req, res) => {
     const rateStr = `${ratePct >= 0 ? '+' : ''}${ratePct}%`;
     const pitch = req.body?.pitch;
     const edgePy = fs.existsSync(WHISPER_PYTHON) ? WHISPER_PYTHON : 'python3';
+    // AUTO-RETRY: Edge TTS 429 throttling used to fail the whole voiceover on the
+    // first bad line and force the user to wait + tap again. Now each line retries
+    // itself (msedgeservices, then legacy CLI) up to 3 times with 15s/30s backoff
+    // before giving up — one tap finishes the voiceover even when Microsoft
+    // throttles briefly. A persistent throttle still fails, but only after retries.
+    const ttsOk = (f) => { try { return fs.existsSync(f) && fs.statSync(f).size > 0; } catch { return false; } };
     for (let i = 0; i < segments.length; i++) {
       const segFile = path.join(tmpDir, `seg${i}.mp3`);
       let edgeErr = null;
-      try {
-        const { out } = await run(edgePy, [path.join(__dirname, 'edge_ms.py'), segments[i], voice, segFile, rateStr]);
-        if (!/AUDIO_BYTES=([1-9][0-9]*)/.test(out) || !fs.existsSync(segFile) || !fs.statSync(segFile).size) throw new Error(`msedgeservices returned no audio (${(out || '').slice(-300)})`);
-      } catch (e) { edgeErr = e.message; }
-      if (!fs.existsSync(segFile) || !fs.statSync(segFile).size) {
-        // Second attempt: legacy edge-tts CLI (bing endpoint).
+      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          const args = ['-m', 'edge_tts', '--voice', voice, '--rate', rateStr, '--write-media', segFile, '--text', segments[i]];
-          if (pitch) args.push('--pitch', pitch);
-          if (process.env.HTTPS_PROXY) args.push('--proxy', process.env.HTTPS_PROXY);
-          await run('python3', args);
-        } catch (e) { edgeErr = `${edgeErr} | legacy edge-tts CLI also failed: ${e.message}`; }
+          const { out } = await run(edgePy, [path.join(__dirname, 'edge_ms.py'), segments[i], voice, segFile, rateStr]);
+          if (!/AUDIO_BYTES=([1-9][0-9]*)/.test(out) || !ttsOk(segFile)) throw new Error(`msedgeservices returned no audio (${(out || '').slice(-300)})`);
+        } catch (e) { edgeErr = e.message; }
+        if (!ttsOk(segFile)) {
+          // Second attempt per round: legacy edge-tts CLI (bing endpoint).
+          try {
+            const args = ['-m', 'edge_tts', '--voice', voice, '--rate', rateStr, '--write-media', segFile, '--text', segments[i]];
+            if (pitch) args.push('--pitch', pitch);
+            if (process.env.HTTPS_PROXY) args.push('--proxy', process.env.HTTPS_PROXY);
+            await run('python3', args);
+          } catch (e) { edgeErr = `${edgeErr} | legacy edge-tts CLI also failed: ${e.message}`; }
+        }
+        if (ttsOk(segFile)) break;
+        if (attempt < 3) await new Promise(r => setTimeout(r, 15000 * attempt));
       }
-      if (!fs.existsSync(segFile) || !fs.statSync(segFile).size) throw new Error(`Edge TTS failed (msedgeservices + legacy CLI): ${edgeErr} — no audio was generated. Local fallback is used only by the Workflow, with a clear log line, never presented as Edge audio.`);
+      if (!ttsOk(segFile)) throw new Error(`Edge TTS failed after 3 auto-retries (msedgeservices + legacy CLI): ${edgeErr} — no audio was generated. Local fallback is used only by the Workflow, with a clear log line, never presented as Edge audio.`);
       files.push(segFile);
     }
     const listFile = path.join(tmpDir, 'list.txt');
