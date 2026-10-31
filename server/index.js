@@ -220,25 +220,27 @@ async function geminiTranslateBatch(texts, sourceLang) {
   return parseBatchResponse(content, texts.length);
 }
 async function withRetry(fn) { let last; for (let a = 0; a < 2; a++) { try { return await fn(); } catch (e) { last = e; if (a === 0) await new Promise(r => setTimeout(r, 5000)); } } throw last; }
+async function withRetrySlow(fn) { let last; const waits = [10000, 20000, 40000]; for (let a = 0; a < 4; a++) { try { return await fn(); } catch (e) { last = e; if (a < 3) await new Promise(r => setTimeout(r, waits[a])); } } throw last; }
 function withTimeout(promise, ms, label) { let timer; const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error((label || 'Call') + ' timed out after ' + Math.round(ms / 1000) + 's')), ms); }); return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)); }
 async function translateLinesWithGoogleOrFallback(lines, sourceLang) {
   // lines: [{original}] -> {translations, path, error}
-  // Order: Groq batched first (fastest; empty/mismatch throws and falls
-  // through to Gemini) -> Gemini batched ->
+  // ACCURACY-FIX: Order: Gemini batched first (accuracy first) -> Groq
+  // batched (both with slow retries so transient 429/503 never falls
+  // through to the MyMemory garbage fallback) -> Google batch ->
   // Google batch -> MyMemory parallel -> NLLB offline -> Argos offline.
   // Every step is labelled in `path`; a failure never invents a translation.
   const originals = lines.map(l => l.original);
   const attempts = [];
-  try {
-    const translations = await withRetry(() => groqTranslateBatch(originals, sourceLang));
-    return { translations, path: 'groq-batch', googleLog: 'Translated in one Groq batch call (fastest path).', error: null };
-  } catch (ge) { attempts.push(`Groq batch: ${ge.message}`); }
   if (process.env.GEMINI_API_KEY) {
     try {
-      const translations = await withRetry(() => geminiTranslateBatch(originals, sourceLang));
+      const translations = await withRetrySlow(() => geminiTranslateBatch(originals, sourceLang));
       return { translations, path: 'gemini-batch', googleLog: 'Translated in one Gemini batch call.', error: null };
     } catch (me) { attempts.push(`Gemini batch: ${me.message}`); }
   }
+  try {
+    const translations = await withRetrySlow(() => groqTranslateBatch(originals, sourceLang));
+    return { translations, path: 'groq-batch', googleLog: 'Translated in one Groq batch call.', error: null };
+  } catch (ge) { attempts.push(`Groq batch: ${ge.message}`); }
   try {
     const translations = await googleTranslateBatch(originals, 'my', (sourceLang && sourceLang !== 'auto') ? sourceLang : 'auto');
     return { translations, path: 'google', googleLog: 'Translated via Google batch.', error: null };
@@ -978,7 +980,7 @@ async function runAutoJob(projectId, opts) {
     // SPEED: skip the Gemini transcript polish on the Groq fast path — Groq +
     // deterministic fixes + the human review gate carry accuracy, and skipping
     // saves a full Gemini round-trip per job. Other engines still get polished.
-    if (process.env.GEMINI_API_KEY && transcriptProvider !== 'groq') {
+    if (process.env.GEMINI_API_KEY) {
       try {
         p.autoJob.stage = 'polishing-transcript'; saveProjects(projects);
         const pr = await withTimeout(geminiPolishLines(allPieces.map(l => l.original), 'transcript'), 120000, 'Transcript auto-check');
@@ -1029,8 +1031,10 @@ async function runAutoJob(projectId, opts) {
       }
     }
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    const weakPath = ['mymemory', 'nllb-offline', 'argos-offline'].includes(p.autoJob.translationPath);
+    const fallbackWarning = weakPath ? ' ⚠️ ဘာသာပြန်က အရန်လမ်း (' + p.autoJob.translationPath + ') က ရတာ — လိုင်းတွေ သေချာစစ်ပြီးမှ အသံထုတ်ပါ။' : '';
     p.autoJob.transcriptionProvider = transcriptProvider;
-    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${polishNote ? ' ' + polishNote : ''}${checkNote ? ' ' + checkNote : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}`, finishedAt: new Date().toISOString() };
+    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${polishNote ? ' ' + polishNote : ''}${checkNote ? ' ' + checkNote : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}${fallbackWarning}`, finishedAt: new Date().toISOString() };
     saveProjects(projects);
   } catch (e) {
     p.autoJob = { ...p.autoJob, status: 'failed', stage: 'failed', message: `Auto transcript job failed: ${e.message}`, error: e.message, finishedAt: new Date().toISOString() };
