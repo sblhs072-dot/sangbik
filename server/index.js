@@ -750,13 +750,28 @@ async function groqTranscribeSegment(wavPath, segDur, lang) {
 }
 // Sequential on purpose: the free tier is rate-limited, and one failure must
 // fall the WHOLE job to the next engine (never a half-Groq, half-other mix).
+// Groq segments run 3 at a time (parallel) — Groq's API tolerates concurrent
+// requests, so a 7-segment video transcribes roughly 3x faster than one-by-one.
+// Gemini stays sequential on purpose: its free tier rate-limits bursts, and one
+// failed segment must fall the WHOLE job back (never a half-mixed transcript).
+// If any Groq segment fails, Promise.all rejects and the engine loop falls back
+// to the next engine, exactly like the old sequential version.
 async function transcribeSegmentsWithGroq(segWavs, jobs, onProgress, lang) {
-  const out = [];
-  for (let i = 0; i < segWavs.length; i++) {
-    const job = jobs[i];
-    const segDur = Math.max(0.1, job.end - job.start);
-    out.push(await groqTranscribeSegment(segWavs[i], segDur, lang));
-    if (onProgress) onProgress(i + 1);
+  const out = new Array(segWavs.length);
+  let done = 0;
+  const CONC = 3;
+  for (let base = 0; base < segWavs.length; base += CONC) {
+    const group = [];
+    for (let i = base; i < Math.min(base + CONC, segWavs.length); i++) {
+      group.push((async () => {
+        const job = jobs[i];
+        const segDur = Math.max(0.1, job.end - job.start);
+        out[i] = await groqTranscribeSegment(segWavs[i], segDur, lang);
+        done++;
+        if (onProgress) onProgress(done);
+      })());
+    }
+    await Promise.all(group);
   }
   return out;
 }
@@ -865,7 +880,7 @@ async function runAutoJob(projectId, opts) {
   try {
     p.autoJob.transcriptChoice = transcriptChoice;
     p.autoJob.sourceLang = sourceLang;
-    // FAST-v2: scene detection skipped in auto job — transcript uses 60s time segments, not scenes, so decoding the full video for scenes only wasted minutes on Render Free. Scenes are still available via /analyze if needed.
+    // FAST-v2: scene detection skipped in auto job — transcript uses 60s time segments (180s for Groq), not scenes, so decoding the full video for scenes only wasted minutes on Render Free. Scenes are still available via /analyze if needed.
     p.scenes = p.scenes || [];
     p.autoJob.stage = 'scenes-done'; p.autoJob.percent = 5; saveProjects(projects);
     // No key gate when a cloud engine is keyed (Groq/Gemini need no local Whisper). Without keys, offline Whisper + Google Translate need no key.
@@ -876,14 +891,17 @@ async function runAutoJob(projectId, opts) {
       saveProjects(projects); return;
     }
     const duration = p.metadata?.duration || (await probe(p.file.path)).duration || 0;
-    const totalSegments = Math.max(1, Math.ceil(duration / 60));
+    // Fastest server path: Groq takes 180s chunks (fewer API calls, same job-based
+    // offsets, 180s wav is 5.49MB — well under Groq's 25MB limit). Other engines keep 60s.
+    const SEG_DUR = (transcriptChoice === 'groq') ? 180 : 60;
+    const totalSegments = Math.max(1, Math.ceil(duration / SEG_DUR));
     p.autoJob.totalSegments = totalSegments; p.autoJob.stage = 'extracting-audio'; p.autoJob.percent = 10; saveProjects(projects);
     const tmpDir = fs.mkdtempSync(path.join(OUT_DIR, 'auto-'));
     const wavPath = path.join(tmpDir, 'audio.wav');
     await run('ffmpeg', ['-y', '-i', p.file.path, '-vn', '-ac', '1', '-ar', '16000', wavPath]);
     // Segment jobs: transcribe (Whisper) then immediately translate that segment, in parallel workers.
     const jobs = [];
-    for (let i = 0; i < totalSegments; i++) jobs.push({ index: i, start: i * 60, end: Math.min((i + 1) * 60, duration || 60) });
+    for (let i = 0; i < totalSegments; i++) jobs.push({ index: i, start: i * SEG_DUR, end: Math.min((i + 1) * SEG_DUR, duration || SEG_DUR) });
     // Offline Whisper, one process for all segment wavs (model loaded once).
     const segWavs = [];
     for (const job of jobs) {
