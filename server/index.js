@@ -1556,13 +1556,13 @@ el('phoneTtsBtn').onclick = function(){
           return new Promise(function(res){ setTimeout(res, 400); }).then(next);
         }).catch(function(e){
           if(attempt < 3) return new Promise(function(res){ setTimeout(res, 2000 * attempt); }).then(tryLine);
-          throw new Error('လိုင်း ' + (it.lineIndex + 1) + ' အသံမရပါ: ' + e.message);
+          var ne = new Error('လိုင်း ' + (it.lineIndex + 1) + ' အသံမရပါ: ' + e.message); ne.code = e.code; ne.status = e.status; throw ne;
         });
       }
       return tryLine();
     }
     return next();
-  }).catch(function(e){ el('phoneTtsText').textContent = 'ဖုန်းအသံ မရပါ: ' + e.message + ' (Microsoft Edge browser နဲ့ ဖွင့်ကြည့်ပါ)'; btn.disabled = false; });
+  }).catch(function(e){ el('phoneTtsText').textContent = 'ဖုန်းအသံ မရပါ: ' + e.message + ' [code=' + (e.code || '?') + (e.status ? (' status=' + e.status) : '') + '] — ဒီ code ကို ကျွန်တော့်ကို ပြောပါ'; btn.disabled = false; });
 };
 el('vidSpeedSel').onchange = function(){ var v = el('vid'); if(v) v.playbackRate = parseFloat(el('vidSpeedSel').value) || 1; };
 el('narrSpeedSel').onchange = function(){ var a = el('narrAudio'); if(a) a.playbackRate = parseFloat(el('narrSpeedSel').value) || 1; };
