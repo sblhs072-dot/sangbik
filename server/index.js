@@ -81,7 +81,7 @@ async function googleTranslateBatch(texts, target = 'my', source = 'auto') {
   params.append('client', 'gtx'); params.append('sl', source); params.append('tl', target); params.append('dt', 't');
   for (const t of texts) params.append('q', t);
   const url = 'https://translate.googleapis.com/translate_a/single?' + params.toString();
-  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(120000) });
   const body = await r.text();
   if (!r.ok) throw new Error(`Google Translate HTTP ${r.status}: ${body.slice(0, 300)}`);
   let j; try { j = JSON.parse(body); } catch { throw new Error(`Google Translate returned unparseable output: ${body.slice(0, 300)}`); }
@@ -113,7 +113,7 @@ async function myMemoryTranslateBatch(texts, target = 'my') {
     const params = { q: t, langpair: `${/[\u4e00-\u9fff]/.test(t) ? 'zh' : 'en'}|${target}` };
     if (MYMEMORY_EMAIL) params.de = MYMEMORY_EMAIL;
     const url = 'https://api.mymemory.translated.net/get?' + new URLSearchParams(params).toString();
-    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(120000) });
     const body = await r.text();
     let j; try { j = JSON.parse(body); } catch { throw new Error(`MyMemory returned unparseable output (HTTP ${r.status}): ${body.slice(0, 200)}`); }
     const txt = j.responseData?.translatedText || '';
@@ -203,7 +203,7 @@ async function groqTranslateBatch(texts, sourceLang) {
   // Enterprise-only since Aug 2026 and error on free keys). Override with
   // GROQ_TRANSLATE_MODEL if Groq changes its lineup again.
   const model = process.env.GROQ_TRANSLATE_MODEL || 'openai/gpt-oss-20b';
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify({ model, temperature: 0.2, max_completion_tokens: 16384, messages: [{ role: 'user', content: buildBatchPrompt(texts, sourceLang) }] }) });
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify({ model, temperature: 0.2, max_completion_tokens: 16384, messages: [{ role: 'user', content: buildBatchPrompt(texts, sourceLang) }] }) });
   const body = await res.text();
   if (!res.ok) throw new Error(`Groq HTTP ${res.status}: ${body.slice(0, 300)}`);
   let j; try { j = JSON.parse(body); } catch { throw new Error('Groq returned unparseable output.'); }
@@ -213,7 +213,7 @@ async function groqTranslateBatch(texts, sourceLang) {
 async function geminiTranslateBatch(texts, sourceLang) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_TRANSLATE_MODEL || GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_TRANSLATE_MODEL || GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
   const body = await res.text();
   if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 300)}`);
   let j; try { j = JSON.parse(body); } catch { throw new Error('Gemini returned unparseable output.'); }
@@ -238,7 +238,8 @@ async function translateLinesWithGoogleOrFallback(lines, sourceLang) {
       return { translations, path: 'gemini-batch', googleLog: 'Translated in one Gemini batch call.', error: null };
     } catch (me) { attempts.push(`Gemini batch: ${me.message}`); }
   }
-  try {
+  if (!process.env.GROQ_API_KEY) { attempts.push('Groq key မရှိ — Groq ကျော်သွားပြီ'); }
+  else try {
     const translations = await withRetrySlow(() => groqTranslateBatch(originals, sourceLang));
     return { translations, path: 'groq-batch', googleLog: 'Translated in one Groq batch call.', error: null };
   } catch (ge) { attempts.push(`Groq batch: ${ge.message}`); }
@@ -295,15 +296,25 @@ let projects = loadProjects();
 function newId() { return crypto.randomBytes(8).toString('hex'); }
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, opts);
-    let out = '', err = '';
+    const { timeout, ...spawnOpts } = opts || {};
+    const p = spawn(cmd, args, spawnOpts);
+    let out = '', err = '', settled = false, timer = null;
+    if (timeout && timeout > 0) {
+      timer = setTimeout(() => {
+        if (settled) return; settled = true;
+        try { p.kill('SIGKILL'); } catch {}
+        reject(new Error(`${cmd} timed out after ${Math.round(timeout / 1000)}s`));
+      }, timeout);
+      if (timer.unref) timer.unref();
+    }
+    const done = (fn) => (...a) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); fn(...a); };
     p.stdout.on('data', d => out += d); p.stderr.on('data', d => err += d);
-    p.on('error', reject);
-    p.on('close', code => code === 0 ? resolve({ out, err }) : reject(new Error(`${cmd} exited ${code}: ${err.slice(-2000)}`)));
+    p.on('error', done(reject));
+    p.on('close', done(code => code === 0 ? resolve({ out, err }) : reject(new Error(`${cmd} exited ${code}: ${err.slice(-2000)}`))));
   });
 }
 async function probe(file) {
-  const { out } = await run('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', file]);
+  const { out } = await run('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', file], { timeout: 60000 });
   const j = JSON.parse(out);
   const v = j.streams.find(s => s.codec_type === 'video') || {};
   const a = j.streams.find(s => s.codec_type === 'audio') || {};
@@ -348,8 +359,9 @@ function writeVtt(project, segments, suffix = '') {
 }
 function normaliseLines(lines) {
   if (!Array.isArray(lines)) return [];
-  return lines.map(l => ({ start: parseFloat(l.start || 0), end: parseFloat(l.end || 0), original: String(l.original || ''), burmese: String(l.burmese || '') })).filter(l => l.end > l.start && l.burmese);
+  return lines.map(l => ({ start: parseFloat(l.start || 0), end: parseFloat(l.end || 0), original: String(l.original || ''), burmese: String(l.burmese || ''), manual: !!l.manual })).filter(l => l.end > l.start && l.burmese);
 }
+function ttsLinesFingerprint(lines) { let h = 0; const s = (lines || []).map(l => (l.start || 0) + '|' + (l.end || 0) + '|' + (l.burmese || '')).join('\n'); for (let i = 0; i < s.length; i++) { h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0; } return String(h); }
 function getSceneSegments(scenes, start, end) {
   const cuts = [start, ...(scenes || []).filter(t => t > start && t < end).sort((a, b) => a - b), end];
   const segs = [];
@@ -490,7 +502,7 @@ function chunkTextForEspeak(text, maxLen = 200) {
   return out.length ? out : [t];
 }
 async function geminiTtsSegment(text, voice, model, key, outMp3) {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } }) });
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } }) });
   const j = await res.json();
   const part = j.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
   if (!part) throw new Error(`Gemini TTS returned no audio: ${JSON.stringify(j).slice(0, 500)}`);
@@ -508,7 +520,7 @@ async function azureTtsSegment(text, voice, speed, pitch, key, region, outMp3) {
   const rate = `${ratePct >= 0 ? '+' : ''}${ratePct}%`;
   const pitchAttr = pitch && /^[+-]?\d+(Hz|%)$/.test(pitch.trim()) ? ` pitch="${pitch.trim()}"` : '';
   const ssml = `<speak version="1.0" xml:lang="my-MM"><voice name="${voice}"><prosody rate="${rate}"${pitchAttr}>${escapeXml(text)}</prosody></voice></speak>`;
-  const res = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, { method: 'POST', headers: { 'Ocp-Apim-Subscription-Key': key, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-16khz-128kbitrate-mono-mp3', 'User-Agent': 'Sangbik' }, body: ssml });
+  const res = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Ocp-Apim-Subscription-Key': key, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-16khz-128kbitrate-mono-mp3', 'User-Agent': 'Sangbik' }, body: ssml });
   if (!res.ok) throw new Error(`Azure Speech HTTP ${res.status}: ${(await res.text()).slice(0, 500)}`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (!buf.length) throw new Error('Azure Speech returned empty audio');
@@ -696,7 +708,7 @@ async function geminiTranscribeSegment(wavPath, segDur, lang) {
   if (!key) throw new Error('Gemini key missing');
   const b64 = fs.readFileSync(wavPath).toString('base64');
   const prompt = (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. When two characters sound the same, choose the one that fits the story context (for example, the guidance of a Buddha, a dragon scale, a proverb about lazy hands). Never invent words that were not spoken. If a part is unclear, transcribe your best guess rather than skipping it.';
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } }) });
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(300000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } }) });
   if (!res.ok) {
     let detail = '';
     try { const j = await res.json(); detail = j.error?.message || j.error?.status || ''; } catch {}
@@ -761,7 +773,7 @@ async function groqTranscribeSegment(wavPath, segDur, lang) {
   else fd.append('prompt', '这是一段中文日常对话,请使用自然标准的简体中文口语进行转录。注意使用正确的惯用语和同音字,例如一瘸一拐、马蹄、队伍,不要写成发音相近的错字。遇到同音字时,根据上下文和故事逻辑选择正确的写法,例如点化不是电话,鳞不是林,手懒不是手揽,石化不是实化,至诚不是至成。人名要保持一致。不要编造没有说过的内容。');
   if (lang && lang !== 'auto') fd.append('language', lang);
   fd.append('response_format', 'verbose_json');
-  const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd });
+  const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd, signal: AbortSignal.timeout(300000) });
   if (!res.ok) {
     let detail = '';
     try { const ej = await res.json(); detail = ej.error?.message || ''; } catch {}
@@ -976,7 +988,7 @@ async function runAutoJob(projectId, opts) {
     }
     if (!whisperResults) {
       p.autoJob = { ...p.autoJob, status: 'failed', stage: 'done', percent: 100, completedSegments: 0, totalSegments: 0,
-        message: 'No transcription engine available — Groq/Gemini key မရှိ၊ Whisper လည်း မတပ်ဆင်ထားပါ။ No transcript was faked. Manual lines still work.',
+        message: 'Transcription failed on all engines (' + fallbackNotes.join(' ') + ') — no transcript was faked. Manual lines still work.',
         finishedAt: new Date().toISOString() };
       saveProjects(projects); return;
     }
@@ -989,9 +1001,8 @@ async function runAutoJob(projectId, opts) {
     allPieces.forEach(l => { l.original = fixTranscriptDeterministic(l.original); });
     allPieces = splitTranscriptToMax(allPieces, 5);
     let polishNote = '';
-    // SPEED: skip the Gemini transcript polish on the Groq fast path — Groq +
-    // deterministic fixes + the human review gate carry accuracy, and skipping
-    // saves a full Gemini round-trip per job. Other engines still get polished.
+    // Transcript polish runs for ALL engines when a Gemini key exists (accuracy
+    // build) — the old speed-build skip was removed; this comment replaces it.
     if (process.env.GEMINI_API_KEY) {
       try {
         p.autoJob.stage = 'polishing-transcript'; saveProjects(projects);
@@ -1121,7 +1132,7 @@ body{padding-bottom:76px}
 <input type="file" id="fileInput" accept="video/*">
 <div class="small" id="transcriptRow"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label> <label>မူရင်းစကား: <select id="sourceLangSel"><option value="auto" selected>Auto</option><option value="zh">တရုတ်</option><option value="en">English</option><option value="ko">ကိုရီးယား</option><option value="ja">ဂျပန်</option><option value="hi">ဟိန္ဒီ (India)</option><option value="th">ထိုင်း</option></select></label></div>
 <div class="small"><label>Video နည်း: <select id="modeSel"><option value="phone">Phone-only (video ဖုန်းထဲမှာပဲ)</option><option value="zero">Zero-upload (SRT + MP3)</option></select></label></div>
-<button id="upBtn">📤 Video တင်ပါ</button><button id="phoneAudioBtn" style="display:none">🎙️ Audio ပို့ပြီး စာသားပြောင်း</button><div id="phoneNote" class="small" style="display:none">Phone-only နည်းမှာ video ကို server ပေါ် လုံးဝ မတင်ပါ — ဖုန်းထဲမှာပဲ ထားပြီး audio အသေးစားပဲ ပို့မယ်။ Transcript + ဘာသာပြန် ရပြီးရင် လိုင်းတွေ ပြင်လို့ရတယ်။ Export လုပ်ဖို့ကျမှ video ကို တစ်ခါတည်း တင်ရမယ်။</div>
+<button id="phoneAudioBtn" style="display:none">🎙️ Audio ပို့ပြီး စာသားပြောင်း</button><div id="phoneNote" class="small" style="display:none">Phone-only နည်းမှာ video ကို server ပေါ် လုံးဝ မတင်ပါ — ဖုန်းထဲမှာပဲ ထားပြီး audio အသေးစားပဲ ပို့မယ်။ Transcript + ဘာသာပြန် ရပြီးရင် လိုင်းတွေ ပြင်လို့ရတယ်။ Export လုပ်ဖို့ကျမှ video ကို တစ်ခါတည်း တင်ရမယ်။</div>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
 <div id="jobText"></div>
 <div id="urlRow"><div class="small">Link နဲ့ ယူမလား (တိုက်ရိုက် .mp4 link ပဲ ရမယ်)</div>
@@ -1230,7 +1241,7 @@ function refreshAll(){
     duration = (p.metadata && p.metadata.duration) || duration;
     if(p.file && !p.file.sourceUrl && !p.audioOnly) el('vid').src = '/api/projects/' + pid + '/preview';
     if(!linesDirty){ lines = p.translationLines || []; renderLines(); renderTimeline(); }
-  }).catch(function(){});
+  }).catch(function(e){ if(e && /Project not found/.test(e.message)) msg('Project မရှိတော့ပါ (deploy/restart ကြောင့် ပျက်သွားတာ) — Dashboard မှာ Project အသစ် ဖန်တီးပါ။'); });
   pollJob();
   refreshExport();
 }
@@ -1298,7 +1309,7 @@ el('fileInput').addEventListener('change', function(){
   try{ localFileUrl = URL.createObjectURL(f); el('vid').src = localFileUrl; }catch(e){}
   var saved = readUpPersist();
   var resumed = saved && saved.projectId === pid && saved.fileName === f.name && saved.fileSize === f.size && saved.lastModified === f.lastModified && upIdFor(f) === saved.uploadId;
-  msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — server ထဲ \\'📤 Video တင်ပါ\\' နှိပ်မှပဲ တင်မယ်, အခု မတင်သေးပါ။' + (resumed ? ' တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ \\'📤 Video တင်ပါ\\' နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
+  msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — 🎙️ Audio ပို့တဲ့ ခလုတ်ကို နှိပ်မှ audio တင်မယ်, video မတင်သေးပါ။' + (resumed ? ' Export အတွက် တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ Export ကို နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
   el('progText').textContent = 'Local preview — server ထဲ မတင်သေးပါ';
   checkLinesCache(f);
 });
@@ -1315,25 +1326,6 @@ function clearAllProjects(){
   }).catch(function(e){ msg('ဖျက်မရပါ: ' + e.message); });
 }
 el('clearAllBtn').onclick = clearAllProjects;
-el('upBtn').onclick = function(){
-  if(currentMode() !== 'upload'){ msg(currentMode() === 'phone' ? 'Phone-only နည်းမှာ video မတင်ပါ — 🎙️ Audio ပို့တဲ့ ခလုတ်ကို နှိပ်ပါ။' : 'Zero-upload နည်းမှာ video မတင်ပါ။'); return; }
-  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
-  if(upState && upState.active){ msg('Video တင်နေပါတယ် — ခဏစောင့်ပါ။'); return; }
-  var f = (localFile && localFilePid === pid) ? localFile : null;
-  if(!f) f = el('fileInput').files[0] || null;
-  if(!f){ msg('Video အရင် ရွေးပါ'); return; }
-  if(!localFile || localFilePid !== pid){ localFile = f; localFilePid = pid; }
-  api('/projects/' + pid).then(function(p){
-    var hasLines = !!(p.translationLines && p.translationLines.length);
-    if(hasLines){
-      msg('Video တင်နေပါတယ်… (ရှိပြီးသား လိုင်းတွေ မထိပါ)');
-      uploadFile(f, {autoTranscript:false, autoTranslate:false});
-    } else {
-      msg('Video တင်နေပါတယ်… တင်ပြီးရင် စာသား အလိုအလျောက် ပြောင်းမယ်။');
-      uploadFile(f, {autoTranscript:true, autoTranslate:true});
-    }
-  }).catch(function(e){ msg('Project စစ်မရပါ: ' + e.message); });
-};
 var mp4boxPromise = null;
 function loadMp4Box(){
   if(typeof MP4Box !== 'undefined') return Promise.resolve();
@@ -1401,8 +1393,16 @@ async function extractAudioAAC(file){
   var a = audioTrack.audio || {};
   var sr = a.sample_rate || a.samplerate || 44100;
   var ch = a.channel_count || a.channelcount || 2;
-  var profile = (audioTrack.codec && audioTrack.codec.indexOf('mp4a.40.5') >= 0) ? 4 : 2;
-  return adtsPack(samples, sr, ch, profile);
+  var codec = audioTrack.codec || '';
+  var isHEv2 = codec.indexOf('mp4a.40.29') >= 0;
+  var isHE = isHEv2 || codec.indexOf('mp4a.40.5') >= 0;
+  // ADTS has no HE profile field (profile 3 is reserved and breaks decoders).
+  // HE-AAC is signalled as LC with the CORE sample rate (half the track rate);
+  // the SBR extension in each frame tells the decoder to upsample to full rate.
+  // HEv2 (PS) core is mono, so channel must be 1, not the output stereo count.
+  if(isHE && sr % 2 === 0){ var half = sr / 2; if({96000:0,88200:1,64000:2,48000:3,44100:4,32000:5,24000:6,22050:7,16000:8,12000:9,11025:10,8000:11,7350:12}[half] !== undefined) sr = half; }
+  if(isHEv2) ch = 1;
+  return adtsPack(samples, sr, ch, 2);
 }
 el('phoneAudioBtn').onclick = async function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
@@ -1423,7 +1423,7 @@ el('phoneAudioBtn').onclick = async function(){
     msg('Audio တင်ပြီးပါပြီ — စာသား အလိုအလျောက် ပြောင်းနေပါတယ်။');
     pollJob();
   }catch(e){
-    msg('Phone-only audio မရပါ: ' + e.message + ' — Server တင်တဲ့ နည်းနဲ့ ပြောင်းပြီး 📤 Video တင်ပါ ကို နှိပ်ပါ။');
+    msg('Phone-only audio မရပါ: ' + e.message + ' — video ပြန်ရွေးပြီး 🎙️ ကို နောက်တစ်ခါ နှိပ်ပါ။ မရရင် ဒီ error စာကို ကျွန်တော့်ကို ပြပါ။');
   }
 };
 function currentMode(){ var s = el('modeSel'); return (s && s.value) ? s.value : 'phone'; }
@@ -1434,7 +1434,6 @@ function applyMode(){
   if(zero && upState && upState.active){ upState.active = false; msg('Video တင်တာ ရပ်လိုက်ပါပြီ — Zero-upload နည်းမှာ video မတင်ပါ။'); }
   el('fileInput').style.display = zero ? 'none' : '';
   var tr = el('transcriptRow'); if(tr) tr.style.display = zero ? 'none' : '';
-  el('upBtn').style.display = (zero || phone) ? 'none' : '';
   var ur = el('urlRow'); if(ur) ur.style.display = (zero || phone) ? 'none' : '';
   el('expBtn').style.display = zero ? 'none' : '';
   var zn = el('zeroNote'); if(zn) zn.style.display = zero ? '' : 'none';
@@ -1481,7 +1480,7 @@ function resumeUpload(){
     var fd = new FormData();
     fd.append('chunk', st.file.slice(i*st.chunk, (i+1)*st.chunk));
     fd.append('uploadId', st.uploadId); fd.append('chunkIndex', String(i)); fd.append('totalChunks', String(st.total)); fd.append('fileName', st.file.name);
-    fetch('/api/upload-chunk', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok){ var er = new Error(j.error||'chunk failed'); er.status = r.status; throw er; } return j; }); }).then(function(j){
+    fetch('/api/upload-chunk', {method:'POST', body:fd, signal: AbortSignal.timeout(120000)}).then(function(r){ return r.json().then(function(j){ if(!r.ok){ var er = new Error(j.error||'chunk failed'); er.status = r.status; throw er; } return j; }); }).then(function(j){
       st.sending = false; st.received = {}; (j.received||[]).forEach(function(k){ st.received[k]=1; }); if(!st.received[i]) st.received[i]=1; st.retries=0;
       var done = 0; Object.keys(st.received).forEach(function(k){ done += Math.min(st.chunk, st.file.size - k*st.chunk); });
       var pc = Math.round(done/st.file.size*100); el('progBar').style.width = pc + '%'; el('progText').textContent = 'တင်နေပါတယ်: ' + pc + '% (' + (i+1) + '/' + st.total + ' အပိုင်း)';
@@ -1817,7 +1816,7 @@ el('expBtn').onclick = function(){
       uploadFile(f2, {autoTranscript:!hasLines, autoTranslate:!hasLines});
       return;
     }
-    msg('Video ကို server ထဲ မတင်ရသေးပါ — အရင် "📤 Video တင်ပါ" ကို နှိပ်ပါ။');
+    msg('Video အရင် ရွေးပြီး 🎙️ Audio ပို့တဲ့ ခလုတ်ကို နှိပ်ပါ။');
   }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 };
 function pollExport(){
@@ -1833,12 +1832,12 @@ if(pid){ setPid(pid); }
 health();
 (function(){
   var saved = readUpPersist();
-  if(saved && saved.projectId === pid){ el('progText').textContent = 'တင်တာ မပြီးသေးဘူး (' + saved.fileName + ') — \\'📤 Video တင်ပါ\\' နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။'; }
+  if(saved && saved.projectId === pid){ el('progText').textContent = 'တင်တာ မပြီးသေးဘူး (' + saved.fileName + ') — Export ကို နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။'; }
 })();
 if(pid){ refreshAll(); }
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible'){
-    if(currentMode() === 'upload' && upState && upState.active && upState.file && upState.projectId === pid && !upState.sending){ resumeUpload(); }
+    if(upState && upState.active && upState.file && upState.projectId === pid && !upState.sending){ resumeUpload(); }
     refreshAll();
   }
 });
@@ -1889,6 +1888,12 @@ app.post('/api/projects/:id/audio', audioUpload.single('audio'), async (req, res
     if (!p) { if (req.file) fs.unlinkSync(req.file.path); return res.status(404).json({ error: 'Project not found' }); }
     if (!req.file) return res.status(400).json({ error: 'No audio uploaded' });
     const meta = await probe(req.file.path);
+    try {
+      await run('ffmpeg', ['-v', 'error', '-i', req.file.path, '-t', '10', '-f', 'null', '-'], { timeout: 60000 });
+    } catch (de) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+      return res.status(400).json({ error: `Audio decode မရပါ — ဒီ audio file ကို server က ဖတ်မရဘူး: ${de.message}` });
+    }
     p.file = { path: req.file.path, name: req.file.originalname, storedName: path.basename(req.file.path), size: req.file.size };
     p.audioOnly = true; p.metadata = meta; p.status = 'audio-only'; saveProjects(projects);
     enqueueAutoJob(p.id, { transcript: req.body.transcript, sourceLang: req.body.sourceLang });
@@ -2001,7 +2006,8 @@ app.post('/api/projects/:id/url', async (req, res) => {
   const { url, confirmed } = req.body || {};
   if (!url) return res.status(400).json({ error: 'URL is required' });
   if (!confirmed) return res.status(400).json({ error: 'URL download is not performed unless you confirm you own the content or have permission to process it. Set confirmed=true to proceed.' });
-  const ext = path.extname(new URL(url).pathname).toLowerCase();
+  let ext;
+  try { ext = path.extname(new URL(url).pathname).toLowerCase(); } catch { return res.status(400).json({ error: 'URL ပုံစံ မမှန်ပါ — တိုက်ရိုက် .mp4 link ပဲ သုံးပါ' }); }
   if (!ALLOWED_EXT.includes(ext)) return res.status(400).json({ error: 'URL download is not performed: only direct media URLs ending in ' + ALLOWED_EXT.join(', ') + ' are attempted. Platform pages, playlists and DRM-protected links are never downloaded.' });
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
@@ -2123,6 +2129,9 @@ const phoneUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize
 app.post('/api/projects/:id/narration-phone', phoneUpload.array('clips', 300), async (req, res) => {
   const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
   const files0 = req.files || []; if (!files0.length) return res.status(400).json({ error: 'No audio clips uploaded' });
+  const totalClipBytes = files0.reduce((s, f) => s + (f.size || 0), 0);
+  if (totalClipBytes > 100 * 1024 * 1024) return res.status(400).json({ error: 'Phone narration clips exceed 100MB total.' });
+  const phoneLinesSnapshot = (p.translationLines || []).map(l => ({ start: l.start, end: l.end, burmese: l.burmese }));
   let lineIndex = null;
   try { const li = JSON.parse(req.body?.lineIndex || 'null'); if (Array.isArray(li) && li.length === files0.length) lineIndex = li.map(x => parseInt(x, 10)); } catch {}
   if (!lineIndex) lineIndex = files0.map((_, i) => i);
@@ -2137,7 +2146,7 @@ app.post('/api/projects/:id/narration-phone', phoneUpload.array('clips', 300), a
     await concatMp3s(files, outMp3, pauseSec, tmpDir);
     fs.rmSync(tmpDir, { recursive: true, force: true });
     const meta = await probe(outMp3);
-    p.tts = { provider: 'phone-edge', voice, source: 'translation', segments: files.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
+    p.tts = { provider: 'phone-edge', voice, source: 'translation', segments: files.length, file: outMp3, duration: meta.duration, clips: lineClips, linesFingerprint: ttsLinesFingerprint(phoneLinesSnapshot) }; saveProjects(projects);
     return res.json({ project: p, tts: p.tts });
   } catch (e) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} return res.status(500).json({ error: `Phone narration failed: ${e.message}` }); }
 });
@@ -2162,6 +2171,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
   // line boundaries (pauses land between lines) instead of packing across
   // lines; the file itself is unchanged in purpose and content.
   let segmentLineIndex = null;
+  const ttsLinesSnapshot = source === 'translation' ? (p.translationLines || []).map(l => ({ start: l.start, end: l.end, burmese: l.burmese })) : null;
   let segments = splitText(text);
   if (source === 'translation') {
     segmentLineIndex = [];
@@ -2190,7 +2200,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
       await concatMp3s(files, outMp3, pauseSec, tmpDir);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       const meta = await probe(outMp3);
-      p.tts = { provider: 'azure', voice, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
+      p.tts = { provider: 'azure', voice, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips, linesFingerprint: ttsLinesSnapshot ? ttsLinesFingerprint(ttsLinesSnapshot) : null }; saveProjects(projects);
       return res.json({ project: p, tts: p.tts });
     }
     if (provider === 'openai') {
@@ -2199,7 +2209,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
       if (!key) return res.status(501).json({ error: 'OpenAI TTS is not configured: set OPENAI_API_KEY in server/.env and restart the server. Labelled experimental for Burmese — no native Burmese voice quality is promised. No audio was generated.', downloadScript: `/api/projects/${p.id}/download/script` });
       const oVoice = req.body?.openaiVoice || process.env.OPENAI_TTS_VOICE || 'alloy';
       for (let i = 0; i < segments.length; i++) {
-        const r = await fetch('https://api.openai.com/v1/audio/speech', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` }, body: JSON.stringify({ model: 'tts-1', voice: oVoice, input: segments[i], response_format: 'mp3' }) });
+        const r = await fetch('https://api.openai.com/v1/audio/speech', { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` }, body: JSON.stringify({ model: 'tts-1', voice: oVoice, input: segments[i], response_format: 'mp3' }) });
         if (!r.ok) throw new Error(`OpenAI TTS HTTP ${r.status}: ${(await r.text()).slice(0, 500)}`);
         const segFile = path.join(tmpDir, `seg${i}.mp3`); fs.writeFileSync(segFile, Buffer.from(await r.arrayBuffer())); files.push(segFile);
       }
@@ -2208,7 +2218,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
       await concatMp3s(files, outMp3, pauseSec, tmpDir);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       const meta = await probe(outMp3);
-      p.tts = { provider: 'openai', voice: oVoice, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
+      p.tts = { provider: 'openai', voice: oVoice, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips, linesFingerprint: ttsLinesSnapshot ? ttsLinesFingerprint(ttsLinesSnapshot) : null }; saveProjects(projects);
       return res.json({ project: p, tts: p.tts });
     }
     if (provider === 'local') {
@@ -2228,7 +2238,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
         const wavFile = path.join(tmpDir, `seg${i}.wav`);
         const segFile = path.join(tmpDir, `seg${i}.mp3`);
         try {
-          await run('espeak-ng', ['-v', 'my', '-s', String(wpm), '-w', wavFile, segments[i]]);
+          await run('espeak-ng', ['-v', 'my', '-s', String(wpm), '-w', wavFile, segments[i]], { timeout: 120000 });
           const st = fs.statSync(wavFile);
           if (!st.size) throw new Error('empty WAV');
         } catch (e) { throw new Error(`espeak-ng failed on local segment ${i} (${JSON.stringify(segments[i].slice(0, 60))}): ${e.message}`); }
@@ -2240,7 +2250,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
       await concatMp3s(files, outMp3, pauseSec, tmpDir);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       const meta = await probe(outMp3);
-      p.tts = { provider: 'local', voice: 'local-my (espeak-ng)', source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
+      p.tts = { provider: 'local', voice: 'local-my (espeak-ng)', source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips, linesFingerprint: ttsLinesSnapshot ? ttsLinesFingerprint(ttsLinesSnapshot) : null }; saveProjects(projects);
       return res.json({ project: p, tts: p.tts });
     }
     if (provider === 'gemini') {
@@ -2260,7 +2270,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
       await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', outMp3]);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       const meta = await probe(outMp3);
-      p.tts = { provider: 'gemini', voice, model, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
+      p.tts = { provider: 'gemini', voice, model, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips, linesFingerprint: ttsLinesSnapshot ? ttsLinesFingerprint(ttsLinesSnapshot) : null }; saveProjects(projects);
       return res.json({ project: p, tts: p.tts });
     }
     // Edge TTS (Sangbik default, 2026-10-26): FIRST try the current
@@ -2289,7 +2299,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
       let edgeErr = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          const { out } = await run(edgePy, [path.join(__dirname, 'edge_ms.py'), segments[i], voice, segFile, rateStr]);
+          const { out } = await run(edgePy, [path.join(__dirname, 'edge_ms.py'), segments[i], voice, segFile, rateStr], { timeout: 180000 });
           if (!/AUDIO_BYTES=([1-9][0-9]*)/.test(out) || !ttsOk(segFile)) throw new Error(`msedgeservices returned no audio (${(out || '').slice(-300)})`);
         } catch (e) { edgeErr = e.message; }
         if (!ttsOk(segFile)) {
@@ -2298,7 +2308,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
             const args = ['-m', 'edge_tts', '--voice', voice, '--rate', rateStr, '--write-media', segFile, '--text', segments[i]];
             if (pitch) args.push('--pitch', pitch);
             if (process.env.HTTPS_PROXY) args.push('--proxy', process.env.HTTPS_PROXY);
-            await run('python3', args);
+            await run('python3', args, { timeout: 180000 });
           } catch (e) { edgeErr = `${edgeErr} | legacy edge-tts CLI also failed: ${e.message}`; }
         }
         if (ttsOk(segFile)) break;
@@ -2314,7 +2324,7 @@ app.post('/api/projects/:id/tts', async (req, res) => {
     await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', outMp3]);
     fs.rmSync(tmpDir, { recursive: true, force: true });
     const meta = await probe(outMp3);
-    p.tts = { provider: 'edge-tts', voice, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips }; saveProjects(projects);
+    p.tts = { provider: 'edge-tts', voice, source, segments: segments.length, file: outMp3, duration: meta.duration, clips: lineClips, linesFingerprint: ttsLinesSnapshot ? ttsLinesFingerprint(ttsLinesSnapshot) : null }; saveProjects(projects);
     res.json({ project: p, tts: p.tts });
   } catch (e) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} res.status(500).json({ error: `TTS failed: ${e.message}` }); }
 });
@@ -2398,7 +2408,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const videoMirror = o.videoMirror === true || o.videoMirror === 'true';
   const posterSecRaw = parseInt(o.posterSec ?? o.posterSeconds ?? 0);
   const posterSec = [3, 5].includes(posterSecRaw) ? posterSecRaw : 0;
-  const posterTitle = String(o.posterTitle || 'Sangbik').replace(/[^A-Za-z0-9 _-]/g, '').trim() || 'Sangbik';
+  const posterTitle = String(o.posterTitle || 'Sangbik').replace(/[^\u1000-\u109FA-Za-z0-9 _-]/g, '').trim() || 'Sangbik';
   const blurStrength = ['light', 'medium', 'strong'].includes(o.blurStrength) ? o.blurStrength : 'medium';
   const blurSigma = BLUR_SIGMA[blurStrength];
   const zoomEvery5s = !!o.zoomEvery5s;
@@ -2681,7 +2691,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // (volume, fades, looped/trimmed to the video duration, if uploaded).
       // All inputs are mixed with amix; nothing is silently ignored any more.
       let audioInputs = []; // labelled audio streams to mix, in order
-      filter += `;[0:a]volume=${origVol}[a0]`; audioInputs.push('[a0]');
+      const hasAudioTrack = !!p.metadata?.audioCodec;
+      if (hasAudioTrack) { filter += `;[0:a]volume=${origVol}[a0]`; audioInputs.push('[a0]'); }
       let nextInputIdx = 1;
       // Narration: 'continuous' (default, exactly as before) or 'timed'
       // (each spoken line placed at its subtitle start time on the output
@@ -2694,9 +2705,10 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // usable per-line clips exist, fall back to continuous + a note.
       let narrationSyncNote = null;
       let timedClips = [];
+      let timedClipsStale = false;
       let narrationFitCount = 0, narrationFitOverflow = [], narrationFitNote = null;
       if (narrationSync === 'timed' && Array.isArray(p.tts?.clips) && p.translationLines?.length) {
-        for (const c of p.tts.clips) {
+        if (p.tts?.linesFingerprint && ttsLinesFingerprint(p.translationLines) !== p.tts.linesFingerprint) { timedClipsStale = true; } else for (const c of p.tts.clips) {
           if (!c || !c.file || !fs.existsSync(c.file)) continue;
           const line = p.translationLines[c.lineIndex];
           if (!line) continue;
@@ -2734,7 +2746,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
           filter += `;[${nextInputIdx}:a]${tempoFilter}adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
         }
       } else {
-        if (narrationSync === 'timed') narrationSyncNote = p.tts?.file ? 'Timed narration requested but no usable per-line clips were found — used the continuous narration track instead. Re-run voiceover (TTS) after this deploy to generate per-line clips.' : 'Timed narration requested but no narration audio exists — generate voiceover first.';
+        if (narrationSync === 'timed') narrationSyncNote = timedClipsStale ? 'လိုင်းတွေ အသံထုတ်ပြီးမှ ပြင်ထားလို့ timed narration မကိုက်တော့ပါ — continuous အသံ သုံးထားတယ်။ Timed ပြန်ရဖို့ အသံ ပြန်ထုတ်ပါ။' : (p.tts?.file ? 'Timed narration requested but no usable per-line clips were found — used the continuous narration track instead. Re-run voiceover (TTS) after this deploy to generate per-line clips.' : 'Timed narration requested but no narration audio exists — generate voiceover first.');
         if (p.tts?.file && fs.existsSync(p.tts.file)) {
           args.push('-i', p.tts.file); inputs.push(p.tts.file);
           // Manual voiceover shift: positive delay = adelay, negative = trim the head.
@@ -2755,9 +2767,10 @@ app.post('/api/projects/:id/export', async (req, res) => {
         filter += `;${mFilter}`; audioInputs.push('[music]');
       }
       let audioMap;
-      if (audioInputs.length === 1) { filter += `;[a0]anull[aout]`; audioMap = '[aout]'; }
-      else { filter += `;${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=first:dropout_transition=0[aout]`; audioMap = '[aout]'; }
-      args.push('-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outMp4);
+      if (audioInputs.length === 1) { filter += `;${audioInputs[0]}anull[aout]`; audioMap = '[aout]'; }
+      else if (audioInputs.length > 1) { filter += `;${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=first:dropout_transition=0[aout]`; audioMap = '[aout]'; }
+      if (audioMap) args.push('-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outMp4);
+      else args.push('-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast', '-an', outMp4);
       await run('ffmpeg', args);
       let posterApplied = false; let posterNote = null;
       if (posterSec > 0) {
@@ -2765,8 +2778,11 @@ app.post('/api/projects/:id/export', async (req, res) => {
           const posterImg = path.join(OUT_DIR, `${p.id}-poster.jpg`);
           await run('ffmpeg', ['-y', '-ss', '1', '-i', outMp4, '-vframes', '1', posterImg]);
           const posterMp4 = path.join(OUT_DIR, `${p.id}-poster.mp4`);
-          const fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
-          const draw = fs.existsSync(fontPath) ? `,drawtext=fontfile=${fontPath}:text='${posterTitle.replace(/'/g, "")}':fontsize=48:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-80` : '';
+          let draw = '';
+          let notoPath = null;
+          try { const fl = await run('fc-list', ['Noto Sans Myanmar', 'file'], { timeout: 15000 }); const line = (fl.out || '').split('\n').find(x => x.toLowerCase().indexOf('.ttf') >= 0); if (line) notoPath = line.split(':')[0].trim(); } catch {}
+          if (notoPath) { const safeTitle = posterTitle.replace(/'/g, "").replace(/:/g, ""); draw = `,drawtext=fontfile=${notoPath}:text='${safeTitle}':fontsize=48:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-80`; }
+          else { const fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const asciiTitle = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fontPath) && asciiTitle) draw = `,drawtext=fontfile=${fontPath}:text='${asciiTitle}':fontsize=48:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-80`; }
           await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', 'anullsrc', '-vf', `scale=trunc(iw/2)*2:trunc(ih/2)*2${draw}`, '-t', String(posterSec), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
           const finalMp4 = path.join(OUT_DIR, `${p.id}-recap-poster.mp4`);
           await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex', '[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', finalMp4]);
