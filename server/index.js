@@ -212,13 +212,14 @@ async function groqTranslateBatch(texts, sourceLang) {
 async function geminiTranslateBatch(texts, sourceLang) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: buildBatchPrompt(texts) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
   const body = await res.text();
   if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 300)}`);
   let j; try { j = JSON.parse(body); } catch { throw new Error('Gemini returned unparseable output.'); }
   const content = (j.candidates?.[0]?.content?.parts?.map(x => x.text).join('') || '').trim();
   return parseBatchResponse(content, texts.length);
 }
+async function withRetry(fn) { let last; for (let a = 0; a < 2; a++) { try { return await fn(); } catch (e) { last = e; if (a === 0) await new Promise(r => setTimeout(r, 5000)); } } throw last; }
 async function translateLinesWithGoogleOrFallback(lines, sourceLang) {
   // lines: [{original}] -> {translations, path, error}
   // Order: Gemini batched first when a Gemini key is set (accuracy first),
@@ -229,16 +230,16 @@ async function translateLinesWithGoogleOrFallback(lines, sourceLang) {
   const attempts = [];
   if (process.env.GEMINI_API_KEY) {
     try {
-      const translations = await geminiTranslateBatch(originals, sourceLang);
+      const translations = await withRetry(() => geminiTranslateBatch(originals, sourceLang));
       return { translations, path: 'gemini-batch', googleLog: 'Translated in one Gemini batch call.', error: null };
     } catch (me) { attempts.push(`Gemini batch: ${me.message}`); }
   }
   try {
-    const translations = await groqTranslateBatch(originals, sourceLang);
+    const translations = await withRetry(() => groqTranslateBatch(originals, sourceLang));
     return { translations, path: 'groq-batch', googleLog: 'Translated in one Groq batch call (fastest path).', error: null };
   } catch (ge) { attempts.push(`Groq batch: ${ge.message}`); }
   try {
-    const translations = await geminiTranslateBatch(originals);
+    const translations = await withRetry(() => geminiTranslateBatch(originals, sourceLang));
     return { translations, path: 'gemini-batch', googleLog: 'Translated in one Gemini batch call.', error: null };
   } catch (me) { attempts.push(`Gemini batch: ${me.message}`); }
   try {
@@ -252,11 +253,11 @@ async function translateLinesWithGoogleOrFallback(lines, sourceLang) {
   try {
     const translations = await nllbTranslateBatch(originals);
     return { translations, path: 'nllb-offline', googleLog: 'Translated offline with NLLB-200 en->mya_Mymr on this server (no key, no network).', error: `Groq + Gemini + Google + MyMemory failed: ${attempts.join(' ')} — NLLB offline fallback used instead.` };
-  } catch (ne) { attempts.push(`NLLB offline: ${ne.message}`); }
+  } catch (ne) { attempts.push('NLLB offline: not installed on this server.'); }
   try {
     const translations = await argosTranslateBatch(originals);
     return { translations, path: 'argos-offline', googleLog: 'Translated offline with Argos Translate en->my on this server (no key, no network).', error: `Groq + Gemini + Google + MyMemory + NLLB failed: ${attempts.join(' ')} — Argos offline fallback used instead.` };
-  } catch (ae) { attempts.push(`Argos offline: ${ae.message}`); }
+  } catch (ae) { attempts.push('Argos offline: not installed on this server.'); }
   return { translations: null, path: 'failed', googleLog: null, error: `All translation paths failed (${attempts.join(' ')}), so no translation was invented.` };
 }
 
@@ -621,7 +622,7 @@ async function translateTextToBurmese(text) {
   if (!provider || !key) return null;
   const prompt = `Translate the following spoken text into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Return ONLY the Burmese translation, no explanation, no extra text:\n\n${text}`;
   if (provider === 'gemini') {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
     const j = await res.json();
     const out = j.candidates?.[0]?.content?.parts?.map(x => x.text).join('').trim();
     return out || null;
@@ -635,7 +636,7 @@ async function translateTextToBurmese(text) {
 // ---- Gemini transcription (auto job only; Whisper is the fallback) ----
 // Key comes from process.env.GEMINI_API_KEY ONLY. It is never logged, never
 // put in frontend code, and never echoed in any status message.
-const GEMINI_TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-2.0-flash';
+const GEMINI_TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-3.8-flash';
 function geminiTimestampToSec(t) {
   const m = /^(\d+):(\d{1,2})(?:[.,](\d{1,3}))?$/.exec((t || '').trim());
   if (!m) return null;
@@ -908,7 +909,7 @@ async function runAutoJob(projectId, opts) {
             whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang);
           } catch (e1) {
             await new Promise(r => setTimeout(r, 8000));
-            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done));
+            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang);
           }
         } else {
           if (!whisperInstalled()) { if (transcriptChoice === 'whisper') fallbackNotes.push('Whisper မတပ်ဆင်ထားပါ'); continue; }
@@ -960,9 +961,9 @@ async function runAutoJob(projectId, opts) {
     for (let i = 0; i < allPieces.length; i++) {
       const piece = allPieces[i];
       const burmese = skipTranslate ? piece.original : (gt.translations ? (gt.translations[i] || '') : '');
-      const line = { ...piece, burmese: skipTranslate ? burmese : sanitizeBurmese(burmese), translationPending: !burmese, translationPendingReason: burmese ? null : (gt.error || 'translation failed') };
+      const line = { ...piece, burmese: skipTranslate ? burmese : sanitizeBurmese(burmese), translationPending: !burmese, translationPendingReason: burmese ? null : 'Translation failed — see job message.' };
       p.autoJob.lines.push(line);
-      if (burmese && !p.translationLines.some(l => l.start === line.start && l.original === line.original)) p.translationLines.push(line);
+      if (!p.translationLines.some(l => l.start === line.start && l.original === line.original)) p.translationLines.push(line);
     }
     p.autoJob.translationPath = gt.path; p.autoJob.translationError = gt.error || null;
     p.autoJob.percent = 95; saveProjects(projects);
@@ -1792,7 +1793,7 @@ app.post('/api/projects/:id/translate-google', async (req, res) => {
   if (!segs.length) return res.status(400).json({ error: 'No transcript segments to translate — run Transcribe first.' });
   const gt = await translateLinesWithGoogleOrFallback(segs, p.autoJob?.sourceLang || 'auto');
   if (!gt.translations) return res.status(502).json({ error: gt.error });
-  const lines = segs.map((sg, i) => ({ start: sg.start, end: sg.end, original: sg.original, burmese: gt.translations[i] || '' }));
+  const lines = segs.map((sg, i) => ({ start: sg.start, end: sg.end, original: sg.original, burmese: sanitizeBurmese(gt.translations[i] || '') }));
   p.translationLines = lines; p.translationPath = gt.path; p.translationGoogleLog = gt.googleLog || null;
   saveProjects(projects);
   res.json({ project: p, lines, path: gt.path, googleLog: gt.googleLog || null, note: gt.error || null });
@@ -1814,7 +1815,7 @@ app.post('/api/projects/:id/translate-lines', async (req, res) => {
   const gt = await translateLinesWithGoogleOrFallback(toTranslate);
   if (!gt.translations) return res.status(502).json({ error: gt.error });
   const out = input.slice();
-  idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: gt.translations[k] || '' }); });
+  idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: sanitizeBurmese(gt.translations[k] || '') }); });
   res.json({ lines: out, path: gt.path, note: gt.error || null });
 });
 app.post('/api/projects/:id/tts', async (req, res) => {
