@@ -627,7 +627,7 @@ async function geminiTranscribeSegment(wavPath, segDur) {
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) throw new Error('Gemini key missing');
   const b64 = fs.readFileSync(wavPath).toString('base64');
-  const prompt = 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. If a part is unclear, transcribe your best guess rather than skipping it.';
+  const prompt = 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. If a part is unclear, transcribe your best guess rather than skipping it.';
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }] }] }) });
   if (!res.ok) {
     let detail = '';
@@ -686,6 +686,9 @@ async function groqTranscribeSegment(wavPath, segDur) {
   fd.append('file', new Blob([buf], { type: 'audio/wav' }), 'segment.wav');
   fd.append('model', GROQ_TRANSCRIBE_MODEL);
   fd.append('temperature', '0');
+  // Hint tuned for the user's Chinese content: biases Whisper toward natural
+  // colloquial Simplified Chinese and correct set phrases (not phonetic lookalikes).
+  fd.append('prompt', '这是一段中文日常对话,请使用自然标准的简体中文口语进行转录,注意使用正确的惯用语。');
   fd.append('response_format', 'verbose_json');
   const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd });
   if (!res.ok) {
