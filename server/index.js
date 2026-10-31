@@ -955,7 +955,7 @@ el('fileInput').addEventListener('change', function(){
   try{ localFileUrl = URL.createObjectURL(f); el('vid').src = localFileUrl; }catch(e){}
   var saved = readUpPersist();
   var resumed = saved && saved.projectId === pid && saved.fileName === f.name && saved.fileSize === f.size && saved.lastModified === f.lastModified && upIdFor(f) === saved.uploadId;
-  msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — server ထဲ \'📤 Video တင်ပါ\' နှိပ်မှပဲ တင်မယ်, အခု မတင်သေးပါ။' + (resumed ? ' တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ \'📤 Video တင်ပါ\' နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
+  msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — server ထဲ \\'📤 Video တင်ပါ\\' နှိပ်မှပဲ တင်မယ်, အခု မတင်သေးပါ။' + (resumed ? ' တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ \\'📤 Video တင်ပါ\\' နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
   el('progText').textContent = 'Local preview — server ထဲ မတင်သေးပါ';
 });
 el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
@@ -1133,21 +1133,21 @@ el('addLineBtn').onclick = function(){
 function parseSrt(text){
   var t = String(text == null ? '' : text);
   if(t.charCodeAt(0) === 0xFEFF) t = t.slice(1);
-  var norm = t.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  var blocks = norm.split(/\n[ \t]*\n/);
+  var norm = t.replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');
+  var blocks = norm.split(/\\n[ \\t]*\\n/);
   var out = [], dropped = 0;
   function toSec(h, mi, s, ms){ return parseInt(h, 10) * 3600 + parseInt(mi, 10) * 60 + parseInt(s, 10) + parseInt((ms + '000').slice(0, 3), 10) / 1000; }
   blocks.forEach(function(b){
-    var ls = b.split('\n').filter(function(x){ return x.trim() !== ''; });
+    var ls = b.split('\\n').filter(function(x){ return x.trim() !== ''; });
     if(!ls.length) return;
     var ti = -1;
     for(var i = 0; i < ls.length; i++){ if(ls[i].indexOf('-->') >= 0){ ti = i; break; } }
     if(ti < 0){ dropped++; return; }
-    var m = ls[ti].match(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/);
+    var m = ls[ti].match(/(\\d+):(\\d+):(\\d+)[,.](\\d+)\\s*-->\\s*(\\d+):(\\d+):(\\d+)[,.](\\d+)/);
     if(!m){ dropped++; return; }
     var start = toSec(m[1], m[2], m[3], m[4]);
     var end = toSec(m[5], m[6], m[7], m[8]);
-    var txt = ls.slice(ti + 1).join(' ').replace(/\s+/g, ' ').trim();
+    var txt = ls.slice(ti + 1).join(' ').replace(/\\s+/g, ' ').trim();
     if(!txt || !(end > start)){ dropped++; return; }
     out.push({start: start, end: end, original: txt, burmese: '', manual: true});
   });
@@ -1228,7 +1228,7 @@ el('urlBtn').onclick = function(){
   var u = (el('urlInp').value || '').trim();
   if(!u){ msg('Link အရင် ထည့်ပါ'); return; }
   if(!el('urlConfirmChk').checked){ msg('ခွင့်ပြုချက်ကို အမှန်ခြစ်ပေးပါ'); return; }
-  if(/youtube\.com|youtu\.be|facebook\.com|tiktok\.com|instagram\.com|xiaohongshu|rednote|vimeo\.com/i.test(u)){ msg('Platform watch-page link တွေ မရပါ — တိုက်ရိုက် .mp4 link ပဲ သုံးပါ'); return; }
+  if(/youtube\\.com|youtu\\.be|facebook\\.com|tiktok\\.com|instagram\\.com|xiaohongshu|rednote|vimeo\\.com/i.test(u)){ msg('Platform watch-page link တွေ မရပါ — တိုက်ရိုက် .mp4 link ပဲ သုံးပါ'); return; }
   el('urlText').textContent = 'Link ကနေ ယူနေပါတယ်…';
   api('/projects/' + pid + '/url', 'POST', {url: u, confirmed: true}).then(function(j){
     duration = (j.metadata && j.metadata.duration) || 0;
@@ -1280,7 +1280,7 @@ if(pid){ setPid(pid); }
 health();
 (function(){
   var saved = readUpPersist();
-  if(saved && saved.projectId === pid){ el('progText').textContent = 'တင်တာ မပြီးသေးဘူး (' + saved.fileName + ') — \'📤 Video တင်ပါ\' နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။'; }
+  if(saved && saved.projectId === pid){ el('progText').textContent = 'တင်တာ မပြီးသေးဘူး (' + saved.fileName + ') — \\'📤 Video တင်ပါ\\' နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။'; }
 })();
 if(pid){ refreshAll(); }
 document.addEventListener('visibilitychange', function(){
