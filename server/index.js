@@ -1258,7 +1258,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey20</h1>
+<h1>🎬 Sangbik — Website · phonekey22</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1304,6 +1304,7 @@ body{padding-bottom:76px}
 <div id="projList"></div></div></div>
 <div id="tab-recap" class="tabPanel" style="display:none"><div class="card"><h2>၂။ Video တင်ပါ</h2>
 <input type="file" id="fileInput" accept="video/*">
+<video id="vidRecap" controls playsinline style="width:100%;max-height:50vh;background:#000;display:none;margin-top:8px"></video>
 <div class="small" id="transcriptRow"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label> <label>မူရင်းစကား: <select id="sourceLangSel"><option value="auto" selected>Auto</option><option value="zh">တရုတ်</option><option value="en">English</option><option value="ko">ကိုရီးယား</option><option value="ja">ဂျပန်</option><option value="hi">ဟိန္ဒီ (India)</option><option value="th">ထိုင်း</option></select></label></div>
 <div class="small"><label>Video နည်း: <select id="modeSel"><option value="phone">Phone-only (video ဖုန်းထဲမှာပဲ)</option><option value="zero">Zero-upload (SRT + MP3)</option></select></label></div>
 <button id="phoneAudioBtn" style="display:none">🎙️ Audio ပို့ပြီး စာသားပြောင်း</button><div id="phoneNote" class="small" style="display:none">Phone-only နည်းမှာ video ကို server ပေါ် လုံးဝ မတင်ပါ — ဖုန်းထဲမှာပဲ ထားပြီး audio အသေးစားပဲ ပို့မယ်။ Transcript + ဘာသာပြန် ရပြီးရင် လိုင်းတွေ ပြင်လို့ရတယ်။ Export လုပ်ဖို့ကျမှ video ကို တစ်ခါတည်း တင်ရမယ်။</div><div id="whisperCard" style="display:none"><label>🎙️ Whisper (ဖုန်းထဲမှာ): <select id="whisperModelSel"><option value="small">Small Multilingual (~375 MB, တစ်ခါပဲ ဒေါင်း)</option><option value="medium">Medium Multilingual (~950 MB, တစ်ခါပဲ ဒေါင်း)</option></select></label> <button id="whisperBtn">🎙️ ဖုန်းထဲမှာ စာသားပြောင်း</button><div class="small">စာသားထုတ်တာ ဖုန်းထဲမှာပဲ ပြီးတယ် — server တင်စရာ မလို, quota မလို။ Model ကို ပထမတစ်ခါပဲ ဒေါင်းရမယ်, နောက်ခါ offline ရတယ်။ ဒေါင်းတာ mobile data ကုန်မယ်။</div></div>
@@ -1372,7 +1373,7 @@ var UP_KEY = 'sangbik-upload';
 function upIdFor(f){ return (pid + '-' + f.name + '-' + f.size + '-' + f.lastModified + '-c1m').replace(/[^A-Za-z0-9._-]/g,'_'); }
 function saveUpPersist(){ try{ if(upState && upState.active){ localStorage.setItem(UP_KEY, JSON.stringify({uploadId:upState.uploadId, projectId:upState.projectId, fileName:upState.file.name, fileSize:upState.file.size, lastModified:upState.file.lastModified, totalChunks:upState.total})); } }catch(e){} }
 function clearUpPersist(){ try{ localStorage.removeItem(UP_KEY); }catch(e){} }
-function clearLocalFile(){ if(localFileUrl){ try{ URL.revokeObjectURL(localFileUrl); }catch(e){} localFileUrl = ''; } localFile = null; localFilePid = ''; }
+function clearLocalFile(){ if(localFileUrl){ try{ URL.revokeObjectURL(localFileUrl); }catch(e){} localFileUrl = ''; } localFile = null; localFilePid = ''; syncVidRecap(); }
 function readUpPersist(){ try{ var s = localStorage.getItem(UP_KEY); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
 function nextIncomplete(received, total){ for(var i = 0; i < total; i++){ if(!received[i]) return i; } return total; }
 function refreshAll(){
@@ -1441,25 +1442,27 @@ el('useCacheBtn').onclick = function(){
   renderLines(); renderTimeline();
   msg('သိမ်းထားတဲ့ ' + lines.length + ' လိုင်း ဖွင့်ပါပြီ — စစ်ပြီး "သိမ်းပါ" နှိပ်ပါ (ပြီးရင် အသံ ထုတ်လို့ရပြီ, upload မလို)။');
 };
+function syncVidRecap(){ var r = el('vidRecap'); if(!r) return; var v = el('vid'); if(v && v.src){ r.src = v.src; r.style.display = ''; } else { r.removeAttribute('src'); r.style.display = 'none'; } }
 el('fileInput').addEventListener('change', function(){
   var f = el('fileInput').files[0]; if(!f) return;
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   clearLocalFile();
   localFile = f; localFilePid = pid;
   try{ localFileUrl = URL.createObjectURL(f); el('vid').src = localFileUrl; }catch(e){}
+  syncVidRecap();
   var saved = readUpPersist();
   var resumed = saved && saved.projectId === pid && saved.fileName === f.name && saved.fileSize === f.size && saved.lastModified === f.lastModified && upIdFor(f) === saved.uploadId;
   msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — 🎙️ Audio ပို့တဲ့ ခလုတ်ကို နှိပ်မှ audio တင်မယ်, video မတင်သေးပါ။' + (resumed ? ' Export အတွက် တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ Export ကို နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
   el('progText').textContent = 'Local preview — server ထဲ မတင်သေးပါ';
   checkLinesCache(f);
 });
-el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
+el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); syncVidRecap(); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
 el('listBtn').onclick = function(){ api('/projects').then(function(ps){ var h=''; ps.forEach(function(p){ h += '<div>' + p.id + ' — ' + (p.status||'') + ' ' + (p.file ? '🎬' : '') + ' <button data-pid="' + p.id + '">ရွေးပါ</button></div>'; }); el('projList').innerHTML = h || '(မရှိပါ)'; var bs = el('projList').querySelectorAll('button'); bs.forEach(function(b){ b.onclick = function(){ setPid(b.getAttribute('data-pid')); clearLocalFile(); loadLines(); }; }); }).catch(function(e){ msg('List မရပါ: ' + e.message); }); };
 function clearAllProjects(){
   if (!confirm('Project အားလုံးနဲ့ တင်ထားတဲ့ video တွေ အကုန်ဖျက်မှာလား? ဒါကို ပြန်ယူလို့မရပါ။')) return;
   api('/projects', 'DELETE').then(function(){
     setPid(''); el('pidText').textContent = 'Project မရွေးရသေးပါ'; el('projList').innerHTML = '';
-    upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src');
+    upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); syncVidRecap();
     linesDirty = false; lines = []; renderLines();
     msg('Project အားလုံး ဖျက်ပြီးပါပြီ။');
     showTab('dashboard');
@@ -1611,7 +1614,7 @@ function phoneParseBatch(text, count){
   if(rawLines.length === count) return rawLines;
   throw new Error('Batch translation returned the wrong number of lines.');
 }
-var PHONE_GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'];
+var PHONE_GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 async function geminiPhoneTranslateBatch(texts, sourceLang){
   var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။');
   var prompt = phoneBatchPrompt(texts, sourceLang);
@@ -2423,7 +2426,7 @@ el('urlBtn').onclick = function(){
   el('urlText').textContent = 'Link ကနေ ယူနေပါတယ်…';
   api('/projects/' + pid + '/url', 'POST', {url: u, confirmed: true}).then(function(j){
     duration = (j.metadata && j.metadata.duration) || 0;
-    el('vid').removeAttribute('src');
+    el('vid').removeAttribute('src'); syncVidRecap();
     el('urlText').textContent = 'Link ကနေ video ရပါပြီ — ' + Math.round(duration) + ' စက္ကန့်။ စာသားပြောင်းနေပါတယ်…';
     msg('Link ကနေ video ရပါပြီ။ Preview ကတော့ server-only video မို့ လွတ်နေမယ်။');
     pollJob();
