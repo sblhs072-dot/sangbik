@@ -1209,12 +1209,14 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 #toolBar button.active{background:#0ea5e9}
 .toolpanel{display:none}
 .toolpanel.open{display:block}
-#timelineStrip{position:relative;height:26px;background:#1e222b;border-radius:6px;overflow:hidden;cursor:pointer;margin:6px 0}
+#timelineStrip{position:relative;height:36px;background:#1e222b;border-radius:6px;overflow:visible;cursor:pointer;margin:6px 0}
 #timelinePlayhead{position:absolute;top:0;width:2px;height:100%;background:#ef4444;z-index:2}
 #timelineMarks{position:absolute;inset:0}
 .tlmark{position:absolute;top:0;width:3px;height:100%;background:#0ea5e9;cursor:pointer;z-index:1}
 #timelineTicks{position:relative;height:14px;font-size:10px;color:#94a3b8}
 #timelineTicks span{position:absolute;transform:translateX(-50%)}
+#timelineSel{position:absolute;top:0;height:100%;background:rgba(34,197,94,0.30);z-index:1;pointer-events:none}
+#timelineHandleL,#timelineHandleR{position:absolute;top:0;width:18px;height:100%;margin-left:-9px;background:#f8fafc;border:1px solid #0f172a;z-index:3;cursor:ew-resize;touch-action:none}
 #tabBar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;display:flex;background:#1e222b;border-top:1px solid #333;z-index:50;padding:6px 4px 10px}
 .tabbtn{flex:1;background:transparent;color:#9aa;margin:2px;padding:10px 2px;font-size:13px;min-height:48px}
 .tabbtn.active{background:#2563eb;color:#fff}
@@ -1223,8 +1225,8 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey16</h1>
-<div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div></div>
+<h1>🎬 Sangbik — Website · phonekey19</h1>
+<div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
 <div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-chunks">အပိုင်းခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
@@ -1235,7 +1237,7 @@ body{padding-bottom:76px}
 <label>အဆုံး (စက္ကန့်): <input id="ovEndInp" type="number" min="0" step="0.5" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label>
 <label>အရွယ်: <select id="ovSizeSel"><option value="18">18</option><option value="24">24</option><option value="32" selected>32</option><option value="48">48</option></select></label>
 <label>အရောင်: <select id="ovColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option><option value="#FF0000">အနီ</option></select></label><br></div>
-<div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br></div>
+<div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label> <button id="trimScissorsBtn">✂️ ဒီနေရာမှာ ဖြတ်</button><br></div>
 <div id="grp-split" class="toolpanel"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
 <div id="grp-chunks" class="toolpanel"><label>အပိုင်း အရှည်: <select id="chunkMinSel"><option value="5" selected>5 မိနစ်</option><option value="10">10 မိနစ်</option><option value="15">15 မိနစ်</option><option value="20">20 မိနစ်</option><option value="custom">ကိုယ်ကြိုက်…</option></select></label> <label id="chunkCustomBox" style="display:none">မိနစ်: <input id="chunkMinInp" type="number" min="1" max="60" value="30" style="width:70px"></label> <button id="chunkSplitBtn">✂ အပိုင်းခွဲပါ</button> <span id="chunkText" class="small"></span><div id="chunkList"></div><br></div>
 <div id="grp-blur" class="toolpanel"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option><option value="background">Background (နောက်ခံ blur)</option></select>
@@ -1243,7 +1245,7 @@ body{padding-bottom:76px}
 <label>Blur နေရာ: <select id="blurPosSel"><option value="subtitle">စာတန်းနေရာ</option><option value="top">အပေါ်</option><option value="bottom">အောက်</option><option value="left">ဘယ်</option><option value="right">ညာ</option><option value="centre">အလယ်</option><option value="full">အပြည့်</option><option value="custom">ကိုယ်တိုင်ရွေး</option></select></label><br>
 <div id="blurCustomBox" style="display:none"><label>Blur X <input id="blurXInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> Y <input id="blurYInp" type="number" min="0" max="1" step="0.05" value="0.60" style="width:60px"> အကျယ် <input id="blurWInp" type="number" min="0" max="1" step="0.05" value="1" style="width:60px"> အမြင့် <input id="blurHInp" type="number" min="0" max="1" step="0.05" value="0.40" style="width:60px"></label> <span class="small">(0–1, ဗီဒီယိုအချိုးအလိုက်)</span></div>
 <label>Blur အချိန် (စက္ကန့်): အစ <input id="blurStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="blurEndInp" type="number" min="-1" step="1" value="-1" style="width:70px"> <span class="small">(-1 = အဆုံးထိ)</span></label>
-<label><input type="checkbox" id="blur2Chk"> Blur ၂ (အပေါ်ပိုင်း)</label><br></div>
+<label><input type="checkbox" id="blur2Chk"> Blur ၂ (ကြိုက်တဲ့နေရာ)</label> <div id="blur2Box" style="display:none"><label>Blur ၂ X <input id="blur2XInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> Y <input id="blur2YInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> အကျယ် <input id="blur2WInp" type="number" min="0" max="1" step="0.05" value="1" style="width:60px"> အမြင့် <input id="blur2HInp" type="number" min="0" max="1" step="0.05" value="0.30" style="width:60px"></label> <span class="small">(0-1, ကြိုက်တဲ့နေရာ)</span></div><br></div>
 <div id="grp-zoom" class="toolpanel"><label><input type="checkbox" id="zoomChk" checked> Zoom (ရွေးထားတဲ့ စက္ကန့်တိုင်း)</label>
 <label>Zoom အပြင်း: <select id="zoomStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
 <label>Zoom အကြိမ် (စက္ကန့်): <select id="zoomIntSel"><option value="4" selected>4</option><option value="5">5</option><option value="10">10</option></select></label><br></div>
@@ -1617,7 +1619,7 @@ async function phoneTranslateEmptyLines(){
   var idxs = [];
   lines.forEach(function(l, i){ if(phoneNeedsTranslation(l)) idxs.push(i); });
   if(!idxs.length){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ/မပြင်ရသေးတဲ့ လိုင်း မရှိဘူး။'); return false; }
-  var tb = el('translateBtn'); if(tb) tb.disabled = true; var tbText = tb ? tb.textContent : ''; if(tb) tb.textContent = 'ဘာသာပြန်နေပါတယ်…';
+  var tb = el('translateBtn'); window.__sangbikTranslating = true; window.__sangbikTranslatingSince = Date.now(); var tbText = tb ? tb.textContent : ''; if(tb) tb.textContent = 'ဘာသာပြန်နေပါတယ်…'; setTimeout(function(){ if(window.__sangbikTranslating){ window.__sangbikTranslating = false; var b2 = el('translateBtn'); if(b2) b2.textContent = tbText; msg('ဘာသာပြန်တာ ၁၀ မိနစ်ကျော်ကြာနေလို့ ရပ်လိုက်ပါပြီ — ပြန်နှိပ်လို့ ရပါပြီ။'); } }, 600000);
   var eng = phoneTranslateEngine() || 'gemini';
   var scn = (eng === 'gemini' && window.__sangbikSceneFrames) ? window.__sangbikSceneFrames.length : 0;
   msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + idxs.length + ' လိုင်း' + (scn ? ' + scene ပုံ ' + scn + ' ပုံ' : '') + ')');
@@ -1637,12 +1639,12 @@ async function phoneTranslateEmptyLines(){
       renderLines(); renderTimeline();
       msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + done + '/' + idxs.length + ' လိုင်း' + (scnN ? ' + scene ပုံ ' + scnN + ' ပုံ' : '') + ')');
     }
-    if(done === 0 && failErr){ if(tb) tb.disabled = false; if(tb) tb.textContent = tbText; if(!translateNoFallback) phoneTranslateFailedOnce = true; msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + failErr.message + (translateNoFallback ? ' — GEMINI only မို့ server ကို မပြန်ဘူး။ ပြန်နှိပ်ရင် GEMINI နဲ့ ပြန်စမ်းမယ်။' : ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။')); return false; }
+    if(done === 0 && failErr){ if(tb) tb.textContent = tbText; window.__sangbikTranslating = false; if(!translateNoFallback) phoneTranslateFailedOnce = true; msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + failErr.message + (translateNoFallback ? ' — GEMINI only မို့ server ကို မပြန်ဘူး။ ပြန်နှိပ်ရင် GEMINI နဲ့ ပြန်စမ်းမယ်။' : ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။')); return false; }
     var rescued = false;
     var saveErr = null;
     if(done > 0){
       try {
-        await api('/projects/' + pid + '/translation', 'PUT', {lines: lines});
+        await api('/projects/' + pid + '/translation', 'PUT', {lines: lines}, 120000);
         linesDirty = false;
       } catch(putErr){
         if(/Project not found/.test(putErr.message) && lines.length){
@@ -1651,13 +1653,13 @@ async function phoneTranslateEmptyLines(){
         } else { saveErr = putErr; linesDirty = true; }
       }
     }
-    if(tb) tb.disabled = false; if(tb) tb.textContent = tbText;
+    if(tb) tb.textContent = tbText; window.__sangbikTranslating = false;
     if(failErr){ msg('ဘာသာပြန်တာ ' + done + '/' + idxs.length + ' လိုင်းမှာ ရပ်သွားတယ်: ' + failErr.message + (saveErr ? ' (သိမ်းတာလည်း မရပါ — သိမ်းပါကို နှိပ်ပါ)' : ' (ပြီးတဲ့ လိုင်းတွေ သိမ်းပါပြီ)') + ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် ကျန်တဲ့ လိုင်းတွေကနေ ဆက်ပြန်မယ်။'); return true; }
     if(saveErr){ msg('ဘာသာပြန်ပြီးပြီ၊ ဒါပေမယ့် သိမ်းမရပါ — သိမ်းပါကို နှိပ်ပြီး ပြန်သိမ်းပါ (Project အသစ်မှာ သိမ်းမယ်)။'); return true; }
     msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်ပြီး ' + (rescued ? 'Project အသစ်မှာ ' : '') + 'သိမ်းပါပြီ: ' + idxs.length + ' လိုင်း — စစ်ကြည့်ပါ။');
     return true;
   } catch(e){
-    if(tb) tb.disabled = false; if(tb) tb.textContent = tbText;
+    if(tb) tb.textContent = tbText; window.__sangbikTranslating = false;
     if(!translateNoFallback) phoneTranslateFailedOnce = true;
     msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + e.message + (translateNoFallback ? ' — GEMINI only မို့ server ကို မပြန်ဘူး။ ပြန်နှိပ်ရင် GEMINI နဲ့ ပြန်စမ်းမယ်။' : ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။'));
     return false;
@@ -1868,7 +1870,7 @@ el('whisperBtn').onclick = async function(){
     lines = nl; linesDirty = true;
     renderLines(); renderTimeline();
     try {
-      await api('/projects/' + pid + '/translation', 'PUT', {lines: lines});
+      await api('/projects/' + pid + '/translation', 'PUT', {lines: lines}, 120000);
       linesDirty = false;
       msg('Whisper (ဖုန်းထဲမှာ) စာသားရပါပြီ: ' + nl.length + ' လိုင်း, သိမ်းပါပြီ — 🌐 ဘာသာပြန်ပါ နှိပ်ပါ။');
     } catch(putErr){
@@ -2035,12 +2037,54 @@ function renderTimeline(){
 }
 el('vid').addEventListener('timeupdate', function(){ var v = el('vid'); var dur = v.duration || duration; if(dur) el('timelinePlayhead').style.left = (100 * v.currentTime / dur) + '%'; });
 el('vid').addEventListener('loadedmetadata', renderTimeline);
-el('timelineStrip').onclick = function(ev){ var r = this.getBoundingClientRect(); var frac = (ev.clientX - r.left) / r.width; var v = el('vid'); var dur = v.duration || duration; if(dur && v.duration) v.currentTime = frac * dur; };
+var stripDragged = false;
+el('timelineStrip').onclick = function(ev){ if(stripDragged) return; var t = ev.target; if(t && (t.id === 'timelineHandleL' || t.id === 'timelineHandleR')) return; var r = this.getBoundingClientRect(); var frac = (ev.clientX - r.left) / r.width; var v = el('vid'); var dur = v.duration || duration; if(dur && v.duration) v.currentTime = frac * dur; };
+function trimDur(){ var v = el('vid'); return (v && v.duration) || duration || 0; }
+function updateTrimOverlay(){
+  var dur = trimDur(); var s = Math.max(0, parseFloat(el('trimStartInp').value) || 0); var e = parseFloat(el('trimEndInp').value); if(!isFinite(e) || e <= s) e = dur;
+  var sel = el('timelineSel'); var hl = el('timelineHandleL'); var hr = el('timelineHandleR'); var lb = el('timelineSelLabel');
+  if(!dur){ if(sel) sel.style.display = 'none'; if(hl) hl.style.display = 'none'; if(hr) hr.style.display = 'none'; if(lb) lb.textContent = ''; return; }
+  var lp = Math.max(0, Math.min(100, 100 * s / dur)); var rp = Math.max(0, Math.min(100, 100 * e / dur));
+  if(sel){ sel.style.display = ''; sel.style.left = lp + '%'; sel.style.width = Math.max(0, rp - lp) + '%'; }
+  if(hl){ hl.style.display = ''; hl.style.left = lp + '%'; }
+  if(hr){ hr.style.display = ''; hr.style.left = rp + '%'; }
+  if(lb) lb.textContent = 'ဖြတ်တောက်: ' + s.toFixed(1) + 's - ' + e.toFixed(1) + 's (လက်နဲ့ ဆွဲပြီး တိုရှည် ပြင်လို့ ရတယ်)';
+}
+(function(){
+  var drag = null;
+  function stripFrac(ev){ var r = el('timelineStrip').getBoundingClientRect(); return Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)); }
+  function onMove(ev){
+    if(!drag) return;
+    var dur = trimDur(); if(!dur) return;
+    var sec = stripFrac(ev) * dur;
+    if(drag === 'L'){ var e = parseFloat(el('trimEndInp').value); if(!isFinite(e) || e <= 0) e = dur; sec = Math.max(0, Math.min(sec, e - 0.1)); el('trimStartInp').value = sec.toFixed(1); }
+    else { var s = parseFloat(el('trimStartInp').value) || 0; sec = Math.max(s + 0.1, Math.min(sec, dur)); el('trimEndInp').value = sec.toFixed(1); }
+    updateTrimOverlay();
+    if(ev.preventDefault) ev.preventDefault();
+  }
+  function onUp(){ if(drag){ drag = null; stripDragged = true; setTimeout(function(){ stripDragged = false; }, 100); } }
+  var hl = el('timelineHandleL'); var hr = el('timelineHandleR');
+  if(hl) hl.addEventListener('pointerdown', function(ev){ if(!trimDur()){ msg('Video အရင် ရွေးပါ'); return; } drag = 'L'; try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){} if(ev.preventDefault) ev.preventDefault(); });
+  if(hr) hr.addEventListener('pointerdown', function(ev){ if(!trimDur()){ msg('Video အရင် ရွေးပါ'); return; } drag = 'R'; try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){} if(ev.preventDefault) ev.preventDefault(); });
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+})();
+if(el('trimStartInp')) el('trimStartInp').onchange = updateTrimOverlay;
+if(el('trimEndInp')) el('trimEndInp').onchange = updateTrimOverlay;
+el('vid').addEventListener('loadedmetadata', updateTrimOverlay);
+if(el('trimScissorsBtn')) el('trimScissorsBtn').onclick = function(){
+  var v = el('vid'); if(!v || !v.duration){ msg('Video အရင် ရွေးပါ'); return; }
+  var t = v.currentTime || 0; var s = parseFloat(el('trimStartInp').value) || 0;
+  if(t <= s){ msg('အစ (' + s + 's) ထက် နောက်ကျတဲ့ နေရာမှာ ဖြတ်ပါ'); return; }
+  var cut = Math.round(t * 10) / 10;
+  el('trimEndInp').value = cut; updateTrimOverlay();
+  msg('✂️ ဖြတ်တောက် အဆုံး = ' + cut + 's (အဲဒီနေရာကနေ နောက်ပိုင်း ဖြတ်မယ်)');
+};
 el('loadBtn').onclick = loadLines;
 function rescueLinesToNewProject(){
-  return api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){
+  return api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}, 120000).then(function(p){
     setPid(p.id);
-    return api('/projects/' + p.id + '/translation', 'PUT', {lines: lines}).then(function(){ return p; });
+    return api('/projects/' + p.id + '/translation', 'PUT', {lines: lines}, 120000).then(function(){ return p; });
   });
 }
 el('saveBtn').onclick = function(){
@@ -2053,7 +2097,7 @@ el('saveBtn').onclick = function(){
   tinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-tidx'), 10); if(!tvals[idx]) tvals[idx] = {}; tvals[idx][inp.getAttribute('data-kind')] = parseMmSs(inp.value); });
   var badTimes = 0;
   Object.keys(tvals).forEach(function(k){ var idx = parseInt(k, 10); var tv = tvals[idx]; if(!lines[idx] || !isFinite(tv.start) || !isFinite(tv.end) || tv.end <= tv.start) { badTimes++; return; } lines[idx].start = tv.start; lines[idx].end = tv.end; });
-  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ linesDirty = false; if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; }), savedAt: Date.now() }); msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : ''));   }).catch(function(e){
+  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}, 120000).then(function(j){ linesDirty = false; if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; }), savedAt: Date.now() }); msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : ''));   }).catch(function(e){
     if(/Project not found/.test(e.message) && lines.length){
       rescueLinesToNewProject().then(function(){
         linesDirty = false;
@@ -2126,6 +2170,7 @@ el('srtImportBtn').onclick = function(){
 };
 el('translateBtn').onclick = function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  if(window.__sangbikTranslating){ var elap = Math.round((Date.now() - (window.__sangbikTranslatingSince || Date.now())) / 1000); msg('ဘာသာပြန်နေပါတယ်… ခဏစောင့်ပါ။' + (elap > 600 ? ' (၁၀ မိနစ်ကျော်ပြီ — run ပိတ်မိနေရင် စာမျက်နှာ ပိတ်ပြီး ပြန်ဖွင့်ပါ။)' : '')); return; }
   syncEditorInputs();
   var inputs = el('linesBox').querySelectorAll('input[data-idx]');
   inputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-idx'), 10); if(lines[idx]) lines[idx].burmese = inp.value; });
@@ -2137,19 +2182,19 @@ el('translateBtn').onclick = function(){
   var todo = 0;
   lines.forEach(function(l){ if(l.original && l.original.trim() && phoneNeedsTranslation(l)) todo++; });
   if(!todo){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ ရှိတဲ့ လိုင်း မရှိဘူး။'); return; }
-  el('translateBtn').disabled = true;
-  var tbText2 = el('translateBtn').textContent; el('translateBtn').textContent = 'ဘာသာပြန်နေပါတယ်…';
+  window.__sangbikTranslating = true; window.__sangbikTranslatingSince = Date.now();
+  var tbText2 = el('translateBtn').textContent; el('translateBtn').textContent = 'ဘာသာပြန်နေပါတယ်…'; setTimeout(function(){ if(window.__sangbikTranslating){ window.__sangbikTranslating = false; var b3 = el('translateBtn'); if(b3) b3.textContent = tbText2; msg('ဘာသာပြန်တာ ၁၀ မိနစ်ကျော်ကြာနေလို့ ရပ်လိုက်ပါပြီ — ပြန်နှိပ်လို့ ရပါပြီ။'); } }, 600000);
   msg('ဘာသာပြန်နေပါတယ်… (' + todo + ' လိုင်း)');
   var doTranslate = function(){ var b = {lines: lines}; if(transMode === 'google') b.engine = 'google'; return api('/projects/' + pid + '/translate-lines', 'POST', b, 300000); };
   doTranslate().catch(function(firstErr){ if(/Project not found/.test(firstErr.message) && lines.length){ return rescueLinesToNewProject().then(function(){ return doTranslate(); }); } throw firstErr; }).then(function(j){
-    el('translateBtn').disabled = false; el('translateBtn').textContent = tbText2;
+    window.__sangbikTranslating = false; el('translateBtn').textContent = tbText2;
     var filled = 0;
     (j.lines || []).forEach(function(rl, i){ if(lines[i] && rl.burmese && phoneNeedsTranslation(lines[i])){ lines[i].burmese = rl.burmese; filled++; } });
     linesDirty = true;
     renderLines(); renderTimeline();
     msg('ဘာသာပြန်ပါပြီ: ' + filled + ' လိုင်း' + (j.path ? ' (' + j.path + ')' : '') + ' — စစ်ပြီး သိမ်းပါ။');
   }).catch(function(e){
-    el('translateBtn').disabled = false; el('translateBtn').textContent = tbText2;
+    window.__sangbikTranslating = false; el('translateBtn').textContent = tbText2;
     msg('ဘာသာပြန်မရပါ: ' + e.message);
   });
 };
@@ -2274,6 +2319,8 @@ el('urlBtn').onclick = function(){
   }).catch(function(e){ el('urlText').textContent = 'URL မရပါ: ' + e.message; });
 };
 el('blurPosSel').onchange = function(){ el('blurCustomBox').style.display = (this.value === 'custom') ? 'block' : 'none'; };
+if(el('blur2Chk')) el('blur2Chk').onchange = function(){ var b = el('blur2Box'); if(b) b.style.display = el('blur2Chk').checked ? 'block' : 'none'; };
+if(el('aspectSel')) el('aspectSel').onchange = function(){ window.__aspectChanged = true; };
 function buildExportBody(){
   var clamp01 = function(v, d){ var n = parseFloat(v); return isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
   var trimS = Math.max(0, parseFloat(el('trimStartInp').value) || 0);
@@ -2286,14 +2333,28 @@ function buildExportBody(){
   if(rotVal === 270) rotVal = -90; // server clamps rotation to +/-180, and -90 is the same turn as 270
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, blur2Region:{x:clamp01(el('blur2XInp').value, 0), y:clamp01(el('blur2YInp').value, 0), w:clamp01(el('blur2WInp').value, 1), h:clamp01(el('blur2HInp').value, 0.30)}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
 function doExport(){
   var body = buildExportBody();
   body.fastMux = !!el('fastMuxChk').checked;
-  if(body.fastMux && body.videoMirror){ body.fastMux = false; el('fastMuxChk').checked = false; msg('Mirror (Flip) ပါလို့ Fast export မှာ မရဘူး — Full export နဲ့ လုပ်မယ်။ video ပြန်ရိုက်လို့ မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်။'); }
-  else if(body.fastMux) msg('⚡ Fast export — video ပြန်မရိုက်လို့ Blur, Zoom, လှည့်, Poster, Logo, စာသား, အချိုး စတဲ့ visual tools တွေ မပါဘူး။ Trim + စာတန်း track + အသံကတော့ ရတယ်။ Tools တွေ ပါချင်ရင် ⚡ အမှန်ခြစ် ဖြုတ်ပြီး Export ပြန်နှိပ်ပါ။');
+  if(body.fastMux){
+    var vt = [];
+    if((body.blurMode && body.blurMode !== 'none') || body.blur2Enabled) vt.push('Blur');
+    if(body.zoomEvery5s) vt.push('Zoom');
+    if(body.rotationDeg) vt.push('လှည့်');
+    if(body.videoMirror) vt.push('မှန်ကြည့် (Flip)');
+    if(body.enhanceClarity) vt.push('ကြည်လင်မှု');
+    if(body.textOverlays && body.textOverlays.length) vt.push('စာသား');
+    if(body.removeRanges && body.removeRanges.length) vt.push('ခွဲ');
+    if(body.posterSec && body.posterSec > 0) vt.push('Poster');
+    if(body.subtitles && (body.subtitles.size !== 24 || body.subtitles.color !== '#FFFFFF' || body.subtitles.position !== 'bottom')) vt.push('စာတန်း အပြင်');
+    if(body.quality !== '720p' || body.resolution !== 'original' || body.qualityBitrate !== 'original' || body.exportFps !== 'original') vt.push('အရည်အသွေး/Resolution');
+    if(window.__aspectChanged) vt.push('အရွယ်အစား');
+    if(vt.length){ body.fastMux = false; el('fastMuxChk').checked = false; msg(vt.join(', ') + ' ပါလို့ Fast export မှာ မရဘူး — Full export နဲ့ လုပ်မယ်။ video ပြန်ရိုက်လို့ မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်။'); }
+    else msg('⚡ Fast export — video ပြန်မရိုက်လို့ မြန်တယ်။ Visual tool တစ်ခု ဖွင့်ထားရင် Full export အလိုလို ပြောင်းမယ်။ Trim + စာတန်း track + အသံကတော့ ရတယ်။');
+  }
   el('expText').textContent = body.fastMux ? 'Fast export လုပ်နေပါတယ် — စက္ကန့်ပိုင်းပဲ ကြာမယ်…' : 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 }
@@ -3225,6 +3286,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
         } else {
           filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         }
+      } else if (blur2Enabled) {
+        filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else {
         filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       }
