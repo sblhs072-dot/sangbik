@@ -246,12 +246,24 @@ async function groqTranslateBatch(texts, sourceLang) {
 async function geminiTranslateBatch(texts, sourceLang, summary) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_TRANSLATE_MODEL || GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: (summary ? 'Video context (from watching the video first): ' + summary + ' Translate the lines to fit this story and tone. ' : '') + buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
-  const body = await res.text();
-  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 300)}`);
-  let j; try { j = JSON.parse(body); } catch { throw new Error('Gemini returned unparseable output.'); }
-  const content = (j.candidates?.[0]?.content?.parts?.map(x => x.text).join('') || '').trim();
-  return parseBatchResponse(content, texts.length);
+  const models = [];
+  for (const m of [process.env.GEMINI_TRANSLATE_MODEL || GEMINI_TRANSCRIBE_MODEL].concat(GEMINI_MODEL_CHAIN)) if (!models.includes(m)) models.push(m);
+  let lastErr = null;
+  for (const model of models) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: (summary ? 'Video context (from watching the video first): ' + summary + ' Translate the lines to fit this story and tone. ' : '') + buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+      const body = await res.text();
+      if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 300)}`);
+      let j; try { j = JSON.parse(body); } catch { throw new Error('Gemini returned unparseable output.'); }
+      const content = (j.candidates?.[0]?.content?.parts?.map(x => x.text).join('') || '').trim();
+      return parseBatchResponse(content, texts.length);
+    } catch (e) {
+      lastErr = e;
+      if (e.message.indexOf('Gemini HTTP 429') >= 0 || e.message.indexOf('Gemini HTTP 5') >= 0) continue;
+      throw e;
+    }
+  }
+  throw lastErr || new Error('Gemini translation failed.');
 }
 async function withRetry(fn) { let last; for (let a = 0; a < 2; a++) { try { return await fn(); } catch (e) { last = e; if (a === 0) await new Promise(r => setTimeout(r, 5000)); } } throw last; }
 async function withRetrySlow(fn) { let last; const waits = [10000, 20000, 40000]; for (let a = 0; a < 4; a++) { try { return await fn(); } catch (e) { last = e; if (a < 3) await new Promise(r => setTimeout(r, waits[a])); } } throw last; }
@@ -1321,7 +1333,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey32</h1>
+<h1>🎬 Sangbik — Website · phonekey34</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1701,6 +1713,15 @@ function phoneParseBatch(text, count){
   throw new Error('Batch translation returned the wrong number of lines.');
 }
 var PHONE_GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+function shortGeminiModel(m){ return (m || '').replace('gemini-', ''); }
+function noteQuotaSwitch(fromM, toM){
+  window.__sangbikQuotaSwitches = (window.__sangbikQuotaSwitches || 0) + 1;
+  msg('🔁 ' + shortGeminiModel(fromM) + ' quota ပြည့် → ' + shortGeminiModel(toM) + ' သို့ ပြောင်း');
+}
+function quotaSwitchNote(){
+  var n = window.__sangbikQuotaSwitches || 0;
+  return n ? ' (🔁 quota ကြောင့် ' + n + ' ကြိမ် ပြောင်း)' : '';
+}
 async function geminiPhoneTranslateBatch(texts, sourceLang, spks){
   var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။');
   var prompt = phoneBatchPrompt(texts, sourceLang, spks);
@@ -1719,7 +1740,7 @@ async function geminiPhoneTranslateBatch(texts, sourceLang, spks){
       for(var m = 0; m < PHONE_GEMINI_MODELS.length; m++){
         try {
           var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + keys[i], { method: 'POST', signal: AbortSignal.timeout(120000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
-          if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
+          if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); if(r.status === 429){ if(m + 1 < PHONE_GEMINI_MODELS.length) noteQuotaSwitch(PHONE_GEMINI_MODELS[m], PHONE_GEMINI_MODELS[m + 1]); else if(i + 1 < keys.length) noteQuotaSwitch(PHONE_GEMINI_MODELS[m], PHONE_GEMINI_MODELS[0]); } continue; }
           var jj = await r.json();
           var txt = '';
           if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
@@ -1749,7 +1770,7 @@ async function geminiPhoneCheckBatch(items, sourceLang){
       for(var m = 0; m < PHONE_GEMINI_MODELS.length; m++){
         try {
           var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + keys[i], { method: 'POST', signal: AbortSignal.timeout(120000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
-          if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
+          if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); if(r.status === 429){ if(m + 1 < PHONE_GEMINI_MODELS.length) noteQuotaSwitch(PHONE_GEMINI_MODELS[m], PHONE_GEMINI_MODELS[m + 1]); else if(i + 1 < keys.length) noteQuotaSwitch(PHONE_GEMINI_MODELS[m], PHONE_GEMINI_MODELS[0]); } continue; }
           var jj = await r.json();
           var txt = '';
           if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
@@ -1774,12 +1795,21 @@ async function geminiPhoneCheckBatch(items, sourceLang){
   }
   return await tryChain();
 }
+function parallelChunkGroups(idxs, chunkSize, groupSize){
+  var groups = [];
+  for(var s = 0; s < idxs.length; s += chunkSize * groupSize){
+    var g = [];
+    for(var k = 0; k < groupSize && s + k * chunkSize < idxs.length; k++) g.push(idxs.slice(s + k * chunkSize, s + k * chunkSize + chunkSize));
+    groups.push(g);
+  }
+  return groups;
+}
 async function phoneTranslateEmptyLines(){
   var idxs = [];
   lines.forEach(function(l, i){ if(phoneNeedsTranslation(l)) idxs.push(i); });
   var checkBefore = {}; idxs.forEach(function(i){ checkBefore[i] = lines[i].burmese || ''; });
   if(!idxs.length){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ/မပြင်ရသေးတဲ့ လိုင်း မရှိဘူး။'); return false; }
-  var tb = el('translateBtn'); window.__sangbikTranslating = true; window.__sangbikTranslatingSince = Date.now(); var tbText = tb ? tb.textContent : ''; if(tb) tb.textContent = 'ဘာသာပြန်နေပါတယ်…'; setTimeout(function(){ if(window.__sangbikTranslating){ window.__sangbikTranslating = false; var b2 = el('translateBtn'); if(b2) b2.textContent = tbText; msg('ဘာသာပြန်တာ ၁၀ မိနစ်ကျော်ကြာနေလို့ ရပ်လိုက်ပါပြီ — ပြန်နှိပ်လို့ ရပါပြီ။'); } }, 600000);
+  var tb = el('translateBtn'); window.__sangbikTranslating = true; window.__sangbikQuotaSwitches = 0; window.__sangbikTranslatingSince = Date.now(); var tbText = tb ? tb.textContent : ''; if(tb) tb.textContent = 'ဘာသာပြန်နေပါတယ်…'; setTimeout(function(){ if(window.__sangbikTranslating){ window.__sangbikTranslating = false; var b2 = el('translateBtn'); if(b2) b2.textContent = tbText; msg('ဘာသာပြန်တာ ၁၀ မိနစ်ကျော်ကြာနေလို့ ရပ်လိုက်ပါပြီ — ပြန်နှိပ်လို့ ရပါပြီ။'); } }, 600000);
   var eng = phoneTranslateEngine() || 'gemini';
   var usedEng = eng;
   var scn = (eng === 'gemini' && window.__sangbikSceneFrames) ? window.__sangbikSceneFrames.length : 0;
@@ -1787,18 +1817,29 @@ async function phoneTranslateEmptyLines(){
   try {
     var CH = 20, done = 0, failErr = null, scnN = 0;
     try { scnN = (window.__sangbikSceneFrames || []).length; } catch(e){}
-    for(var s = 0; s < idxs.length; s += CH){
-      var part = idxs.slice(s, s + CH);
-      var origs = part.map(function(i){ return lines[i].original; });
-      var trs = null;
-      try {
-        trs = (eng === 'groq') ? await groqPhoneTranslateBatch(origs, sourceLangChoice(), part.map(function(i){ return lines[i].speaker || ''; })) : await geminiPhoneTranslateBatch(origs, sourceLangChoice(), part.map(function(i){ return lines[i].speaker || ''; }));
-      } catch(chunkErr){ failErr = (chunkErr && chunkErr.name === 'TimeoutError') ? new Error('အချိန်ကုန်သွားတယ် (network နှေးနေတုန်း)') : chunkErr; break; }
-      part.forEach(function(li, k){ lines[li].burmese = trs[k]; });
-      done += part.length;
-      linesDirty = true;
+    async function translateGroup(gparts){
+      var tasks = gparts.map(function(part){
+        var origs = part.map(function(i){ return lines[i].original; });
+        var spks = part.map(function(i){ return lines[i].speaker || ''; });
+        var p = (eng === 'groq') ? groqPhoneTranslateBatch(origs, sourceLangChoice(), spks) : geminiPhoneTranslateBatch(origs, sourceLangChoice(), spks);
+        return p.then(function(trs){ return {ok: true, part: part, trs: trs}; }).catch(function(er){ return {ok: false, part: part, err: er}; });
+      });
+      var results = await Promise.all(tasks);
+      var anyOk = false;
+      for(var ri = 0; ri < results.length; ri++){
+        var rr = results[ri];
+        if(rr.ok){ rr.part.forEach(function(li, k){ lines[li].burmese = rr.trs[k]; }); done += rr.part.length; anyOk = true; }
+        else if(!failErr){ failErr = (rr.err && rr.err.name === 'TimeoutError') ? new Error('အချိန်ကုန်သွားတယ် (network နှေးနေတုန်း)') : rr.err; }
+      }
+      if(anyOk) linesDirty = true;
       renderLines(); renderTimeline();
       msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + done + '/' + idxs.length + ' လိုင်း' + (scnN ? ' + scene ပုံ ' + scnN + ' ပုံ' : '') + ')');
+    }
+    var tGroups = parallelChunkGroups(idxs, CH, 3);
+    for(var gi = 0; gi < tGroups.length; gi++){
+      await translateGroup(tGroups[gi]);
+      if(failErr) break;
+      if(gi + 1 < tGroups.length) await new Promise(function(res){ setTimeout(res, 400); });
     }
     if(done === 0 && failErr){
       if(translateNoFallback){ if(tb) tb.textContent = tbText; window.__sangbikTranslating = false; msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + failErr.message + ' — GEMINI only မို့ server ကို မပြန်ဘူး။ ပြန်နှိပ်ရင် GEMINI နဲ့ ပြန်စမ်းမယ်။'); return false; }
@@ -1819,18 +1860,35 @@ async function phoneTranslateEmptyLines(){
         if(filledIdxs.length){
           msg('ဘာသာပြန် စစ်နေပါတယ်… (' + filledIdxs.length + ' လိုင်း)');
           var fixedN = 0;
-          for(var cs = 0; cs < filledIdxs.length; cs += 20){
-            var cpart = filledIdxs.slice(cs, cs + 20);
-            var citems = cpart.map(function(i){ return { original: lines[i].original, burmese: lines[i].burmese }; });
-            var cout = await geminiPhoneCheckBatch(citems, sourceLangChoice());
-            cpart.forEach(function(li, k){
-              var c = (cout[k] === undefined) ? null : (cout[k] || '').trim();
-              if(c === '' && isPunctOnly(lines[li].original)){ if(lines[li].burmese !== ''){ lines[li].burmese = ''; fixedN++; } }
-              else if(c && c !== lines[li].burmese && isValidBurmeseCheck(c, lines[li].original)){ lines[li].burmese = c; fixedN++; }
+          var checkDone = 0;
+          async function checkGroup(gcparts){
+            var tasks = gcparts.map(function(cpart){
+              var citems = cpart.map(function(i){ return { original: lines[i].original, burmese: lines[i].burmese }; });
+              return geminiPhoneCheckBatch(citems, sourceLangChoice()).then(function(cout){ return {ok: true, cpart: cpart, cout: cout}; }).catch(function(er){ return {ok: false, cpart: cpart, err: er}; });
             });
+            var results = await Promise.all(tasks);
+            var gErr = null;
+            for(var ri = 0; ri < results.length; ri++){
+              var rr = results[ri];
+              if(rr.ok){
+                rr.cpart.forEach(function(li, k){
+                  var c = (rr.cout[k] === undefined) ? null : (rr.cout[k] || '').trim();
+                  if(c === '' && isPunctOnly(lines[li].original)){ if(lines[li].burmese !== ''){ lines[li].burmese = ''; fixedN++; } }
+                  else if(c && c !== lines[li].burmese && isValidBurmeseCheck(c, lines[li].original)){ lines[li].burmese = c; fixedN++; }
+                });
+                checkDone += rr.cpart.length;
+              } else if(!gErr){ gErr = rr.err; }
+            }
+            msg('ဘာသာပြန် စစ်နေပါတယ်… (' + checkDone + '/' + filledIdxs.length + ' လိုင်း)');
+            if(gErr) throw gErr;
+          }
+          var cGroups = parallelChunkGroups(filledIdxs, 20, 3);
+          for(var cgi = 0; cgi < cGroups.length; cgi++){
+            await checkGroup(cGroups[cgi]);
+            if(cgi + 1 < cGroups.length) await new Promise(function(res){ setTimeout(res, 400); });
           }
           if(fixedN){ linesDirty = true; renderLines(); renderTimeline(); }
-          msg('ဘာသာပြန် စစ်ပြီးပြီ (' + fixedN + ' လိုင်း ပြင်ပြီး) — သိမ်းနေပါတယ်…');
+          msg('ဘာသာပြန် စစ်ပြီးပြီ (' + fixedN + ' လိုင်း ပြင်ပြီး)' + quotaSwitchNote() + ' — သိမ်းနေပါတယ်…');
         }
       } catch(chkErr){ msg('ဘာသာပြန် စစ်တာ မရပါ (' + chkErr.message + ') — ဖြည့်ထားတဲ့ လိုင်းတွေ အတိုင်း သိမ်းမယ်။'); }
     }
@@ -1850,7 +1908,7 @@ async function phoneTranslateEmptyLines(){
     if(tb) tb.textContent = tbText; window.__sangbikTranslating = false;
     if(failErr){ msg('ဘာသာပြန်တာ ' + done + '/' + idxs.length + ' လိုင်းမှာ ရပ်သွားတယ်: ' + failErr.message + (saveErr ? ' (သိမ်းတာလည်း မရပါ — သိမ်းပါကို နှိပ်ပါ)' : ' (ပြီးတဲ့ လိုင်းတွေ သိမ်းပါပြီ)') + ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် ကျန်တဲ့ လိုင်းတွေကနေ ဆက်ပြန်မယ်။'); return true; }
     if(saveErr){ msg('ဘာသာပြန်ပြီးပြီ၊ ဒါပေမယ့် သိမ်းမရပါ — သိမ်းပါကို နှိပ်ပြီး ပြန်သိမ်းပါ (Project အသစ်မှာ သိမ်းမယ်)။'); return true; }
-    msg('ဖုန်းကနေ ' + (usedEng === 'groq' ? 'Groq' : (usedEng === 'google' ? 'Google' : 'Gemini')) + ' နဲ့ ဘာသာပြန်ပြီး ' + (rescued ? 'Project အသစ်မှာ ' : '') + 'သိမ်းပါပြီ: ' + idxs.length + ' လိုင်း — စစ်ကြည့်ပါ။');
+    msg('ဖုန်းကနေ ' + (usedEng === 'groq' ? 'Groq' : (usedEng === 'google' ? 'Google' : 'Gemini')) + ' နဲ့ ဘာသာပြန်ပြီး ' + (rescued ? 'Project အသစ်မှာ ' : '') + 'သိမ်းပါပြီ: ' + idxs.length + ' လိုင်း' + quotaSwitchNote() + ' — စစ်ကြည့်ပါ။');
     return true;
   } catch(e){
     if(tb) tb.textContent = tbText; window.__sangbikTranslating = false;
@@ -1981,6 +2039,7 @@ function blobToBase64(blob){
   });
 }
 async function phoneDirectTranscribe(aac, sceneFrames, sourceLang){
+  window.__sangbikQuotaSwitches = 0;
   var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ');
   var b64 = await blobToBase64(aac);
   var langName = (sourceLang === 'zh' || sourceLang === 'auto' || !sourceLang) ? 'Chinese' : sourceLang;
@@ -2000,7 +2059,7 @@ async function phoneDirectTranscribe(aac, sceneFrames, sourceLang){
     for(var mi = 0; mi < PHONE_GEMINI_MODELS.length; mi++){
       try {
         var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[mi] + ':generateContent?key=' + keys[ki], {method: 'POST', signal: AbortSignal.timeout(120000), headers: {'Content-Type': 'application/json'}, body: JSON.stringify({contents: [{parts: parts}]})});
-        if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
+        if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); if(r.status === 429){ if(mi + 1 < PHONE_GEMINI_MODELS.length) noteQuotaSwitch(PHONE_GEMINI_MODELS[mi], PHONE_GEMINI_MODELS[mi + 1]); else if(ki + 1 < keys.length) noteQuotaSwitch(PHONE_GEMINI_MODELS[mi], PHONE_GEMINI_MODELS[0]); } continue; }
         var jj = await r.json(); var txt = '';
         if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
         var parsed = phoneParseTranscript(txt);
@@ -2045,7 +2104,7 @@ el('phoneAudioBtn').onclick = async function(){
     if((tc === 'auto' || tc === 'gemini') && phoneKeys().length && aac.size <= 18 * 1048576){
       try {
         var directLines = await phoneDirectTranscribe(aac, sceneFrames, sourceLangChoice());
-        if(directLines && directLines.length){ phonePublishDirectLines(directLines); msg('Gemini တိုက်ရိုက် နားထောင်ပြီးပါပြီ: ' + directLines.length + ' လိုင်း — လိုင်းတွေ ကြည့်ပြီး 💾 သိမ်းပါ။'); return; }
+        if(directLines && directLines.length){ phonePublishDirectLines(directLines); msg('Gemini တိုက်ရိုက် နားထောင်ပြီးပါပြီ: ' + directLines.length + ' လိုင်း' + quotaSwitchNote() + ' — လိုင်းတွေ ကြည့်ပြီး 💾 သိမ်းပါ။'); return; }
       } catch(de){ msg('Gemini တိုက်ရိုက် မရလို့ server ကို ပို့နေပါတယ်… (Audio ' + audioMB + ' MB)'); }
     } else {
       msg('Audio ရပါပြီ (' + audioMB + ' MB) — server ကို ပို့နေပါတယ်…');
@@ -2630,6 +2689,32 @@ function loadPhoneTtsBundle(){ return new Promise(function(resolve, reject){
   s.onerror = function(){ reject(new Error('Bundle load failed')); };
   document.head.appendChild(s);
 }); }
+function BridgeEdgeTTS(){
+  var self = this;
+  this.audio = null;
+  this.synthesize = function(text, voice){
+    return new Promise(function(resolve, reject){
+      var id = 'e' + Date.now() + '' + Math.floor(Math.random() * 1000000);
+      window.__sangbikEdgeCb = window.__sangbikEdgeCb || {};
+      window.__sangbikEdgeCb[id] = function(b64, err){
+        delete window.__sangbikEdgeCb[id];
+        if(err){ reject(new Error(err)); return; }
+        try {
+          var bin = atob(b64); var arr = new Uint8Array(bin.length);
+          for(var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          self.audio = arr; resolve();
+        } catch(e){ reject(e); }
+      };
+      try { window.SangbikEdge.synthesize(id, text, voice); }
+      catch(e){ delete window.__sangbikEdgeCb[id]; reject(e); }
+    });
+  };
+  this.getAudioData = function(){ return self.audio; };
+}
+window.__sangbikEdgeDone = function(id, b64, err){
+  var cb = window.__sangbikEdgeCb && window.__sangbikEdgeCb[id];
+  if(cb) cb(b64, err);
+};
 el('phoneTtsBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
   if(linesDirty){ msg('အရင် "သိမ်းပါ" ကို နှိပ်ပါ — မသိမ်းရသေးတဲ့ လိုင်းတွေ အသံမှာ မပါဘူး'); return; }
@@ -2647,7 +2732,7 @@ el('phoneTtsBtn').onclick = function(){
       var it = items[pos]; var attempt = 0;
       function tryLine(){
         attempt++;
-        var tts = new window.EdgeTTS();
+        var tts = window.SangbikEdge ? new BridgeEdgeTTS() : new window.EdgeTTS();
         return tts.synthesize(it.text, voice).then(function(){
           var data = tts.getAudioData();
           if(!data || !data.length) throw new Error('No audio data');
