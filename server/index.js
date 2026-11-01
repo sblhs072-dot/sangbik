@@ -77,18 +77,51 @@ async function transcribeOfflineFiles(wavFiles) {
 // fallback, never inventing a translation.
 async function googleTranslateBatch(texts, target = 'my', source = 'auto') {
   if (!texts.length) return [];
-  const params = new URLSearchParams();
-  params.append('client', 'gtx'); params.append('sl', source); params.append('tl', target); params.append('dt', 't');
-  for (const t of texts) params.append('q', t);
-  const url = 'https://translate.googleapis.com/translate_a/single?' + params.toString();
-  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(120000) });
-  const body = await r.text();
-  if (!r.ok) throw new Error(`Google Translate HTTP ${r.status}: ${body.slice(0, 300)}`);
-  let j; try { j = JSON.parse(body); } catch { throw new Error(`Google Translate returned unparseable output: ${body.slice(0, 300)}`); }
-  const rows = j[0] || [];
-  if (rows.length !== texts.length) throw new Error(`Google Translate returned ${rows.length} translations for ${texts.length} inputs.`);
-  return rows.map(row => (Array.isArray(row) ? row.map(x => (typeof x === 'string' ? x : '')).join('') : '').trim());
+  // NOTE: the free gtx endpoint returns ONE translation per request
+  // (extra q params are ignored — proven by live probes), so multi-q
+  // batches always failed the count check, and joining all strings in a
+  // row appended the original Chinese (sanitizeBurmese strips no CJK).
+  // Hence one request per line, sequential, 100ms pacing, 429 retry
+  // (3 attempts, 10s then 20s). Translation = rows[*][0] joined.
+  // Partial return: a line that ultimately fails gets '' (stays needing
+  // translation, retried next press) instead of killing the batch or
+  // inventing text. Throws only when NOTHING succeeded.
+  const out = [];
+  let firstErr = null, okCount = 0, consecFail = 0;
+  for (let i = 0; i < texts.length; i++) {
+    if (i > 0) await new Promise(res => setTimeout(res, 100));
+    let tr = '', lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const params = new URLSearchParams();
+        params.append('client', 'gtx'); params.append('sl', source); params.append('tl', target); params.append('dt', 't');
+        params.append('q', texts[i]);
+        const url = 'https://translate.googleapis.com/translate_a/single?' + params.toString();
+        const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(120000) });
+        const body = await r.text();
+        if (!r.ok) throw new Error(`Google Translate HTTP ${r.status}: ${body.slice(0, 300)}`);
+        let j; try { j = JSON.parse(body); } catch { throw new Error(`Google Translate returned unparseable output: ${body.slice(0, 300)}`); }
+        const rows = j[0] || [];
+        let t = '';
+        for (const row of rows) { if (Array.isArray(row) && typeof row[0] === 'string') t += row[0]; }
+        t = t.trim();
+        if (!t) throw new Error('Google Translate returned an empty translation.');
+        tr = t; lastErr = null; break;
+      } catch (e) {
+        lastErr = e;
+        if (!/HTTP 429/.test(e.message) || attempt === 2) break;
+        await new Promise(res => setTimeout(res, attempt === 0 ? 10000 : 20000));
+      }
+    }
+    if (lastErr) { if (!firstErr) firstErr = lastErr; consecFail++; }
+    else { okCount++; consecFail = 0; }
+    out.push(tr);
+    if (consecFail >= 3) { for (let k = i + 1; k < texts.length; k++) out.push(''); break; }
+  }
+  if (okCount === 0) throw firstErr;
+  return out;
 }
+
 // MyMemory free API (no key). MUST reject its quota-warning text: a
 // responseStatus other than 200, or a translatedText starting with
 // "MYMEMORY WARNING", is a failure, never a translation.
@@ -1225,7 +1258,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey19</h1>
+<h1>🎬 Sangbik — Website · phonekey20</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1621,6 +1654,7 @@ async function phoneTranslateEmptyLines(){
   if(!idxs.length){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ/မပြင်ရသေးတဲ့ လိုင်း မရှိဘူး။'); return false; }
   var tb = el('translateBtn'); window.__sangbikTranslating = true; window.__sangbikTranslatingSince = Date.now(); var tbText = tb ? tb.textContent : ''; if(tb) tb.textContent = 'ဘာသာပြန်နေပါတယ်…'; setTimeout(function(){ if(window.__sangbikTranslating){ window.__sangbikTranslating = false; var b2 = el('translateBtn'); if(b2) b2.textContent = tbText; msg('ဘာသာပြန်တာ ၁၀ မိနစ်ကျော်ကြာနေလို့ ရပ်လိုက်ပါပြီ — ပြန်နှိပ်လို့ ရပါပြီ။'); } }, 600000);
   var eng = phoneTranslateEngine() || 'gemini';
+  var usedEng = eng;
   var scn = (eng === 'gemini' && window.__sangbikSceneFrames) ? window.__sangbikSceneFrames.length : 0;
   msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + idxs.length + ' လိုင်း' + (scn ? ' + scene ပုံ ' + scn + ' ပုံ' : '') + ')');
   try {
@@ -1639,7 +1673,19 @@ async function phoneTranslateEmptyLines(){
       renderLines(); renderTimeline();
       msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + done + '/' + idxs.length + ' လိုင်း' + (scnN ? ' + scene ပုံ ' + scnN + ' ပုံ' : '') + ')');
     }
-    if(done === 0 && failErr){ if(tb) tb.textContent = tbText; window.__sangbikTranslating = false; if(!translateNoFallback) phoneTranslateFailedOnce = true; msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + failErr.message + (translateNoFallback ? ' — GEMINI only မို့ server ကို မပြန်ဘူး။ ပြန်နှိပ်ရင် GEMINI နဲ့ ပြန်စမ်းမယ်။' : ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။')); return false; }
+    if(done === 0 && failErr){
+      if(translateNoFallback){ if(tb) tb.textContent = tbText; window.__sangbikTranslating = false; msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + failErr.message + ' — GEMINI only မို့ server ကို မပြန်ဘူး။ ပြန်နှိပ်ရင် GEMINI နဲ့ ပြန်စမ်းမယ်။'); return false; }
+      var gDone = 0, gErr = null;
+      try {
+        msg('ဖုန်းကနေ Google နဲ့ ထပ်စမ်းနေပါတယ်… (' + idxs.length + ' လိုင်း)');
+        var gOrigs = idxs.map(function(i){ return lines[i].original; });
+        var gTrs = await phoneGoogleTranslateBatch(gOrigs);
+        idxs.forEach(function(li, k){ lines[li].burmese = gTrs[k]; });
+        gDone = idxs.length; linesDirty = true; renderLines(); renderTimeline();
+      } catch(gE){ gErr = gE; }
+      if(gDone > 0){ done = gDone; failErr = null; usedEng = 'google'; }
+      else { if(tb) tb.textContent = tbText; window.__sangbikTranslating = false; phoneTranslateFailedOnce = true; msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + failErr.message + ' (Google လည်း မရပါ: ' + (gErr ? gErr.message : '?') + ') — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။'); return false; }
+    }
     var rescued = false;
     var saveErr = null;
     if(done > 0){
@@ -1656,7 +1702,7 @@ async function phoneTranslateEmptyLines(){
     if(tb) tb.textContent = tbText; window.__sangbikTranslating = false;
     if(failErr){ msg('ဘာသာပြန်တာ ' + done + '/' + idxs.length + ' လိုင်းမှာ ရပ်သွားတယ်: ' + failErr.message + (saveErr ? ' (သိမ်းတာလည်း မရပါ — သိမ်းပါကို နှိပ်ပါ)' : ' (ပြီးတဲ့ လိုင်းတွေ သိမ်းပါပြီ)') + ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် ကျန်တဲ့ လိုင်းတွေကနေ ဆက်ပြန်မယ်။'); return true; }
     if(saveErr){ msg('ဘာသာပြန်ပြီးပြီ၊ ဒါပေမယ့် သိမ်းမရပါ — သိမ်းပါကို နှိပ်ပြီး ပြန်သိမ်းပါ (Project အသစ်မှာ သိမ်းမယ်)။'); return true; }
-    msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်ပြီး ' + (rescued ? 'Project အသစ်မှာ ' : '') + 'သိမ်းပါပြီ: ' + idxs.length + ' လိုင်း — စစ်ကြည့်ပါ။');
+    msg('ဖုန်းကနေ ' + (usedEng === 'groq' ? 'Groq' : (usedEng === 'google' ? 'Google' : 'Gemini')) + ' နဲ့ ဘာသာပြန်ပြီး ' + (rescued ? 'Project အသစ်မှာ ' : '') + 'သိမ်းပါပြီ: ' + idxs.length + ' လိုင်း — စစ်ကြည့်ပါ။');
     return true;
   } catch(e){
     if(tb) tb.textContent = tbText; window.__sangbikTranslating = false;
@@ -2097,6 +2143,7 @@ el('saveBtn').onclick = function(){
   tinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-tidx'), 10); if(!tvals[idx]) tvals[idx] = {}; tvals[idx][inp.getAttribute('data-kind')] = parseMmSs(inp.value); });
   var badTimes = 0;
   Object.keys(tvals).forEach(function(k){ var idx = parseInt(k, 10); var tv = tvals[idx]; if(!lines[idx] || !isFinite(tv.start) || !isFinite(tv.end) || tv.end <= tv.start) { badTimes++; return; } lines[idx].start = tv.start; lines[idx].end = tv.end; });
+  updateTMFromLines();
   api('/projects/' + pid + '/translation', 'PUT', {lines: lines}, 120000).then(function(j){ linesDirty = false; if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; }), savedAt: Date.now() }); msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : ''));   }).catch(function(e){
     if(/Project not found/.test(e.message) && lines.length){
       rescueLinesToNewProject().then(function(){
@@ -2168,14 +2215,78 @@ el('srtImportBtn').onclick = function(){
   rd.onerror = function(){ msg('SRT file ဖတ်မရပါ'); };
   rd.readAsText(f);
 };
+var TM_KEY = 'sangbik_tm';
+var TM_MAX = 2000;
+function loadTM(){ try { var t = JSON.parse(localStorage.getItem(TM_KEY) || '{}'); return (t && typeof t === 'object') ? t : {}; } catch(e){ return {}; } }
+function saveTM(tm){ try { var keys = Object.keys(tm); while(keys.length > TM_MAX){ delete tm[keys.shift()]; keys = Object.keys(tm); } localStorage.setItem(TM_KEY, JSON.stringify(tm)); } catch(e){} }
+function updateTMFromLines(){
+  var tm = loadTM(); var n = 0;
+  lines.forEach(function(l){
+    if(!l || typeof l.original !== 'string') return;
+    var o = l.original.trim(); var b = (l.burmese || '').trim();
+    if(!o || !b || b === o) return;
+    if(/[\\u4e00-\\u9fff]/.test(b)) return;
+    if(/[A-Za-z]/.test(b)) return;
+    if(tm[o] !== b){ tm[o] = b; n++; }
+  });
+  if(n) saveTM(tm);
+  return n;
+}
+function applyTMToLines(pre){
+  var tm = loadTM(); var n = 0;
+  lines.forEach(function(l, ix){
+    if(!l || typeof l.original !== 'string') return;
+    if(pre && pre[ix] && !(l.burmese || '').trim()) return;
+    if(!phoneNeedsTranslation(l)) return;
+    var hit = tm[l.original.trim()];
+    if(hit){ l.burmese = hit; n++; }
+  });
+  return n;
+}
+async function phoneGoogleTranslateBatch(origs){
+  var out = [];
+  for(var i = 0; i < origs.length; i++){
+    if(i > 0) await new Promise(function(res){ setTimeout(res, 100); });
+    var tr = '', lastErr = null;
+    for(var attempt = 0; attempt < 3; attempt++){
+      try {
+        var params = new URLSearchParams();
+        params.append('client', 'gtx'); params.append('sl', 'auto'); params.append('tl', 'my'); params.append('dt', 't');
+        params.append('q', origs[i]);
+        var url = 'https://translate.googleapis.com/translate_a/single?' + params.toString();
+        var r = await fetch(url);
+        if(!r.ok) throw new Error('Google HTTP ' + r.status);
+        var j = await r.json();
+        var rows = (j && j[0]) || [];
+        var t = '';
+        rows.forEach(function(row){ if(Array.isArray(row) && typeof row[0] === 'string') t += row[0]; });
+        t = t.trim();
+        if(!t) throw new Error('Google returned an empty translation.');
+        tr = t; lastErr = null; break;
+      } catch(e){
+        lastErr = e;
+        if(!/HTTP 429/.test(e.message) || attempt === 2) break;
+        await new Promise(function(res){ setTimeout(res, attempt === 0 ? 10000 : 20000); });
+      }
+    }
+    if(lastErr) throw lastErr;
+    out.push(tr);
+  }
+  return out;
+}
+
 el('translateBtn').onclick = function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   if(window.__sangbikTranslating){ var elap = Math.round((Date.now() - (window.__sangbikTranslatingSince || Date.now())) / 1000); msg('ဘာသာပြန်နေပါတယ်… ခဏစောင့်ပါ။' + (elap > 600 ? ' (၁၀ မိနစ်ကျော်ပြီ — run ပိတ်မိနေရင် စာမျက်နှာ ပိတ်ပြီး ပြန်ဖွင့်ပါ။)' : '')); return; }
+  var tmPre = {};
+  lines.forEach(function(l, ix){ if(l && (l.burmese || '').trim()) tmPre[ix] = true; });
   syncEditorInputs();
   var inputs = el('linesBox').querySelectorAll('input[data-idx]');
   inputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-idx'), 10); if(lines[idx]) lines[idx].burmese = inp.value; });
   var oinputs = el('linesBox').querySelectorAll('input[data-oidx]');
   oinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-oidx'), 10); if(lines[idx]) lines[idx].original = inp.value; });
+  var tmN = applyTMToLines(tmPre);
+  if(tmN){ renderLines(); renderTimeline(); msg('မှတ်ထားတဲ့ ဘာသာပြန် (TM) ကနေ ' + tmN + ' လိုင်း ချက်ချင်း ဖြည့်ပြီးပြီ။'); }
   var transMode = (function(){ var s = el('transModeSel'); return (s && s.value) ? s.value : 'auto'; })();
   if (transMode === 'gemini' && !phoneTranslateEngine()) { msg('GEMINI only — Profile မှာ Gemini key ထည့်ပါ။'); return; }
   if (transMode !== 'google' && phoneTranslateEngine() && (transMode === 'gemini' || !phoneTranslateFailedOnce)) { translateNoFallback = (transMode === 'gemini'); phoneTranslateEmptyLines(); return; }
