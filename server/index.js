@@ -1321,7 +1321,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey31</h1>
+<h1>🎬 Sangbik — Website · phonekey32</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1949,20 +1949,107 @@ function extractSceneFrames(file, count){
     };
   });
 }
+function phoneParseTime(pt){
+  var p = String(pt || '').trim().split(':'); if(p.length !== 2) return null;
+  var m = parseFloat(p[0]); var sc = parseFloat(p[1]);
+  if(!isFinite(m) || !isFinite(sc) || m < 0 || sc < 0) return null;
+  return m * 60 + sc;
+}
+function phoneParseTranscript(text){
+  var out = [];
+  var rows = String(text || '').split(String.fromCharCode(10));
+  for(var i = 0; i < rows.length; i++){
+    var line = rows[i].trim(); if(!line) continue;
+    var o = line.indexOf('['); var c = line.indexOf(']'); if(o < 0 || c < 0 || c <= o + 1) continue;
+    var inside = line.slice(o + 1, c); var dash = inside.indexOf(' - '); if(dash < 0) continue;
+    var st = phoneParseTime(inside.slice(0, dash)); var en = phoneParseTime(inside.slice(dash + 3));
+    if(st === null || en === null || en <= st) continue;
+    var rest = line.slice(c + 1).trim(); var spk = '';
+    if(rest.charAt(0) === '('){ var cp = rest.indexOf(')'); if(cp > 0){ spk = rest.slice(1, cp).trim(); if(spk.length > 24) spk = spk.slice(0, 24); rest = rest.slice(cp + 1).trim(); } }
+    if(!rest) continue;
+    out.push({start: Math.round(st * 100) / 100, end: Math.round(en * 100) / 100, original: rest, burmese: '', speaker: spk, manual: false});
+  }
+  out.sort(function(a, b){ return a.start - b.start; });
+  return out;
+}
+function blobToBase64(blob){
+  return new Promise(function(resolve, reject){
+    var rd = new FileReader();
+    rd.onload = function(){ var du = String(rd.result || ''); var ci = du.indexOf(','); resolve(ci >= 0 ? du.slice(ci + 1) : du); };
+    rd.onerror = function(){ reject(new Error('audio read failed')); };
+    rd.readAsDataURL(blob);
+  });
+}
+async function phoneDirectTranscribe(aac, sceneFrames, sourceLang){
+  var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ');
+  var b64 = await blobToBase64(aac);
+  var langName = (sourceLang === 'zh' || sourceLang === 'auto' || !sourceLang) ? 'Chinese' : sourceLang;
+  var prompt = 'Transcribe the speech in this audio into timed lines. The speech is in ' + langName + '. Rules: output one line per speaker turn, never merge different speakers into one line. Each line must start with [MM:SS.s - MM:SS.s] then a space, then (Speaker A) or (Speaker B) or a short role name, then a space, then the exact spoken words. Use consistent speaker tags for the same person. Never invent dialogue that is not spoken. If scene images are attached, use them only to choose names and homophones that fit what is visible. Do not add any explanation, only the lines.';
+  var parts = [{text: prompt}, {inlineData: {mimeType: 'audio/aac', data: b64}}];
+  var frameB64s = [];
+  try {
+    for(var fi = 0; fi < (sceneFrames || []).length && fi < 8; fi++){
+      var d = (sceneFrames[fi] && sceneFrames[fi].data) ? sceneFrames[fi].data : '';
+      var fb = (d.indexOf(',') >= 0) ? d.split(',')[1] : d;
+      if(fb) frameB64s.push(fb);
+    }
+  } catch(e){ frameB64s = []; }
+  if(frameB64s.length){ parts.push({text: 'Scene frames from the video, in time order. Use them only to choose names and homophones that fit what is visible.'}); frameB64s.forEach(function(b){ parts.push({inlineData: {mimeType: 'image/jpeg', data: b}}); }); }
+  var lastErr = null;
+  for(var ki = 0; ki < keys.length; ki++){
+    for(var mi = 0; mi < PHONE_GEMINI_MODELS.length; mi++){
+      try {
+        var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[mi] + ':generateContent?key=' + keys[ki], {method: 'POST', signal: AbortSignal.timeout(120000), headers: {'Content-Type': 'application/json'}, body: JSON.stringify({contents: [{parts: parts}]})});
+        if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
+        var jj = await r.json(); var txt = '';
+        if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
+        var parsed = phoneParseTranscript(txt);
+        if(parsed.length) return parsed;
+        lastErr = new Error('Gemini returned no timed lines');
+      } catch(e){ lastErr = e; }
+    }
+  }
+  throw lastErr || new Error('Phone transcription failed.');
+}
+function phonePublishDirectLines(parsedLines){
+  lines = parsedLines; renderLines();
+  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}, 120000).then(function(j){
+    linesDirty = false;
+    if(cachedFp && lines.length) writeLinesCache(cachedFp, {lines: lines.map(function(l){ return {start: l.start, end: l.end, original: l.original, burmese: l.burmese, speaker: l.speaker || ''}; }), savedAt: Date.now()});
+  }).catch(function(e){
+    if(/Project not found/.test(e.message) && lines.length){
+      rescueLinesToNewProject().then(function(){
+        linesDirty = false;
+        if(cachedFp && lines.length) writeLinesCache(cachedFp, {lines: lines.map(function(l){ return {start: l.start, end: l.end, original: l.original, burmese: l.burmese, speaker: l.speaker || ''}; }), savedAt: Date.now()});
+        msg('Project အဟောင်း ပျက်သွားလို့ Project အသစ်မှာ သိမ်းပါပြီ: ' + lines.length + ' လိုင်း');
+      }).catch(function(){ msg('သိမ်းမရပါ: ' + e.message); });
+    } else { msg('သိမ်းမရပါ: ' + e.message); }
+  });
+  return true;
+}
 el('phoneAudioBtn').onclick = async function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   var f = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
   if(!f){ msg('Video အရင် ရွေးပါ'); return; }
   if(!localFile || localFilePid !== pid){ localFile = f; localFilePid = pid; }
   try{
-    msg('Phone ထဲမှာ audio ထုတ်နေပါတယ်…');
+    msg('Gemini အသံကို နားထောင်နေပါတယ်…');
     var aac = await extractAudioAAC(f);
     var sceneFrames = [];
     try { sceneFrames = await extractSceneFrames(f, 8); } catch(e){ sceneFrames = []; }
     var framesJson = JSON.stringify(sceneFrames);
     if (framesJson.length > 700000 && sceneFrames.length > 4) { sceneFrames = sceneFrames.filter(function(_, i){ return i % 2 === 0; }); framesJson = JSON.stringify(sceneFrames); }
     if (framesJson.length > 700000) { sceneFrames = []; framesJson = '[]'; }
-    msg('Audio ရပါပြီ (' + Math.round(aac.size / 1048576 * 10) / 10 + ' MB) — ' + (sceneFrames.length ? ('scene ပုံ ' + sceneFrames.length + ' ပုံနဲ့အတူ ') : 'scene ပုံ မရလို့ audio ပဲ ') + 'server ကို ပို့နေပါတယ်…');
+    var audioMB = Math.round(aac.size / 1048576 * 10) / 10;
+    var tc = transcriptChoice();
+    if((tc === 'auto' || tc === 'gemini') && phoneKeys().length && aac.size <= 18 * 1048576){
+      try {
+        var directLines = await phoneDirectTranscribe(aac, sceneFrames, sourceLangChoice());
+        if(directLines && directLines.length){ phonePublishDirectLines(directLines); msg('Gemini တိုက်ရိုက် နားထောင်ပြီးပါပြီ: ' + directLines.length + ' လိုင်း — လိုင်းတွေ ကြည့်ပြီး 💾 သိမ်းပါ။'); return; }
+      } catch(de){ msg('Gemini တိုက်ရိုက် မရလို့ server ကို ပို့နေပါတယ်… (Audio ' + audioMB + ' MB)'); }
+    } else {
+      msg('Audio ရပါပြီ (' + audioMB + ' MB) — server ကို ပို့နေပါတယ်…');
+    }
     var fd = new FormData();
     fd.append('audio', aac, f.name.replace(/[^A-Za-z0-9._-]/g, '_') + '.aac');
     try { window.__sangbikSceneFrames = sceneFrames; } catch(e){}
