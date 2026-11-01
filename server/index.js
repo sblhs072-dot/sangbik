@@ -1223,7 +1223,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey14</h1>
+<h1>🎬 Sangbik — Website · phonekey16</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1252,7 +1252,7 @@ body{padding-bottom:76px}
 <div id="grp-subs" class="toolpanel"><label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
 <label>စာတန်း အရောင်: <select id="subColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option></select></label>
 <label>စာတန်း နေရာ: <select id="subPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option></select></label><br></div>
-<div id="grp-quality" class="toolpanel"><label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+<div id="grp-quality" class="toolpanel"><label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label><div class="toolpanel"><label>Resolution: <select id="exportResSel"><option value="original">Original</option><option value="720p">720p</option><option value="480p">480p</option><option value="360p">360p</option></select></label> <label>Quality: <select id="exportBitSel"><option value="original">Original</option><option value="2.5M">Low (2.5 Mbps)</option><option value="4.0M">Normal (4.0 Mbps)</option><option value="6.5M">High (6.5 Mbps)</option></select></label> <label>Frame rate: <select id="exportFpsSel"><option value="original">Original</option><option value="30">30</option><option value="25">25</option><option value="24">24</option></select></label><br><span class="small">Split into parts: 1</span></div>
 <label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
 <label>Poster: <select id="posterSel"><option value="0" selected>မရှိ</option><option value="3">3 စက္ကန့်</option><option value="5">5 စက္ကန့်</option></select></label>
 <label><input type="checkbox" id="logoChk" checked> Logo ထည့်</label><br></div>
@@ -1271,7 +1271,7 @@ body{padding-bottom:76px}
 <input type="file" id="fileInput" accept="video/*">
 <div class="small" id="transcriptRow"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label> <label>မူရင်းစကား: <select id="sourceLangSel"><option value="auto" selected>Auto</option><option value="zh">တရုတ်</option><option value="en">English</option><option value="ko">ကိုရီးယား</option><option value="ja">ဂျပန်</option><option value="hi">ဟိန္ဒီ (India)</option><option value="th">ထိုင်း</option></select></label></div>
 <div class="small"><label>Video နည်း: <select id="modeSel"><option value="phone">Phone-only (video ဖုန်းထဲမှာပဲ)</option><option value="zero">Zero-upload (SRT + MP3)</option></select></label></div>
-<button id="phoneAudioBtn" style="display:none">🎙️ Audio ပို့ပြီး စာသားပြောင်း</button><div id="phoneNote" class="small" style="display:none">Phone-only နည်းမှာ video ကို server ပေါ် လုံးဝ မတင်ပါ — ဖုန်းထဲမှာပဲ ထားပြီး audio အသေးစားပဲ ပို့မယ်။ Transcript + ဘာသာပြန် ရပြီးရင် လိုင်းတွေ ပြင်လို့ရတယ်။ Export လုပ်ဖို့ကျမှ video ကို တစ်ခါတည်း တင်ရမယ်။</div>
+<button id="phoneAudioBtn" style="display:none">🎙️ Audio ပို့ပြီး စာသားပြောင်း</button><div id="phoneNote" class="small" style="display:none">Phone-only နည်းမှာ video ကို server ပေါ် လုံးဝ မတင်ပါ — ဖုန်းထဲမှာပဲ ထားပြီး audio အသေးစားပဲ ပို့မယ်။ Transcript + ဘာသာပြန် ရပြီးရင် လိုင်းတွေ ပြင်လို့ရတယ်။ Export လုပ်ဖို့ကျမှ video ကို တစ်ခါတည်း တင်ရမယ်။</div><div id="whisperCard" style="display:none"><label>🎙️ Whisper (ဖုန်းထဲမှာ): <select id="whisperModelSel"><option value="small">Small Multilingual (~375 MB, တစ်ခါပဲ ဒေါင်း)</option><option value="medium">Medium Multilingual (~950 MB, တစ်ခါပဲ ဒေါင်း)</option></select></label> <button id="whisperBtn">🎙️ ဖုန်းထဲမှာ စာသားပြောင်း</button><div class="small">စာသားထုတ်တာ ဖုန်းထဲမှာပဲ ပြီးတယ် — server တင်စရာ မလို, quota မလို။ Model ကို ပထမတစ်ခါပဲ ဒေါင်းရမယ်, နောက်ခါ offline ရတယ်။ ဒေါင်းတာ mobile data ကုန်မယ်။</div></div>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
 <div id="jobText"></div>
 <div id="urlRow"><div class="small">Link နဲ့ ယူမလား (တိုက်ရိုက် .mp4 link ပဲ ရမယ်)</div>
@@ -1285,7 +1285,7 @@ body{padding-bottom:76px}
 <button id="addLineBtn">＋ လိုင်းထည့်ပါ</button>
 <input type="file" id="srtFileInp" accept=".srt">
 <button id="srtImportBtn">📄 SRT ထည့်ပါ</button>
-<button id="translateBtn">🌐 ဘာသာပြန်ပါ</button>
+<label>Translation engine: <select id="transModeSel"><option value="auto">Auto (Gemini လှည့် → Google)</option><option value="gemini">GEMINI only</option><option value="google">GOOGLE only</option></select></label> <button id="translateBtn">🌐 ဘာသာပြန်ပါ</button>
 <button id="transSrtDlBtn">⬇ ဘာသာပြန် SRT ဒေါင်းလုဒ်</button>
 <div id="cacheBox" class="small" style="display:none">⚡ ဒီ video ရဲ့ လိုင်းတွေ ဖုန်းထဲမှာ သိမ်းထားပြီးသား — <button id="useCacheBtn">သိမ်းထားတဲ့ လိုင်းတွေ သုံး (upload မလို)</button></div>
 <div id="linesBox"></div></div>
@@ -1295,7 +1295,7 @@ body{padding-bottom:76px}
 <button id="phoneTtsBtn">📱 ဖုန်းကနေ အသံထုတ် (Thiha/Nilar)</button><div id="phoneTtsText" class="small">ဖုန်းကနေ တိုက်ရိုက် Edge အသံထုတ်မယ် (server ထိန်းတာ မထိဘူး) — Microsoft Edge browser လိုတယ်။</div>
 <div id="ttsText" class="small"></div><audio id="narrAudio" controls style="width:100%;display:none"></audio><label>အသံ အမြန်နှုန်း: <select id="narrSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label></div></div>
 <div id="tab-videos" class="tabPanel" style="display:none"><div class="card"><h2>📹 Videos</h2>
-<div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><label style="display:block;margin:6px 0"><input type="checkbox" id="fastMuxChk" checked> ⚡ မြန်မြန် export (video ပြန်မရိုက်ဘူး, စာတန်း မကပ်ဘူး — စာတန်းက ဖွင့်/ပိတ်လို့ရတဲ့ track အဖြစ် ပါမယ်)</label><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
+<div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><label style="display:block;margin:6px 0"><input type="checkbox" id="fastMuxChk" checked> ⚡ မြန်မြန် export (video ပြန်မရိုက်ဘူး, စာတန်း မကပ်ဘူး — စာတန်းက ဖွင့်/ပိတ်လို့ရတဲ့ track အဖြစ် ပါမယ်)</label><div class="small">Method: Fast = video ပြန်မရိုက်ဘူး (မြန်); Stable = Full export (အမှန်ခြစ် ဖြုတ်)။ Blur/Zoom/Flip စတဲ့ visual tools တွေက copyright ကို မဖြေရှင်းဘူး — ခွင့်ပြုထားတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
 <div id="expText" class="small"></div>
 <div id="dlBox"></div></div></div>
 <div id="tab-profile" class="tabPanel" style="display:none"><div class="card"><h2>👤 Profile</h2><div id="profileHealth" class="small">ဆာဗာ စစ်နေပါတယ်…</div><div id="modeNoteB" class="small"></div><div class="small">Sangbik website — video တွေကို ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div></div><div class="card" style="margin-top:12px"><h3>🔑 Gemini API Key</h3><div class="small">Key ကို ဒီဖုန်းထဲမှာပဲ သိမ်းမယ် — server ကို မပို့ဘူး၊ chat ကို မပို့ဘူး။ Google ကို ဖုန်းကနေ တိုက်ရိုက် ခေါ်မယ် (Studio99 လို)။ Key အပြည့်ကို AI Studio ကနေ ယူရမယ် — Studio99 ထဲမှာ •••• နောက်ဆုံး ၄ လုံးပဲ မြင်ရတယ်။</div><div class="small" style="margin-top:6px"><a href="https://aistudio.google.com/apikey" target="_blank">🔗 Key ယူရန် — AI Studio ဖွင့်ပါ</a></div><div id="phoneKeysList" style="margin-top:8px"></div><div style="display:flex;gap:6px;margin-top:8px"><input type="password" id="phoneKeyInput" placeholder="Gemini API key အသစ်" style="flex:1"><button id="phoneKeyEyeBtn">👁</button></div><div style="display:flex;gap:6px;margin-top:8px"><button id="phoneKeyAddBtn">+ Add</button><button id="phoneKeyTestBtn">Test all</button></div><div id="phoneKeysMsg" class="small"></div></div><div class="card" style="margin-top:12px"><h3>⚡ Groq API Key (မြန်)</h3><div class="small">Groq key ကို ဒီဖုန်းထဲမှာပဲ သိမ်းမယ် — server ကို မပို့ဘူး။ Key ကို console.groq.com ကနေ ယူရမယ်။ Browser က Groq ကို တိုက်ရိုက် ခေါ်လို့ မရရင် Test က ✗ ပြမယ်၊ အဲဒါဆို server နည်းပဲ သုံးပါ။</div><div class="small" style="margin-top:6px"><a href="https://console.groq.com/keys" target="_blank">🔗 Key ယူရန် — Groq Console ဖွင့်ပါ</a></div><div id="groqKeysList" style="margin-top:8px"></div><div style="display:flex;gap:6px;margin-top:8px"><input type="password" id="groqKeyInput" placeholder="Groq API key အသစ်" style="flex:1"><button id="groqKeyEyeBtn">👁</button></div><div style="display:flex;gap:6px;margin-top:8px"><button id="groqKeyAddBtn">+ Add</button><button id="groqKeyTestBtn">Test all</button></div><div id="groqKeysMsg" class="small"></div></div><div class="card" style="margin-top:12px"><h3>🌐 ဖုန်းကနေ ဘာသာပြန်တာ</h3><div style="display:flex;gap:6px;margin-top:8px"><select id="phoneEngineSel" style="flex:1"><option value="gemini">Gemini (မှန်တယ်)</option><option value="groq">Groq (မြန်တယ်)</option></select></div><div class="small">Gemini = မှန်တယ်၊ နှေးတယ်။ Groq = မြန်တယ်၊ စကားလုံး ခပ်တုံးတုံး ဖြစ်နိုင်တယ်။ ရွေးထားတဲ့ engine ရဲ့ key မရှိရင် ကျန်တဲ့ engine ကို သုံးမယ်၊ နှစ်ခုလုံး မရှိရင် server နဲ့ ပြန်မယ်။</div></div></div>
@@ -1307,10 +1307,11 @@ var duration = 0;
 var lines = [];
 function el(id){ return document.getElementById(id); }
 function msg(t){ el('msg').textContent = t; }
-function api(path, method, body){
+function api(path, method, body, timeoutMs){
   var o = { method: method || 'GET', headers: {} };
   if (body !== undefined) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(body); }
-  return fetch('/api' + path, o).then(function(r){ return r.text().then(function(t){ var j = null; try { j = JSON.parse(t); } catch(e){ throw new Error('Server တုံ့ပြန်မှု မမှန်ပါ — server နိုးနေတုန်း (free instance spin-down) ဖြစ်နိုင်တယ်, ခဏစောင့်ပြီး ပြန်နှိပ်ပါ'); } if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); });
+  if (timeoutMs) { try { o.signal = AbortSignal.timeout(timeoutMs); } catch(e){} }
+  return fetch('/api' + path, o).then(function(r){ return r.text().then(function(t){ var j = null; try { j = JSON.parse(t); } catch(e){ throw new Error('Server တုံ့ပြန်မှု မမှန်ပါ — server နိုးနေတုန်း (free instance spin-down) ဖြစ်နိုင်တယ်, ခဏစောင့်ပြီး ပြန်နှိပ်ပါ'); } if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).catch(function(e){ if(e && e.name === 'TimeoutError') throw new Error('အချိန်ကုန်သွားတယ် (server နှေးနေတုန်း) — ပြန်နှိပ်ပါ'); throw e; });
 }
 function setPid(id){ pid = id; localStorage.setItem('sangbik-pid', id); el('pidText').textContent = 'Project: ' + id; }
 function health(){ api('/health').then(function(h){ var t = 'ဆာဗာ အဆင်သင့်ဖြစ်ပါပြီ — Whisper ' + (h.whisperOfflineConfigured ? 'ready' : 'NOT installed') + ' + Edge TTS ' + (h.edgeTtsConfigured ? 'ready' : 'NOT installed') + ' | Max ' + h.maxFileMb + ' MB'; el('health').textContent = t; var ph = el('profileHealth'); if(ph) ph.textContent = t; }).catch(function(e){ var m = 'ဆာဗာ မနိုးသေးပါ — ခဏစောင့်ပြီး ပြန်ဖွင့်ပါ (' + e.message + ')'; el('health').textContent = m; var ph2 = el('profileHealth'); if(ph2) ph2.textContent = m; }); }
@@ -1593,7 +1594,7 @@ async function geminiPhoneTranslateBatch(texts, sourceLang){
     for(var i = 0; i < keys.length; i++){
       for(var m = 0; m < PHONE_GEMINI_MODELS.length; m++){
         try {
-          var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + keys[i], { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+          var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + keys[i], { method: 'POST', signal: AbortSignal.timeout(120000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
           if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
           var jj = await r.json();
           var txt = '';
@@ -1621,33 +1622,49 @@ async function phoneTranslateEmptyLines(){
   var scn = (eng === 'gemini' && window.__sangbikSceneFrames) ? window.__sangbikSceneFrames.length : 0;
   msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + idxs.length + ' လိုင်း' + (scn ? ' + scene ပုံ ' + scn + ' ပုံ' : '') + ')');
   try {
-    var origs = idxs.map(function(i){ return lines[i].original; });
-    var trs = (eng === 'groq') ? await groqPhoneTranslateBatch(origs, sourceLangChoice()) : await geminiPhoneTranslateBatch(origs, sourceLangChoice());
-    idxs.forEach(function(li, k){ lines[li].burmese = trs[k]; });
-    linesDirty = true;
-    renderLines(); renderTimeline();
+    var CH = 20, done = 0, failErr = null, scnN = 0;
+    try { scnN = (window.__sangbikSceneFrames || []).length; } catch(e){}
+    for(var s = 0; s < idxs.length; s += CH){
+      var part = idxs.slice(s, s + CH);
+      var origs = part.map(function(i){ return lines[i].original; });
+      var trs = null;
+      try {
+        trs = (eng === 'groq') ? await groqPhoneTranslateBatch(origs, sourceLangChoice()) : await geminiPhoneTranslateBatch(origs, sourceLangChoice());
+      } catch(chunkErr){ failErr = (chunkErr && chunkErr.name === 'TimeoutError') ? new Error('အချိန်ကုန်သွားတယ် (network နှေးနေတုန်း)') : chunkErr; break; }
+      part.forEach(function(li, k){ lines[li].burmese = trs[k]; });
+      done += part.length;
+      linesDirty = true;
+      renderLines(); renderTimeline();
+      msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + done + '/' + idxs.length + ' လိုင်း' + (scnN ? ' + scene ပုံ ' + scnN + ' ပုံ' : '') + ')');
+    }
+    if(done === 0 && failErr){ if(tb) tb.disabled = false; if(tb) tb.textContent = tbText; if(!translateNoFallback) phoneTranslateFailedOnce = true; msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + failErr.message + (translateNoFallback ? ' — GEMINI only မို့ server ကို မပြန်ဘူး။ ပြန်နှိပ်ရင် GEMINI နဲ့ ပြန်စမ်းမယ်။' : ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။')); return false; }
     var rescued = false;
-    try {
-      await api('/projects/' + pid + '/translation', 'PUT', {lines: lines});
-      linesDirty = false;
-    } catch(putErr){
-      if(/Project not found/.test(putErr.message) && lines.length){
-        try { await rescueLinesToNewProject(); linesDirty = false; rescued = true; }
-        catch(rescueErr){ linesDirty = true; }
-      } else { throw putErr; }
+    var saveErr = null;
+    if(done > 0){
+      try {
+        await api('/projects/' + pid + '/translation', 'PUT', {lines: lines});
+        linesDirty = false;
+      } catch(putErr){
+        if(/Project not found/.test(putErr.message) && lines.length){
+          try { await rescueLinesToNewProject(); linesDirty = false; rescued = true; }
+          catch(rescueErr){ saveErr = rescueErr; linesDirty = true; }
+        } else { saveErr = putErr; linesDirty = true; }
+      }
     }
     if(tb) tb.disabled = false; if(tb) tb.textContent = tbText;
-    if(linesDirty){ msg('ဘာသာပြန်ပြီးပြီ၊ ဒါပေမယ့် သိမ်းမရပါ — သိမ်းပါကို နှိပ်ပြီး ပြန်သိမ်းပါ (Project အသစ်မှာ သိမ်းမယ်)။'); return true; }
+    if(failErr){ msg('ဘာသာပြန်တာ ' + done + '/' + idxs.length + ' လိုင်းမှာ ရပ်သွားတယ်: ' + failErr.message + (saveErr ? ' (သိမ်းတာလည်း မရပါ — သိမ်းပါကို နှိပ်ပါ)' : ' (ပြီးတဲ့ လိုင်းတွေ သိမ်းပါပြီ)') + ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် ကျန်တဲ့ လိုင်းတွေကနေ ဆက်ပြန်မယ်။'); return true; }
+    if(saveErr){ msg('ဘာသာပြန်ပြီးပြီ၊ ဒါပေမယ့် သိမ်းမရပါ — သိမ်းပါကို နှိပ်ပြီး ပြန်သိမ်းပါ (Project အသစ်မှာ သိမ်းမယ်)။'); return true; }
     msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်ပြီး ' + (rescued ? 'Project အသစ်မှာ ' : '') + 'သိမ်းပါပြီ: ' + idxs.length + ' လိုင်း — စစ်ကြည့်ပါ။');
     return true;
   } catch(e){
     if(tb) tb.disabled = false; if(tb) tb.textContent = tbText;
-    phoneTranslateFailedOnce = true;
-    msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + e.message + ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။');
+    if(!translateNoFallback) phoneTranslateFailedOnce = true;
+    msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + e.message + (translateNoFallback ? ' — GEMINI only မို့ server ကို မပြန်ဘူး။ ပြန်နှိပ်ရင် GEMINI နဲ့ ပြန်စမ်းမယ်။' : ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။'));
     return false;
   }
 }
 var phoneTranslateFailedOnce = false;
+var translateNoFallback = false;
 function groqKeys(){ try { var a = JSON.parse(localStorage.getItem('sangbik_groq_keys') || '[]'); return Array.isArray(a) ? a.filter(function(k){ return k && k.trim(); }) : []; } catch(e){ return []; } }
 function saveGroqKeys(a){ try { localStorage.setItem('sangbik_groq_keys', JSON.stringify(a)); } catch(e){} phoneTranslateFailedOnce = false; renderGroqKeys(); }
 function groqKeyMsg(t){ var m = el('groqKeysMsg'); if(m) m.textContent = t; }
@@ -1699,7 +1716,7 @@ async function groqPhoneTranslateBatch(texts, sourceLang){
   var lastErr = null;
   for(var i = 0; i < keys.length; i++){
     try {
-      var r = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + keys[i] }, body: JSON.stringify({ model: 'openai/gpt-oss-20b', temperature: 0.2, max_completion_tokens: 16384, messages: [{ role: 'user', content: prompt }] }) });
+      var r = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', signal: AbortSignal.timeout(120000), headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + keys[i] }, body: JSON.stringify({ model: 'openai/gpt-oss-20b', temperature: 0.2, max_completion_tokens: 16384, messages: [{ role: 'user', content: prompt }] }) });
       if(!r.ok){ lastErr = new Error('Groq HTTP ' + r.status); continue; }
       var jj = await r.json();
       var txt = (jj.choices && jj.choices[0] && jj.choices[0].message && jj.choices[0].message.content) ? jj.choices[0].message.content : '';
@@ -1766,6 +1783,106 @@ el('phoneAudioBtn').onclick = async function(){
     msg('Phone-only audio မရပါ: ' + e.message + ' — video ပြန်ရွေးပြီး 🎙️ ကို နောက်တစ်ခါ နှိပ်ပါ။ မရရင် ဒီ error စာကို ကျွန်တော့်ကို ပြပါ။');
   }
 };
+
+function whisperModelId(){ var s = el('whisperModelSel'); var m = (s && s.value) ? s.value : 'small'; return m === 'medium' ? 'Xenova/whisper-medium' : 'Xenova/whisper-small'; }
+function resample16k(pcm, sr){
+  if(sr === 16000) return pcm;
+  var ratio = sr / 16000; var n = Math.floor(pcm.length / ratio); var out = new Float32Array(n);
+  for(var i = 0; i < n; i++){ var pos = i * ratio; var i0 = Math.floor(pos); var frac = pos - i0; var a = pcm[i0] || 0; var b = pcm[Math.min(i0 + 1, pcm.length - 1)] || 0; out[i] = a + (b - a) * frac; }
+  return out;
+}
+function splitWhisperChunks(chunks){
+  var out = [];
+  chunks.forEach(function(c){
+    var s = c.timestamp ? c.timestamp[0] : 0; var e = c.timestamp ? c.timestamp[1] : s; var t = (c.text || '').trim();
+    if(!t) return;
+    if(e - s <= 10){ out.push({start: s, end: e, original: t, burmese: '', manual: false}); return; }
+    var dur = e - s; var n = Math.ceil(dur / 10);
+    for(var i = 0; i < n; i++){
+      var cs = s + dur * i / n; var ce = s + dur * (i + 1) / n;
+      var a = Math.floor(t.length * i / n); var b = Math.floor(t.length * (i + 1) / n);
+      var part = t.slice(a, b).trim();
+      if(part) out.push({start: cs, end: ce, original: part, burmese: '', manual: false});
+    }
+  });
+  return out;
+}
+function loadWhisperLib(){
+  return new Promise(function(resolve, reject){
+    if(window.transformers && window.transformers.pipeline){ resolve(window.transformers); return; }
+    var done = false;
+    function ok(lib){ if(done) return; done = true; resolve(lib); }
+    function fail(e){ if(done) return; done = true; reject(e); }
+    var sc = document.createElement('script');
+    sc.src = 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js';
+    var to = setTimeout(function(){ tryImport(); }, 60000);
+    function tryImport(){
+      if(window.transformers && window.transformers.pipeline){ clearTimeout(to); ok(window.transformers); return; }
+      if(typeof window.__sangbikWhisperImport === 'function'){ return; }
+      window.__sangbikWhisperImport = function(){};
+      import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm').then(function(mod){ clearTimeout(to); if(mod && mod.pipeline) ok(mod); else fail(new Error('Whisper library မရပါ')); }).catch(function(){ fail(new Error('Whisper library ဒေါင်းမရပါ')); });
+    }
+    sc.onload = function(){ if(window.transformers && window.transformers.pipeline){ clearTimeout(to); ok(window.transformers); } else { tryImport(); } };
+    sc.onerror = function(){ tryImport(); };
+    document.head.appendChild(sc);
+  });
+}
+el('whisperBtn').onclick = async function(){
+  var wb = el('whisperBtn'); if(wb) wb.disabled = true;
+  try{
+    var f = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
+    if(!f){ msg('Video အရင် ရွေးပါ'); if(wb) wb.disabled = false; return; }
+    if(!pid){
+      msg('Project အသစ် ဖန်တီးနေပါတယ်…');
+      var np = await api('/projects', 'POST', {title: 'ရုပ်ရှင် ပြန်ပြောပြချက်', mode: 'recap'});
+      setPid(np.id); lines = []; linesDirty = false;
+    }
+    if(!localFile || localFilePid !== pid){ localFile = f; localFilePid = pid; }
+    msg('Whisper model စစ်နေပါတယ်…');
+    var T = await loadWhisperLib();
+    var mid = whisperModelId();
+    if(!window.__sangbikWhisper) window.__sangbikWhisper = {};
+    var tr = window.__sangbikWhisper[mid];
+    if(!tr){
+      msg('Whisper model ဒေါင်းနေပါတယ်… (ပထမတစ်ခါပဲ, ' + (mid.indexOf('medium') >= 0 ? '~950 MB' : '~375 MB') + ')');
+      tr = await T.pipeline('automatic-speech-recognition', mid, { progress_callback: function(pg){ if(pg && pg.status === 'progress' && pg.total) msg('Whisper model ဒေါင်းနေပါတယ်… ' + Math.round(pg.loaded / 1048576) + '/' + Math.round(pg.total / 1048576) + ' MB'); } });
+      window.__sangbikWhisper[mid] = tr;
+    }
+    msg('ဖုန်းထဲမှာ audio ဖတ်နေပါတယ်…');
+    var AC = window.AudioContext || window.webkitAudioContext;
+    var ctx = new AC();
+    var buf = await f.arrayBuffer();
+    var dec = await ctx.decodeAudioData(buf);
+    var ch0 = dec.getChannelData(0);
+    var pcm;
+    if(dec.numberOfChannels > 1){ var ch1 = dec.getChannelData(1); pcm = new Float32Array(ch0.length); for(var ci = 0; ci < ch0.length; ci++) pcm[ci] = (ch0[ci] + ch1[ci]) / 2; }
+    else pcm = ch0;
+    try { ctx.close(); } catch(e){}
+    var pcm16 = resample16k(pcm, dec.sampleRate);
+    msg('ဖုန်းထဲမှာ စာသားပြောင်းနေပါတယ်… (မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်)');
+    var out = await tr(pcm16, { language: 'chinese', task: 'transcribe', chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+    var chunks = (out && out.chunks) ? out.chunks : [];
+    if(!chunks.length && out && out.text){ chunks = [{ timestamp: [0, dec.duration || 0], text: out.text }]; }
+    var nl = splitWhisperChunks(chunks);
+    if(!nl.length) throw new Error('စာသား မရပါ');
+    lines = nl; linesDirty = true;
+    renderLines(); renderTimeline();
+    try {
+      await api('/projects/' + pid + '/translation', 'PUT', {lines: lines});
+      linesDirty = false;
+      msg('Whisper (ဖုန်းထဲမှာ) စာသားရပါပြီ: ' + nl.length + ' လိုင်း, သိမ်းပါပြီ — 🌐 ဘာသာပြန်ပါ နှိပ်ပါ။');
+    } catch(putErr){
+      if(/Project not found/.test(putErr.message) && lines.length){
+        try { await rescueLinesToNewProject(); linesDirty = false; msg('Whisper (ဖုန်းထဲမှာ) စာသားရပါပြီ: ' + nl.length + ' လိုင်း, Project အသစ်မှာ သိမ်းပါပြီ — 🌐 ဘာသာပြန်ပါ နှိပ်ပါ။'); }
+        catch(re){ linesDirty = true; msg('Whisper စာသားရပါပြီ: ' + nl.length + ' လိုင်း, ဒါပေမယ့် သိမ်းမရပါ — သိမ်းပါကို နှိပ်ပါ။'); }
+      } else { linesDirty = true; msg('Whisper စာသားရပါပြီ: ' + nl.length + ' လိုင်း, ဒါပေမယ့် သိမ်းမရပါ — သိမ်းပါကို နှိပ်ပါ။'); }
+    }
+  }catch(e){
+    msg('Whisper (ဖုန်းထဲမှာ) မရပါ: ' + e.message + ' — 🎙️ Audio ပို့ပြီး စာသားပြောင်း (server) ကို သုံးပါ။');
+  }
+  if(wb) wb.disabled = false;
+};
+if(el('mirrorChk')) el('mirrorChk').onchange = function(){ var v = el('vid'); if(v) v.style.transform = el('mirrorChk').checked ? 'scaleX(-1)' : ''; };
 function currentMode(){ var s = el('modeSel'); return (s && s.value) ? s.value : 'phone'; }
 function applyMode(){
   var mode = currentMode();
@@ -1779,6 +1896,7 @@ function applyMode(){
   var zn = el('zeroNote'); if(zn) zn.style.display = zero ? '' : 'none';
   var pb = el('phoneAudioBtn'); if(pb) pb.style.display = phone ? '' : 'none';
   var pn = el('phoneNote'); if(pn) pn.style.display = phone ? '' : 'none';
+  var wc = el('whisperCard'); if(wc) wc.style.display = phone ? '' : 'none';
   var mn = el('modeNoteB'); if(mn) mn.textContent = 'Video နည်း: ' + (zero ? 'Zero-upload (SRT + MP3)' : 'Phone-only (video ဖုန်းထဲမှာပဲ)');
 }
 function showTab(which){
@@ -2013,14 +2131,16 @@ el('translateBtn').onclick = function(){
   inputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-idx'), 10); if(lines[idx]) lines[idx].burmese = inp.value; });
   var oinputs = el('linesBox').querySelectorAll('input[data-oidx]');
   oinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-oidx'), 10); if(lines[idx]) lines[idx].original = inp.value; });
-  if (phoneTranslateEngine() && !phoneTranslateFailedOnce) { phoneTranslateEmptyLines(); return; }
+  var transMode = (function(){ var s = el('transModeSel'); return (s && s.value) ? s.value : 'auto'; })();
+  if (transMode === 'gemini' && !phoneTranslateEngine()) { msg('GEMINI only — Profile မှာ Gemini key ထည့်ပါ။'); return; }
+  if (transMode !== 'google' && phoneTranslateEngine() && (transMode === 'gemini' || !phoneTranslateFailedOnce)) { translateNoFallback = (transMode === 'gemini'); phoneTranslateEmptyLines(); return; }
   var todo = 0;
   lines.forEach(function(l){ if(l.original && l.original.trim() && phoneNeedsTranslation(l)) todo++; });
   if(!todo){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ ရှိတဲ့ လိုင်း မရှိဘူး။'); return; }
   el('translateBtn').disabled = true;
   var tbText2 = el('translateBtn').textContent; el('translateBtn').textContent = 'ဘာသာပြန်နေပါတယ်…';
   msg('ဘာသာပြန်နေပါတယ်… (' + todo + ' လိုင်း)');
-  var doTranslate = function(){ return api('/projects/' + pid + '/translate-lines', 'POST', {lines: lines}); };
+  var doTranslate = function(){ var b = {lines: lines}; if(transMode === 'google') b.engine = 'google'; return api('/projects/' + pid + '/translate-lines', 'POST', b, 300000); };
   doTranslate().catch(function(firstErr){ if(/Project not found/.test(firstErr.message) && lines.length){ return rescueLinesToNewProject().then(function(){ return doTranslate(); }); } throw firstErr; }).then(function(j){
     el('translateBtn').disabled = false; el('translateBtn').textContent = tbText2;
     var filled = 0;
@@ -2166,13 +2286,14 @@ function buildExportBody(){
   if(rotVal === 270) rotVal = -90; // server clamps rotation to +/-180, and -90 is the same turn as 270
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
 function doExport(){
   var body = buildExportBody();
   body.fastMux = !!el('fastMuxChk').checked;
-  if(body.fastMux) msg('⚡ Fast export — video ပြန်မရိုက်လို့ Blur, Zoom, လှည့်/မှန်, Poster, Logo, စာသား, အချိုး စတဲ့ visual tools တွေ မပါဘူး။ Trim + စာတန်း track + အသံကတော့ ရတယ်။ Tools တွေ ပါချင်ရင် ⚡ အမှန်ခြစ် ဖြုတ်ပြီး Export ပြန်နှိပ်ပါ။');
+  if(body.fastMux && body.videoMirror){ body.fastMux = false; el('fastMuxChk').checked = false; msg('Mirror (Flip) ပါလို့ Fast export မှာ မရဘူး — Full export နဲ့ လုပ်မယ်။ video ပြန်ရိုက်လို့ မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်။'); }
+  else if(body.fastMux) msg('⚡ Fast export — video ပြန်မရိုက်လို့ Blur, Zoom, လှည့်, Poster, Logo, စာသား, အချိုး စတဲ့ visual tools တွေ မပါဘူး။ Trim + စာတန်း track + အသံကတော့ ရတယ်။ Tools တွေ ပါချင်ရင် ⚡ အမှန်ခြစ် ဖြုတ်ပြီး Export ပြန်နှိပ်ပါ။');
   el('expText').textContent = body.fastMux ? 'Fast export လုပ်နေပါတယ် — စက္ကန့်ပိုင်းပဲ ကြာမယ်…' : 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 }
@@ -2539,6 +2660,14 @@ app.post('/api/projects/:id/translate-lines', async (req, res) => {
     if (l && typeof l.original === 'string' && l.original.trim() && (!_b || _b === l.original.trim() || /[\u4e00-\u9fff]/.test(_b) || /[A-Za-z]/.test(_b))) { toTranslate.push({ original: l.original }); idxMap.push(i); }
   });
   if (!toTranslate.length) return res.json({ lines: input, path: 'none', note: 'No lines needing translation.' });
+  if (req.body && req.body.engine === 'google') {
+    try {
+      const translations = await googleTranslateBatch(toTranslate.map(l => l.original), 'my', 'auto');
+      const out = input.slice();
+      idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: sanitizeBurmese(translations[k] || '') }); });
+      return res.json({ lines: out, path: 'google', note: null });
+    } catch (ge) { return res.status(502).json({ error: 'Google translation failed: ' + ge.message }); }
+  }
   const gt = await translateLinesWithGoogleOrFallback(toTranslate);
   if (!gt.translations) return res.status(502).json({ error: gt.error });
   const out = input.slice();
@@ -2811,6 +2940,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const dubbing = !!o.dubbingPreset;
   const start = parseFloat(o.trimStart || 0); const end = parseFloat(o.trimEnd || p.metadata?.duration || 0);
   const aspect = o.aspect || (dubbing ? '9:16' : '16:9'); const quality = o.quality || '720p';
+  const bitrateArgs = (['2.5M','4.0M','6.5M'].includes(o.qualityBitrate) ? ['-b:v', o.qualityBitrate] : []);
+  const fpsVal = (['30','25','24'].includes(String(o.exportFps)) ? String(o.exportFps) : null);
   const sub = o.subtitles || {}; const narrVol = parseFloat(o.narrationVolume ?? 1); const origVol = parseFloat(o.originalVolume ?? (dubbing ? 0 : 0.5));
   const subtitlesOn = o.subtitlesOn !== false;
   const subtitlesFrom = o.subtitlesFrom || (dubbing ? 'translation' : 'script');
@@ -3023,7 +3154,10 @@ app.post('/api/projects/:id/export', async (req, res) => {
       const transitionApplied = transition === 'crossfade' ? ((sceneOrderApplied || zoomEvery5s) ? 'crossfade' : 'fade (fallback: crossfade needs scene reorder or zoom segments)') : transition;
       const transitionNote = transition === 'crossfade' && !(sceneOrderApplied || zoomEvery5s) ? 'Crossfade requested but no segment pass is active (no scene reorder, no zoom) — fade in/out was used instead.' : (sceneOrderNote || null);
       const _ap = String(aspect || '16:9').split(':'); const _aw = parseFloat(_ap[0]) || 16; const _ah = parseFloat(_ap[1]) || 9;
-      const _s = (quality === '1080p' ? 1080 : 720) / Math.min(_aw, _ah);
+      const _mw = parseInt((p.metadata && p.metadata.width) || 0, 10), _mh = parseInt((p.metadata && p.metadata.height) || 0, 10);
+      const _srcMin = (_mw > 0 && _mh > 0) ? Math.min(_mw, _mh) : 720;
+      const _targetMin = (o.resolution === '720p') ? 720 : (o.resolution === '480p') ? 480 : (o.resolution === '360p') ? 360 : (o.resolution === 'original') ? _srcMin : (quality === '1080p' ? 1080 : 720);
+      const _s = _targetMin / Math.min(_aw, _ah);
       const W = Math.max(2, Math.round(_aw * _s / 2) * 2), H = Math.max(2, Math.round(_ah * _s / 2) * 2);
       const ar = _aw + '/' + _ah;
       const align = sub.position === 'top' ? 8 : sub.position === 'middle' ? 5 : 2;
@@ -3074,7 +3208,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         const rc = Math.abs(Math.cos(rotRad)), rs = Math.abs(Math.sin(rotRad));
         const rbw = Math.max(2, Math.round((W * rc + H * rs) / 2) * 2);
         const rbh = Math.max(2, Math.round((W * rs + H * rc) / 2) * 2);
-        rotAfter = `,rotate=${rotRad.toFixed(4)}:ow=${rbw}:oh=${rbh}:fillcolor=black,scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black`;
+        rotAfter += `,rotate=${rotRad.toFixed(4)}:ow=${rbw}:oh=${rbh}:fillcolor=black,scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black`;
       }
       if (blurMode === 'full') {
         // Blur the whole frame (gblur sigma: light 5 / medium 15 / strong 30).
@@ -3194,8 +3328,9 @@ app.post('/api/projects/:id/export', async (req, res) => {
       let audioMap;
       if (audioInputs.length === 1) { filter += `;${audioInputs[0]}anull[aout]`; audioMap = '[aout]'; }
       else if (audioInputs.length > 1) { filter += `;${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=first:dropout_transition=0[aout]`; audioMap = '[aout]'; }
-      if (audioMap) args.push('-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', outMp4);
-      else args.push('-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast', '-an', outMp4);
+      if (fpsVal) filter = filter.replace(/\[vout\]$/, ',fps=' + fpsVal + '[vout]');
+      if (audioMap) args.push('-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-c:a', 'aac', outMp4);
+      else args.push('-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-an', outMp4);
       await run('ffmpeg', args);
       let posterApplied = false; let posterNote = null;
       if (posterSec > 0) {
