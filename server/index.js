@@ -221,7 +221,7 @@ function parseBatchResponse(text, count) {
     const m = l.match(/^(\d+)[.)]\s*(.*)$/);
     if (m) {
       const idx = parseInt(m[1], 10) - 1;
-      if (idx >= 0 && idx < count && numbered[idx] === undefined) { numbered[idx] = (m[2] || '').trim(); numberedCount++; }
+      if (idx >= 0 && idx < count && numbered[idx] === undefined) { var vv = (m[2] || '').trim().replace(/^\\(Speaker [^)]*\\)\\s*/, ''); numbered[idx] = vv; numberedCount++; }
     }
   }
   if (numbered.some(t => t && t.includes('\ufffd')) || lines.some(t => t.includes('\ufffd'))) throw new Error('Batch translation contains corrupted characters.');
@@ -415,7 +415,7 @@ function writeVtt(project, segments, suffix = '') {
 }
 function normaliseLines(lines) {
   if (!Array.isArray(lines)) return [];
-  return lines.map(l => ({ start: parseFloat(l.start || 0), end: parseFloat(l.end || 0), original: String(l.original || ''), burmese: String(l.burmese || ''), manual: !!l.manual })).filter(l => l.end > l.start && l.burmese);
+  return lines.map(l => ({ start: parseFloat(l.start || 0), end: parseFloat(l.end || 0), original: String(l.original || ''), burmese: String(l.burmese || ''), manual: !!l.manual, speaker: String(l.speaker || '') })).filter(l => l.end > l.start && l.burmese);
 }
 function ttsLinesFingerprint(lines) { let h = 0; const s = (lines || []).map(l => (l.start || 0) + '|' + (l.end || 0) + '|' + (l.burmese || '')).join('\n'); for (let i = 0; i < s.length; i++) { h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0; } return String(h); }
 function getSceneSegments(scenes, start, end) {
@@ -483,12 +483,15 @@ function blurJoinedIntervals(keepRanges, blurStartSec, blurEndSec) {
 }
 function fitTempo(clipDuration, windowSec) {
   // Per-line voiceover fitting: speed a clip up so it finishes inside its set
-  // time window. Returns {tempo, fitted, overflow}: tempo 1 when it already
-  // fits, else min(duration/window, 2.0); overflow is true when it still
-  // exceeds the window at the 2.0x cap. Speech is never slowed down to fill.
+  // time window, however long or short the line is. Returns {tempo, fitted,
+  // overflow}: tempo 1 when it already fits (a shorter clip stays natural
+  // speed and finishes early — speech is never slowed down to fill), else
+  // duration/window with no 2.0x cap (ffmpeg atempo max is 100x). overflow
+  // is true only when even 100x cannot fit it — that tail is then cut by
+  // atrim at the window end, so audio can never spill into the next line.
   if (!Number.isFinite(clipDuration) || !Number.isFinite(windowSec) || windowSec <= 0 || clipDuration <= 0) return { tempo: 1, fitted: false, overflow: false };
   if (clipDuration <= windowSec) return { tempo: 1, fitted: false, overflow: false };
-  const tempo = Math.min(clipDuration / windowSec, 2.0);
+  const tempo = Math.min(clipDuration / windowSec, 100.0);
   return { tempo, fitted: true, overflow: (clipDuration / tempo) > windowSec + 1e-6 };
 }
 // Split transcript pieces so no piece is longer than maxSec (default 10s).
@@ -520,7 +523,7 @@ function splitTranscriptToMax(pieces, maxSec) {
     const built = chunks.map(([text, cs, ce], j) => ({
       start: j === 0 ? piece.start : +(piece.start + span * cs / total).toFixed(2),
       end: j === chunks.length - 1 ? piece.end : +(piece.start + span * ce / total).toFixed(2),
-      original: text, burmese: piece.burmese || ''
+      original: text, burmese: piece.burmese || '', speaker: piece.speaker || ''
     }));
     for (let j = 1; j < built.length; j++) built[j].start = built[j - 1].end;
     built[built.length - 1].end = piece.end;
@@ -746,14 +749,14 @@ function parseGeminiTranscript(text, segDur) {
   for (const row of (text || '').split(/\r?\n/)) {
     const line = row.trim();
     if (!line) continue;
-    const m = /^\[?\s*(\d+:\d{1,2}(?:[.,]\d{1,3})?)\s*(?:-|–|—|to)\s*(\d+:\d{1,2}(?:[.,]\d{1,3})?)\s*\]?\s*(.*)$/.exec(line);
+    const m = /^\[?\s*(\d+:\d{1,2}(?:[.,]\d{1,3})?)\s*(?:-|–|—|to)\s*(\d+:\d{1,2}(?:[.,]\d{1,3})?)\s*\]?\s*(?:\(([^)]{1,24})\)\s*)?(.*)$/.exec(line);
     if (!m) continue;
     const st = geminiTimestampToSec(m[1]), en = geminiTimestampToSec(m[2]);
-    const t = (m[3] || '').trim();
+    const t = (m[4] || '').trim(); const spk = (m[3] || '').trim();
     if (st === null || en === null || !t) continue;
     const cs = Math.max(0, Math.min(st, segDur)), ce = Math.max(0, Math.min(en, segDur));
     if (ce <= cs) continue;
-    lines.push({ start: +cs.toFixed(2), end: +ce.toFixed(2), text: t });
+    lines.push({ start: +cs.toFixed(2), end: +ce.toFixed(2), text: t, speaker: spk });
   }
   if (lines.length) { lines.sort((a, b) => a.start - b.start); return lines; }
   const plain = (text || '').replace(/^\[?\s*\d+:\d{1,2}(?:[.,]\d{1,3})?\s*(?:-|–|—|to)\s*\d+:\d{1,2}(?:[.,]\d{1,3})?\s*\]?\s*/gm, '').replace(/\s+/g, ' ').trim();
@@ -764,7 +767,7 @@ async function geminiTranscribeSegment(wavPath, segDur, lang, frames, summary) {
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) throw new Error('Gemini key missing');
   const b64 = fs.readFileSync(wavPath).toString('base64');
-  const prompt = (summary ? 'Video context (from watching the whole video first): ' + summary + ' Use this story context to choose homophones and names that fit; never invent dialogue. ' : '') + (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. When two characters sound the same, choose the one that fits the story context (for example, the guidance of a Buddha, a dragon scale, a proverb about lazy hands). Never invent words that were not spoken. If a part is unclear, transcribe your best guess rather than skipping it.';
+  const prompt = (summary ? 'Video context (from watching the whole video first): ' + summary + ' Use this story context to choose homophones and names that fit; never invent dialogue. ' : '') + (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Segment by SPEAKER, not by fixed seconds: start a NEW line whenever the speaker changes, and never merge two speakers into one line; one speaker\'s continuous speech stays one line even if it is long. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] (Speaker X) spoken words, where X is a short consistent tag for that voice (A, B, C, ...; the same voice keeps the same tag throughout the clip; use the scene images to tell speakers apart by who is visibly speaking). Timestamps are relative to the start of this clip (0 seconds). Do not add explanations or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. When two characters sound the same, choose the one that fits the story context (for example, the guidance of a Buddha, a dragon scale, a proverb about lazy hands). Never invent words that were not spoken. If a part is unclear, transcribe your best guess rather than skipping it.';
   const geminiParts = [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }];
   const segFrames = [];
   for (const fr of (frames || [])) { try { const fb = fs.readFileSync(fr.file).toString('base64'); if (fb) segFrames.push(fb); } catch {} }
@@ -1153,10 +1156,10 @@ async function runAutoJob(projectId, opts) {
     let allPieces = [];
     whisperResults.forEach((res, idx) => {
       const job = jobs[idx];
-      for (const sg of (res.segments || [])) allPieces.push({ start: +(job.start + sg.start).toFixed(2), end: +(job.start + sg.end).toFixed(2), original: sg.text.trim() });
+      for (const sg of (res.segments || [])) allPieces.push({ start: +(job.start + sg.start).toFixed(2), end: +(job.start + sg.end).toFixed(2), original: sg.text.trim(), speaker: sg.speaker || '' });
     });
     allPieces.forEach(l => { l.original = fixTranscriptDeterministic(l.original); });
-    allPieces = splitTranscriptToMax(allPieces, 5);
+    allPieces = splitTranscriptToMax(allPieces, transcriptProvider === 'gemini' ? 20 : 5);
     let polishNote = '';
     // Transcript polish runs for ALL engines when a Gemini key exists (accuracy
     // build) — the old speed-build skip was removed; this comment replaces it.
@@ -1298,6 +1301,7 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 #timelineTicks{position:relative;height:14px;font-size:10px;color:#94a3b8}
 #timelineTicks span{position:absolute;transform:translateX(-50%)}
 #timelineSel{position:absolute;top:0;height:100%;background:rgba(34,197,94,0.30);z-index:1;pointer-events:none}
+#timelineSplitLayer{position:absolute;left:0;top:0;width:100%;height:100%;z-index:1;pointer-events:none}
 #timelineHandleL,#timelineHandleR{position:absolute;top:0;width:18px;height:100%;margin-left:-9px;background:#f8fafc;border:1px solid #0f172a;z-index:3;cursor:ew-resize;touch-action:none}
 #tabBar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;display:flex;background:#1e222b;border-top:1px solid #333;z-index:50;padding:6px 4px 10px}
 .tabbtn{flex:1;background:transparent;color:#9aa;margin:2px;padding:10px 2px;font-size:13px;min-height:48px}
@@ -1307,8 +1311,8 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey26</h1>
-<div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div></div>
+<h1>🎬 Sangbik — Website · phonekey29</h1>
+<div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
 <div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-chunks">အပိုင်းခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
@@ -1319,7 +1323,7 @@ body{padding-bottom:76px}
 <label>အဆုံး (စက္ကန့်): <input id="ovEndInp" type="number" min="0" step="0.5" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label>
 <label>အရွယ်: <select id="ovSizeSel"><option value="18">18</option><option value="24">24</option><option value="32" selected>32</option><option value="48">48</option></select></label>
 <label>အရောင်: <select id="ovColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option><option value="#FF0000">အနီ</option></select></label><br></div>
-<div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label> <button id="trimScissorsBtn">✂️ ဒီနေရာမှာ ဖြတ်</button><br></div>
+<div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label> <button id="trimScissorsBtn">✂️ ဒီနေရာမှာ ဖြတ်</button> <button id="trimSplitBtn">✂ Split (ဒီနေရာမှာ ခွဲ)</button> <button id="trimSegDelBtn">🗑 အပိုင်းဖျက်</button> <button id="trimSplitClearBtn">✕ Split တွေ ရှင်း</button> <span id="trimSplitText" class="small"></span><br></div>
 <div id="grp-split" class="toolpanel"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
 <div id="grp-chunks" class="toolpanel"><label>အပိုင်း အရှည်: <select id="chunkMinSel"><option value="5" selected>5 မိနစ်</option><option value="10">10 မိနစ်</option><option value="15">15 မိနစ်</option><option value="20">20 မိနစ်</option><option value="custom">ကိုယ်ကြိုက်…</option></select></label> <label id="chunkCustomBox" style="display:none">မိနစ်: <input id="chunkMinInp" type="number" min="1" max="60" value="30" style="width:70px"></label> <button id="chunkSplitBtn">✂ အပိုင်းခွဲပါ</button> <span id="chunkText" class="small"></span><div id="chunkList"></div><br></div>
 <div id="grp-blur" class="toolpanel"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option><option value="background">Background (နောက်ခံ blur)</option></select>
@@ -1486,7 +1490,7 @@ function checkLinesCache(f){
 el('useCacheBtn').onclick = function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   if(!cachedEntry || !cachedEntry.lines || !cachedEntry.lines.length){ msg('သိမ်းထားတဲ့ လိုင်း မရှိပါ'); return; }
-  lines = cachedEntry.lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; });
+  lines = cachedEntry.lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese, speaker: l.speaker || '' }; });
   linesDirty = true;
   renderLines(); renderTimeline();
   msg('သိမ်းထားတဲ့ ' + lines.length + ' လိုင်း ဖွင့်ပါပြီ — စစ်ပြီး "သိမ်းပါ" နှိပ်ပါ (ပြီးရင် အသံ ထုတ်လို့ရပြီ, upload မလို)။');
@@ -1666,10 +1670,11 @@ function isPunctOnly(str){
   }
   return true;
 }
-function phoneBatchPrompt(texts, sourceLang){
-  var numbered = texts.map(function(t, i){ return (i + 1) + '. ' + t; }).join('\\n');
+function phoneBatchPrompt(texts, sourceLang, spks){
+  var numbered = texts.map(function(t, i){ var sp = (spks && spks[i]) ? ' (Speaker ' + spks[i] + ')' : ''; return (i + 1) + '.' + sp + ' ' + t; }).join('\\n');
+  var hasSpk = false; if(spks) for(var si = 0; si < spks.length; si++) if(spks[si]) hasSpk = true;
   var fromPart = (sourceLang && sourceLang !== 'auto') ? ('from ' + (sourceLang === 'zh' ? 'Chinese' : sourceLang) + ' ') : '';
-  return 'Translate each numbered line ' + fromPart + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Negative and emphatic constructions must sound like spoken Burmese, never like a textbook. In particular, 难 + 不 or 没 + verb means the speaker CANNOT HELP doing it: when the tone is exclamatory or joking, prefer a Burmese rhetorical question. Example: 很难听不见啊, said of a loud obvious sound, becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, never the flat literal မကြားဘဲ နေဖို့ ခက်တယ်. In a plain non-rhetorical case, မနေနိုင်ဘူး or မရဘူး works. Likewise 不得不 becomes မဖြစ်မနေ, and a rhetorical negative keeps its punch instead of turning into a flat statement. If a rendering sounds like word-for-word Burmese, rewrite it the way people actually speak in a drama. Burmese dubbing style: write the way actors speak in a drama, not the way textbooks write. Match the particle to the tone: a soft exclamation ends with လေ, an obvious fact with ပေါ့, a plain statement with တယ်, a question with လား, a rhetorical boast with …ဘဲ နေပါ့မလား. Keep pronouns consistent with the relationship (elders and superiors get respectful forms, friends get plain forms) and keep the same form for the same person throughout. Burmese is verb-final: never mirror Chinese word order. Never translate character by character: 难 is not always ခက်တယ်, 不 is not always မ, and a Chinese question is not always a Burmese question — render the INTENTION and the TONE. If a line read aloud sounds like a textbook, rewrite it until it sounds like someone talking in the scene. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout. COVERAGE: translate EVERY numbered line and EVERY word in it — never drop a leading order, exclamation or interjection (住手 becomes ရပ်စမ်း, never nothing; 快 stays in the line). A line that is only punctuation gets an empty translation, never the punctuation copied as the translation.\\n' + numbered;
+  return 'Translate each numbered line ' + fromPart + (hasSpk ? 'A (Speaker X) tag before a line tells you who is speaking — keep pronouns and forms of address consistent with that speaker across lines. ' : '') + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Negative and emphatic constructions must sound like spoken Burmese, never like a textbook. In particular, 难 + 不 or 没 + verb means the speaker CANNOT HELP doing it: when the tone is exclamatory or joking, prefer a Burmese rhetorical question. Example: 很难听不见啊, said of a loud obvious sound, becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, never the flat literal မကြားဘဲ နေဖို့ ခက်တယ်. In a plain non-rhetorical case, မနေနိုင်ဘူး or မရဘူး works. Likewise 不得不 becomes မဖြစ်မနေ, and a rhetorical negative keeps its punch instead of turning into a flat statement. If a rendering sounds like word-for-word Burmese, rewrite it the way people actually speak in a drama. Burmese dubbing style: write the way actors speak in a drama, not the way textbooks write. Match the particle to the tone: a soft exclamation ends with လေ, an obvious fact with ပေါ့, a plain statement with တယ်, a question with လား, a rhetorical boast with …ဘဲ နေပါ့မလား. Keep pronouns consistent with the relationship (elders and superiors get respectful forms, friends get plain forms) and keep the same form for the same person throughout. Burmese is verb-final: never mirror Chinese word order. Never translate character by character: 难 is not always ခက်တယ်, 不 is not always မ, and a Chinese question is not always a Burmese question — render the INTENTION and the TONE. If a line read aloud sounds like a textbook, rewrite it until it sounds like someone talking in the scene. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout. COVERAGE: translate EVERY numbered line and EVERY word in it — never drop a leading order, exclamation or interjection (住手 becomes ရပ်စမ်း, never nothing; 快 stays in the line). A line that is only punctuation gets an empty translation, never the punctuation copied as the translation.\\n' + numbered;
 }
 function phoneParseBatch(text, count){
   if(!text || !text.trim()) throw new Error('Empty batch translation response.');
@@ -1677,7 +1682,7 @@ function phoneParseBatch(text, count){
   var numbered = new Array(count); var n = 0;
   for(var i = 0; i < rawLines.length; i++){
     var m = rawLines[i].match(/^(\\d+)[.)]\\s*(.*)$/);
-    if(m){ var idx = parseInt(m[1], 10) - 1; if(idx >= 0 && idx < count && numbered[idx] === undefined){ numbered[idx] = (m[2] || '').trim(); n++; } }
+    if(m){ var idx = parseInt(m[1], 10) - 1; if(idx >= 0 && idx < count && numbered[idx] === undefined){ var vv = (m[2] || '').trim().replace(/^\\(Speaker [^)]*\\)\\s*/, ''); numbered[idx] = vv; n++; } }
   }
   var bad = false; for(var j = 0; j < numbered.length; j++){ if(numbered[j] && numbered[j].indexOf('\\ufffd') >= 0) bad = true; }
   if(bad) throw new Error('Batch translation contains corrupted characters.');
@@ -1686,9 +1691,9 @@ function phoneParseBatch(text, count){
   throw new Error('Batch translation returned the wrong number of lines.');
 }
 var PHONE_GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
-async function geminiPhoneTranslateBatch(texts, sourceLang){
+async function geminiPhoneTranslateBatch(texts, sourceLang, spks){
   var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။');
-  var prompt = phoneBatchPrompt(texts, sourceLang);
+  var prompt = phoneBatchPrompt(texts, sourceLang, spks);
   var frames = [];
   try {
     var sf = window.__sangbikSceneFrames || [];
@@ -1777,7 +1782,7 @@ async function phoneTranslateEmptyLines(){
       var origs = part.map(function(i){ return lines[i].original; });
       var trs = null;
       try {
-        trs = (eng === 'groq') ? await groqPhoneTranslateBatch(origs, sourceLangChoice()) : await geminiPhoneTranslateBatch(origs, sourceLangChoice());
+        trs = (eng === 'groq') ? await groqPhoneTranslateBatch(origs, sourceLangChoice(), part.map(function(i){ return lines[i].speaker || ''; })) : await geminiPhoneTranslateBatch(origs, sourceLangChoice(), part.map(function(i){ return lines[i].speaker || ''; }));
       } catch(chunkErr){ failErr = (chunkErr && chunkErr.name === 'TimeoutError') ? new Error('အချိန်ကုန်သွားတယ် (network နှေးနေတုန်း)') : chunkErr; break; }
       part.forEach(function(li, k){ lines[li].burmese = trs[k]; });
       done += part.length;
@@ -1891,9 +1896,9 @@ function phoneTranslateEngine(){
   if(groqKeys().length) return 'groq';
   return null;
 }
-async function groqPhoneTranslateBatch(texts, sourceLang){
+async function groqPhoneTranslateBatch(texts, sourceLang, spks){
   var keys = groqKeys(); if(!keys.length) throw new Error('Groq phone key မရှိပါ — Profile မှာ Groq key ထည့်ပါ။');
-  var prompt = phoneBatchPrompt(texts, sourceLang);
+  var prompt = phoneBatchPrompt(texts, sourceLang, spks);
   var lastErr = null;
   for(var i = 0; i < keys.length; i++){
     try {
@@ -2136,7 +2141,7 @@ function renderLines(){
   var h = '';
   lines.forEach(function(l, idx){
   var origPart = l.manual ? '<input type="text" data-oidx="' + idx + '" value="' + esc(l.original) + '" placeholder="မူရင်း စာသား">' : '<div>' + esc(l.original) + '</div>';
-    h += '<div class="line"><div class="t"><input type="text" class="tm" data-tidx="' + idx + '" data-kind="start" value="' + fmtMmSs(l.start) + '"> – <input type="text" class="tm" data-tidx="' + idx + '" data-kind="end" value="' + fmtMmSs(l.end) + '"></div>' + origPart + '<input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"> <button data-del="' + idx + '">✕</button></div>';
+    h += '<div class="line"><div class="t"><input type="text" class="tm" data-tidx="' + idx + '" data-kind="start" value="' + fmtMmSs(l.start) + '"> – <input type="text" class="tm" data-tidx="' + idx + '" data-kind="end" value="' + fmtMmSs(l.end) + '"></div>' + (l.speaker ? '<span class="small">🗣 ' + esc(l.speaker) + '</span> ' : '') + origPart + '<input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"> <button data-del="' + idx + '">✕</button></div>';
   });
   el('linesBox').innerHTML = h || '(လိုင်းမရှိသေးပါ — “လိုင်းထည့်ပါ” နဲ့ ကိုယ်တိုင် ထည့်နိုင်တယ်)';
   el('linesBox').querySelectorAll('button[data-del]').forEach(function(b){ b.onclick = function(){ var idx = parseInt(b.getAttribute('data-del'), 10); if(isNaN(idx) || !lines[idx]) return; lines.splice(idx, 1); linesDirty = true; renderLines(); renderTimeline(); msg('လိုင်း ဖျက်ပါပြီ — သိမ်းမှ အတည်ဖြစ်မယ်။'); }; });
@@ -2161,17 +2166,28 @@ function renderTimeline(){
 el('vid').addEventListener('timeupdate', function(){ var v = el('vid'); var dur = v.duration || duration; if(dur) el('timelinePlayhead').style.left = (100 * v.currentTime / dur) + '%'; });
 el('vid').addEventListener('loadedmetadata', renderTimeline);
 var stripDragged = false;
-el('timelineStrip').onclick = function(ev){ if(stripDragged) return; var t = ev.target; if(t && (t.id === 'timelineHandleL' || t.id === 'timelineHandleR')) return; var r = this.getBoundingClientRect(); var frac = (ev.clientX - r.left) / r.width; var v = el('vid'); var dur = v.duration || duration; if(dur && v.duration) v.currentTime = frac * dur; };
+el('timelineStrip').onclick = function(ev){ if(stripDragged) return; var t = ev.target; if(t && (t.id === 'timelineHandleL' || t.id === 'timelineHandleR')) return; var r = this.getBoundingClientRect(); var frac = (ev.clientX - r.left) / r.width; var v = el('vid'); var dur = v.duration || duration; if(dur && v.duration) v.currentTime = frac * dur; var tt = frac * dur; var si = splitSegAt(tt); if(si >= 0){ splitSelected = si; updateTrimOverlay(); } };
 function trimDur(){ var v = el('vid'); return (v && v.duration) || duration || 0; }
+var splitPoints = []; var splitRemoved = []; var splitSelected = -1; var splitVidKey = '';
+function splitRange(){ var dur = trimDur(); var s = Math.max(0, parseFloat(el('trimStartInp').value) || 0); var e = parseFloat(el('trimEndInp').value); if(!isFinite(e) || e <= s) e = dur; return {s:s, e:e, dur:dur}; }
+function splitSegments(){ var r = splitRange(); var pts = []; for(var i = 0; i < splitPoints.length; i++){ var p = splitPoints[i]; if(p > r.s && p < r.e) pts.push(p); } pts.sort(function(a,b){return a-b;}); var segs = []; var prev = r.s; for(var j = 0; j < pts.length; j++){ if(pts[j] === prev) continue; segs.push({start:prev, end:pts[j]}); prev = pts[j]; } if(r.e > prev) segs.push({start:prev, end:r.e}); if(!segs.length) segs.push({start:r.s, end:r.e}); return segs; }
+function splitSegAt(t){ var segs = splitSegments(); for(var i = 0; i < segs.length; i++){ if(t >= segs[i].start && (t < segs[i].end || (i === segs.length - 1 && t <= segs[i].end))) return i; } return -1; }
+function splitSegRemoved(sg){ for(var i = 0; i < splitRemoved.length; i++){ if(sg.start >= splitRemoved[i].start - 0.001 && sg.end <= splitRemoved[i].end + 0.001) return true; } return false; }
+function splitRemovedRanges(){ var r = splitRange(); var out = []; for(var i = 0; i < splitRemoved.length; i++){ var a = Math.max(r.s, splitRemoved[i].start); var b = Math.min(r.e, splitRemoved[i].end); if(b > a) out.push({start:a, end:b}); } out.sort(function(x,y){return x.start - y.start;}); var mg = []; for(var j = 0; j < out.length; j++){ if(mg.length && out[j].start <= mg[mg.length - 1].end + 0.001) mg[mg.length - 1].end = Math.max(mg[mg.length - 1].end, out[j].end); else mg.push(out[j]); } return mg; }
+function splitRestoreSeg(sg){ var out = []; for(var i = 0; i < splitRemoved.length; i++){ var r0 = splitRemoved[i]; if(sg.end <= r0.start || sg.start >= r0.end){ out.push(r0); continue; } if(sg.start > r0.start) out.push({start:r0.start, end:sg.start}); if(sg.end < r0.end) out.push({start:sg.end, end:r0.end}); } return out; }
+function splitResetIfNewVideo(){ var v = el('vid'); var k = v ? (v.src || '') : ''; if(k !== splitVidKey){ splitVidKey = k; splitPoints = []; splitRemoved = []; splitSelected = -1; } }
+function renderSplitLayer(){ var layer = el('timelineSplitLayer'); if(!layer) return; var r = splitRange(); if(!r.dur){ layer.innerHTML = ''; return; } var segs = splitSegments(); if(splitSelected >= segs.length) splitSelected = -1; var html = ''; var rmc = 0; for(var i = 0; i < segs.length; i++){ var lp = 100 * segs[i].start / r.dur; var wp = 100 * (segs[i].end - segs[i].start) / r.dur; var rm = splitSegRemoved(segs[i]); if(rm) rmc++; if(rm) html += '<div style="position:absolute;top:0;left:' + lp + '%;width:' + wp + '%;height:100%;background:rgba(239,68,68,0.45)"></div>'; if(splitSelected === i) html += '<div style="position:absolute;top:0;left:' + lp + '%;width:' + wp + '%;height:100%;background:rgba(56,189,248,0.25);outline:2px solid #38bdf8"></div>'; } for(var j = 0; j < splitPoints.length; j++){ var p = splitPoints[j]; if(p > r.s && p < r.e) html += '<div style="position:absolute;top:0;left:' + (100 * p / r.dur) + '%;width:2px;margin-left:-1px;height:100%;background:#f8fafc"></div>'; } layer.innerHTML = html; var tx = el('trimSplitText'); if(tx){ var n = segs.length; tx.textContent = n > 1 ? ('အပိုင်း ' + n + ' ပိုင်း' + (rmc ? (' — ဖျက်ထား ' + rmc + ' ပိုင်း') : '') + (splitSelected >= 0 ? (' — ရွေးထား အပိုင်း ' + (splitSelected + 1)) : '')) : 'Split မရှိသေးပါ — playhead နေရာမှာ Split နှိပ်ပါ'; } var db = el('trimSegDelBtn'); if(db){ db.textContent = (splitSelected >= 0 && splitSelected < segs.length && splitSegRemoved(segs[splitSelected])) ? '↩ အပိုင်းပြန်ထား' : '🗑 အပိုင်းဖျက်'; } }
 function updateTrimOverlay(){
+  splitResetIfNewVideo();
   var dur = trimDur(); var s = Math.max(0, parseFloat(el('trimStartInp').value) || 0); var e = parseFloat(el('trimEndInp').value); if(!isFinite(e) || e <= s) e = dur;
   var sel = el('timelineSel'); var hl = el('timelineHandleL'); var hr = el('timelineHandleR'); var lb = el('timelineSelLabel');
-  if(!dur){ if(sel) sel.style.display = 'none'; if(hl) hl.style.display = 'none'; if(hr) hr.style.display = 'none'; if(lb) lb.textContent = ''; return; }
+  if(!dur){ if(sel) sel.style.display = 'none'; if(hl) hl.style.display = 'none'; if(hr) hr.style.display = 'none'; if(lb) lb.textContent = ''; renderSplitLayer(); return; }
   var lp = Math.max(0, Math.min(100, 100 * s / dur)); var rp = Math.max(0, Math.min(100, 100 * e / dur));
   if(sel){ sel.style.display = ''; sel.style.left = lp + '%'; sel.style.width = Math.max(0, rp - lp) + '%'; }
   if(hl){ hl.style.display = ''; hl.style.left = lp + '%'; }
   if(hr){ hr.style.display = ''; hr.style.left = rp + '%'; }
   if(lb) lb.textContent = 'ဖြတ်တောက်: ' + s.toFixed(1) + 's - ' + e.toFixed(1) + 's (လက်နဲ့ ဆွဲပြီး တိုရှည် ပြင်လို့ ရတယ်)';
+  renderSplitLayer();
 }
 (function(){
   var drag = null;
@@ -2210,6 +2226,24 @@ if(el('trimScissorsBtn')) el('trimScissorsBtn').onclick = function(){
   el('trimEndInp').value = cut; updateTrimOverlay();
   msg('✂️ ဖြတ်တောက် အဆုံး = ' + cut + 's (အဲဒီနေရာကနေ နောက်ပိုင်း ဖြတ်မယ်)');
 };
+if(el('trimSplitBtn')) el('trimSplitBtn').onclick = function(){
+  var v = el('vid'); if(!v || !v.duration){ msg('Video အရင် ရွေးပါ'); return; }
+  var t = v.currentTime || 0; var r = splitRange();
+  if(t <= r.s || t >= r.e){ msg('ဖြတ်တောက် အပိုင်း (' + r.s + 's - ' + r.e + 's) အတွင်းမှာ ဖြတ်ပါ'); return; }
+  var cut = Math.round(t * 10) / 10;
+  for(var i = 0; i < splitPoints.length; i++){ if(Math.abs(splitPoints[i] - cut) < 0.15){ msg('အဲဒီနေရာမှာ Split ရှိပြီးသား (' + splitPoints[i] + 's)'); return; } }
+  splitPoints.push(cut); splitPoints.sort(function(a,b){return a-b;}); splitSelected = splitSegAt(cut); updateTrimOverlay();
+  msg('✂ Split: ' + cut + 's မှာ ခွဲပြီးပြီ — အပိုင်းကို တို့ပြီး ရွေး, 🗑 ဖျက်လို့ ရတယ်');
+};
+if(el('trimSegDelBtn')) el('trimSegDelBtn').onclick = function(){
+  var segs = splitSegments();
+  if(splitSelected < 0 || splitSelected >= segs.length){ msg('အရင် အပိုင်းတစ်ခုကို အတန်းမှာ တို့ပြီး ရွေးပါ'); return; }
+  var sg = segs[splitSelected];
+  if(splitSegRemoved(sg)){ splitRemoved = splitRestoreSeg(sg); msg('↩ အပိုင်း ' + (splitSelected + 1) + ' ပြန်ထားပြီ'); }
+  else { splitRemoved.push({start:sg.start, end:sg.end}); msg('🗑 အပိုင်း ' + (splitSelected + 1) + ' ဖျက်မယ် (export မှာ ပါမှာ မဟုတ်ဘူး)'); }
+  updateTrimOverlay();
+};
+if(el('trimSplitClearBtn')) el('trimSplitClearBtn').onclick = function(){ splitPoints = []; splitRemoved = []; splitSelected = -1; updateTrimOverlay(); msg('Split တွေ ရှင်းပြီးပြီ'); };
 el('loadBtn').onclick = loadLines;
 function rescueLinesToNewProject(){
   return api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}, 120000).then(function(p){
@@ -2228,11 +2262,11 @@ el('saveBtn').onclick = function(){
   var badTimes = 0;
   Object.keys(tvals).forEach(function(k){ var idx = parseInt(k, 10); var tv = tvals[idx]; if(!lines[idx] || !isFinite(tv.start) || !isFinite(tv.end) || tv.end <= tv.start) { badTimes++; return; } lines[idx].start = tv.start; lines[idx].end = tv.end; });
   updateTMFromLines();
-  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}, 120000).then(function(j){ linesDirty = false; if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; }), savedAt: Date.now() }); msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : ''));   }).catch(function(e){
+  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}, 120000).then(function(j){ linesDirty = false; if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese, speaker: l.speaker || '' }; }), savedAt: Date.now() }); msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : ''));   }).catch(function(e){
     if(/Project not found/.test(e.message) && lines.length){
       rescueLinesToNewProject().then(function(){
         linesDirty = false;
-        if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; }), savedAt: Date.now() });
+        if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese, speaker: l.speaker || '' }; }), savedAt: Date.now() });
         msg('Project အဟောင်း ပျက်သွားလို့ Project အသစ်မှာ သိမ်းပါပြီ: ' + lines.length + ' လိုင်း');
       }).catch(function(){ msg('သိမ်းမရပါ: ' + e.message); });
     } else { msg('သိမ်းမရပါ: ' + e.message); }
@@ -2528,6 +2562,7 @@ function buildExportBody(){
   if(rotVal === 270) rotVal = -90; // server clamps rotation to +/-180, and -90 is the same turn as 270
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
+  var sr = splitRemovedRanges(); for(var i2 = 0; i2 < sr.length; i2++) splitRanges.push(sr[i2]);
   var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, blur2Region:{x:clamp01(el('blur2XInp').value, 0), y:clamp01(el('blur2YInp').value, 0), w:clamp01(el('blur2WInp').value, 1), h:clamp01(el('blur2HInp').value, 0.30)}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
@@ -3516,8 +3551,9 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // timeline: line.start minus trimStart, clamped at 0; lines entirely
       // outside [trimStart, trimEnd) are skipped). Timed clips are mixed
       // with per-clip adelay + amix, same pattern as the continuous mix;
-      // a clip longer than its set window is sped up with atempo (capped at 2.0x)
-      // so it finishes inside the window; beyond the cap it overlaps and is listed in narrationFitNote (no
+      // a clip longer than its set window is sped up with atempo (no 2.0x cap)
+      // so it finishes inside the window; atrim then hard-cuts at the window
+      // end, so audio can never spill into the next speaker's turn (no
       // time-stretch, no silent drops). If timed was requested but no
       // usable per-line clips exist, fall back to continuous + a note.
       let narrationSyncNote = null;
@@ -3545,13 +3581,13 @@ app.post('/api/projects/:id/export', async (req, res) => {
           }
           if (!(windowSec > 0)) continue;
           // Per-line fitting: speed the clip up so it finishes inside its set
-          // time window (capped at 2.0x); a shorter clip stays as-is.
+          // time window (no cap); a shorter clip stays as-is and ends early.
           const fit = fitTempo(c.duration || 0, windowSec);
           if (fit.fitted) narrationFitCount++;
           if (fit.overflow) narrationFitOverflow.push(c.lineIndex);
-          timedClips.push({ file: c.file, outStart, tempo: fit.tempo });
+          timedClips.push({ file: c.file, outStart, tempo: fit.tempo, windowSec });
         }
-        if (narrationFitOverflow.length) narrationFitNote = 'Voiceover fitting: ' + narrationFitCount + ' line(s) sped up to fit their set times; line(s) ' + narrationFitOverflow.join(', ') + ' still longer than their windows at the 2.0x cap and will overlap the next line.';
+        if (narrationFitOverflow.length) narrationFitNote = 'Voiceover fitting: ' + narrationFitCount + ' line(s) sped up to fit their set times; line(s) ' + narrationFitOverflow.join(', ') + ' were so long that even at 100x they were cut at their window ends (tail lost — shorten the text or lengthen the line).';
         else if (narrationFitCount) narrationFitNote = 'Voiceover fitting: ' + narrationFitCount + ' line(s) sped up to fit their set times.';
       }
       if (timedClips.length) {
@@ -3560,7 +3596,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
           args.push('-i', tc.file); inputs.push(tc.file);
           const ms = Math.round(tc.outStart * 1000);
           const tempoFilter = tc.tempo > 1 ? `atempo=${tc.tempo},` : '';
-          filter += `;[${nextInputIdx}:a]${tempoFilter}adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
+          const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`;
+          filter += `;[${nextInputIdx}:a]${tempoFilter}${trimFilter}adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
         }
       } else {
         if (narrationSync === 'timed') narrationSyncNote = timedClipsStale ? 'လိုင်းတွေ အသံထုတ်ပြီးမှ ပြင်ထားလို့ timed narration မကိုက်တော့ပါ — continuous အသံ သုံးထားတယ်။ Timed ပြန်ရဖို့ အသံ ပြန်ထုတ်ပါ။' : (p.tts?.file ? 'Timed narration requested but no usable per-line clips were found — used the continuous narration track instead. Re-run voiceover (TTS) after this deploy to generate per-line clips.' : 'Timed narration requested but no narration audio exists — generate voiceover first.');
