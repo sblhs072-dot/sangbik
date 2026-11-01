@@ -1381,7 +1381,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey44</h1>
+<h1>🎬 Sangbik — Website · phonekey46</h1>
 <div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1415,9 +1415,9 @@ body{padding-bottom:76px}
 <label>အမြင့်: <input id="blur2H" type="range" min="5" max="100" value="25" style="width:120px"> <span id="blur2HTxt">25%</span></label>
 <label><input type="checkbox" id="blur2DarkChk"> Dark blur (အမှောင်)</label><br>
 <span class="small">Box ကို video ပေါ်မှာ ဆွဲပြီး ရွှေ့နိုင်တယ်။ အကျယ်/အမြင့် slider နဲ့ အရွယ် ပြောင်း။</span><br></div>
-<div id="grp-zoom" class="toolpanel"><label><input type="checkbox" id="zoomChk" checked> Zoom (ရွေးထားတဲ့ စက္ကန့်တိုင်း)</label>
+<div id="grp-zoom" class="toolpanel"><label><input type="checkbox" id="zoomChk"> Zoom (ရွေးထားတဲ့ စက္ကန့်တိုင်း)</label>
 <label>Zoom အပြင်း: <select id="zoomStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
-<label>Zoom အကြိမ် (စက္ကန့်): <select id="zoomIntSel"><option value="4" selected>4</option><option value="5">5</option><option value="10">10</option></select></label><br></div>
+<label>Zoom အကြိမ် (စက္ကန့်): <select id="zoomIntSel"><option value="4" selected>4</option><option value="5">5</option><option value="10">10</option></select></label><br><label><input type="checkbox" id="zoomPulseChk" checked> Auto Zoom (3s ဆွဲ / 2s နား, အလိုလို)</label><br></div>
 <div id="grp-rotate" class="toolpanel"><label>လှည့်: <select id="rotSel"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
 <label><input type="checkbox" id="mirrorChk"> မှန်ကြည့် (Mirror)</label><br></div>
 <div id="grp-subs" class="toolpanel"><label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
@@ -1431,7 +1431,7 @@ body{padding-bottom:76px}
 <label>အသံ ရွှေ့ (စက္ကန့်): <input id="narrDelayInp" type="number" min="-30" max="30" step="0.5" value="0" style="width:70px"> <span class="small">(+ = နောက်ကျ, − = စော)</span></label><br>
 <label>နောက်ခံအသံ (Music): <input id="musicFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg"></label> <button id="musicUpBtn">🎵 Music တင်ပါ</button> <span id="musicText" class="small"></span><br>
 <label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br>
-<label>အသံ ကျယ်/တိုး (Original): <input id="origVolInp" type="range" min="0" max="200" value="12" style="width:120px"> <span id="origVolTxt">12%</span></label><br></div></div></div>
+<label>အသံ ကျယ်/တိုး (Original): <input id="origVolInp" type="range" min="0" max="200" value="12" style="width:120px"> <span id="origVolTxt">12%</span></label> <label><input type="checkbox" id="origMuteChk" checked> မူရင်းအသံ မပါ</label><br></div></div></div>
 <div id="tab-dashboard" class="tabPanel"><div class="card"><div id="health">ဆာဗာ စစ်နေပါတယ်…</div><div class="small">ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video ပဲ တင်ပါ။ Zoom / blur / crop က မူပိုင်ခွင့်ကို တရားဝင်မဖြစ်စေပါ။</div></div>
 <div class="card"><h2>၁။ Project</h2>
 <button id="newBtn">＋ Project အသစ်</button>
@@ -1519,7 +1519,7 @@ function refreshAll(){
     duration = (p.metadata && p.metadata.duration) || duration;
     if(p.file && !p.file.sourceUrl && !p.audioOnly) el('vid').src = '/api/projects/' + pid + '/preview';
     if(!linesDirty){ lines = p.translationLines || []; renderLines(); renderTimeline(); }
-  }).catch(function(e){ if(e && /Project not found/.test(e.message)) msg('Project မရှိတော့ပါ (deploy/restart ကြောင့် ပျက်သွားတာ) — Dashboard မှာ Project အသစ် ဖန်တီးပါ။'); });
+  }).catch(function(e){ if(e && /Project not found/.test(e.message)){ setPid(''); el('pidText').textContent = 'Project မရွေးရသေးပါ'; msg('Project server မှာ ပျက်သွားပြီ (deploy/restart) — ဒါပေမယ့် စာသားတွေ ဖုန်းထဲမှာ ရှိနေသေးတယ်။ Video ပြန်ရွေးရင် စာသားတွေ ပြန်ပေါ်မယ်၊ Project အသစ်မှာ သိမ်းပြီး အသံ/export ပြန်ရမယ်။'); } });
   pollJob();
   refreshExport();
 }
@@ -1530,7 +1530,7 @@ function refreshExport(){
     else if(s.status === 'ready'){ el('expText').textContent = 'Export: ready'; el('dlBox').innerHTML = '<a href="/api/projects/' + pid + '/download/video"><button>⬇ Video ဒေါင်းလုဒ်</button></a> <a href="/api/projects/' + pid + '/download/subtitles"><button>⬇ Subtitles (SRT)</button></a>'; }
   }).catch(function(){});
 }
-el('linesBox').addEventListener('input', function(){ linesDirty = true; });
+el('linesBox').addEventListener('input', function(){ linesDirty = true; scheduleCacheSave(); });
 // LINES-CACHE: same video re-picked after a deploy wipe reloads its lines
 // from the phone (localStorage) instead of re-uploading + re-transcribing.
 // Fingerprint = size + SHA-256 of first+last 1MB (fast, no full-file hash).
@@ -1544,6 +1544,33 @@ function writeLinesCache(fp, entry){
     localStorage.setItem('sangbikLinesCache', JSON.stringify(c));
   } catch(e){}
 }
+var cacheSaveTimer = null;
+function scheduleCacheSave(){
+  try {
+    if(!cachedFp || !lines.length) return;
+    if(cacheSaveTimer) clearTimeout(cacheSaveTimer);
+    cacheSaveTimer = setTimeout(function(){
+      try {
+        var inputs = el('linesBox').querySelectorAll('input[data-idx]');
+        inputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-idx'), 10); if(lines[idx]) lines[idx].burmese = inp.value; });
+        var oinputs = el('linesBox').querySelectorAll('input[data-oidx]');
+        oinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-oidx'), 10); if(lines[idx]) lines[idx].original = inp.value; });
+        if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese, speaker: l.speaker || '' }; }), savedAt: Date.now() });
+      } catch(e){}
+    }, 1000);
+  } catch(e){}
+}
+function restoreLastCacheOnLoad(){
+  try {
+    var lc = readLinesCache(); var bestFp = null; var bestAt = -1;
+    Object.keys(lc).forEach(function(fp){ var at = (lc[fp] && lc[fp].savedAt) || 0; if(at > bestAt){ bestAt = at; bestFp = fp; } });
+    if(bestFp && lc[bestFp] && lc[bestFp].lines && lc[bestFp].lines.length && !lines.length){
+      cachedFp = bestFp; lines = lc[bestFp].lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese, speaker: l.speaker || '' }; });
+      renderLines(); renderTimeline();
+    }
+  } catch(e){}
+}
+
 function bufToHex(buf){ var a = new Uint8Array(buf); var h = ''; for(var i = 0; i < a.length; i++) h += ('0' + a[i].toString(16)).slice(-2); return h; }
 function fileFingerprint(f){
   var size = f.size || 0;
@@ -2394,7 +2421,7 @@ function renderLines(){
     h += '<div class="line"><div class="t"><input type="text" class="tm" data-tidx="' + idx + '" data-kind="start" value="' + fmtMmSs(l.start) + '"> – <input type="text" class="tm" data-tidx="' + idx + '" data-kind="end" value="' + fmtMmSs(l.end) + '"></div>' + (l.speaker ? '<span class="small">🗣 ' + esc(l.speaker) + '</span> ' : '') + origPart + '<input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"> <button data-del="' + idx + '">✕</button></div>';
   });
   el('linesBox').innerHTML = h || '(လိုင်းမရှိသေးပါ — “လိုင်းထည့်ပါ” နဲ့ ကိုယ်တိုင် ထည့်နိုင်တယ်)';
-  el('linesBox').querySelectorAll('button[data-del]').forEach(function(b){ b.onclick = function(){ var idx = parseInt(b.getAttribute('data-del'), 10); if(isNaN(idx) || !lines[idx]) return; lines.splice(idx, 1); linesDirty = true; renderLines(); renderTimeline(); msg('လိုင်း ဖျက်ပါပြီ — သိမ်းမှ အတည်ဖြစ်မယ်။'); }; });
+  el('linesBox').querySelectorAll('button[data-del]').forEach(function(b){ b.onclick = function(){ var idx = parseInt(b.getAttribute('data-del'), 10); if(isNaN(idx) || !lines[idx]) return; lines.splice(idx, 1); linesDirty = true; renderLines(); renderTimeline(); scheduleCacheSave(); msg('လိုင်း ဖျက်ပါပြီ — သိမ်းမှ အတည်ဖြစ်မယ်။'); }; });
 }
 function fmtTl(s){ s = Math.max(0, Math.floor(s)); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
 function renderTimeline(){
@@ -2956,6 +2983,7 @@ wirePct('titleOpInp', 'titleOpTxt', false); wirePct('titleSizeInp', 'titleSizeTx
 wirePct('wmOpInp', 'wmOpTxt', false); wirePct('wmSizeInp', 'wmSizeTxt', false);
 wirePct('logoWInp', 'logoWTxt', false); wirePct('logoHInp', 'logoHTxt', true);
 wirePct('origVolInp', 'origVolTxt', false);
+(function(){ var zp = el('zoomPulseChk'); var zc = el('zoomChk'); if(zp && zc){ zp.onchange = function(){ if(zp.checked) zc.checked = false; }; zc.onchange = function(){ if(zc.checked) zp.checked = false; }; } })();
 function wireSwatches(spanId, varName){
   var sp = el(spanId); if(!sp) return;
   sp.addEventListener('click', function(ev){
@@ -2987,7 +3015,7 @@ function buildExportBody(){
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
   var sr = splitRemovedRanges(); for(var i2 = 0; i2 < sr.length; i2++) splitRanges.push(sr[i2]);
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume: (function(){ var v = parseFloat(el('origVolInp').value); return isFinite(v) ? v / 100 : 0.12; })(), subtitlesOn:true, subtitlesFrom:'translation', blurMode: (blurBoxes[1].on || blurBoxes[2].on) ? 'custom' : 'none', blurStrength: (el('blur1Type') ? el('blur1Type').value : 'strong'), blurStrength2: (el('blur2Type') ? el('blur2Type').value : 'strong'), blur1Enabled: !!blurBoxes[1].on, blur1Dark: !!(el('blur1DarkChk') && el('blur1DarkChk').checked), blurRegion:{x:blurBoxes[1].x, y:blurBoxes[1].y, w:blurBoxes[1].w, h:blurBoxes[1].h}, blurStartSec: 0, blurEndSec: -1, blur2Enabled: !!blurBoxes[2].on, blur2Dark: !!(el('blur2DarkChk') && el('blur2DarkChk').checked), blur2Region:{x:blurBoxes[2].x, y:blurBoxes[2].y, w:blurBoxes[2].w, h:blurBoxes[2].h}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, logoWPct: parseFloat(el('logoWInp').value), logoHPct: parseFloat(el('logoHInp').value), narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var out = []; var e = (duration > 0 ? duration : 99999); var tt = (el('titleTextInp').value || '').trim(); if(tt) out.push({text:tt, start:0, end:e, position:'top', size: Math.round(32 * (parseFloat(el('titleSizeInp').value) || 100) / 100), color: window.__titleColor || '#FFFFFF', opacity: parseFloat(el('titleOpInp').value)}); var wt = (el('wmTextInp').value || '').trim(); if(wt) out.push({text:wt, start:0, end:e, position:'topleft', size: Math.round(32 * (parseFloat(el('wmSizeInp').value) || 100) / 100), color: window.__wmColor || '#FFFFFF', opacity: parseFloat(el('wmOpInp').value)}); return out; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume: (function(){ try { if(el('origMuteChk') && el('origMuteChk').checked) return 0; } catch(e){} var v = parseFloat(el('origVolInp').value); return isFinite(v) ? v / 100 : 0.12; })(), subtitlesOn:true, subtitlesFrom:'translation', blurMode: (blurBoxes[1].on || blurBoxes[2].on) ? 'custom' : 'none', blurStrength: (el('blur1Type') ? el('blur1Type').value : 'strong'), blurStrength2: (el('blur2Type') ? el('blur2Type').value : 'strong'), blur1Enabled: !!blurBoxes[1].on, blur1Dark: !!(el('blur1DarkChk') && el('blur1DarkChk').checked), blurRegion:{x:blurBoxes[1].x, y:blurBoxes[1].y, w:blurBoxes[1].w, h:blurBoxes[1].h}, blurStartSec: 0, blurEndSec: -1, blur2Enabled: !!blurBoxes[2].on, blur2Dark: !!(el('blur2DarkChk') && el('blur2DarkChk').checked), blur2Region:{x:blurBoxes[2].x, y:blurBoxes[2].y, w:blurBoxes[2].w, h:blurBoxes[2].h}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomPulse: el('zoomPulseChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, logoWPct: parseFloat(el('logoWInp').value), logoHPct: parseFloat(el('logoHInp').value), narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var out = []; var e = (duration > 0 ? duration : 99999); var tt = (el('titleTextInp').value || '').trim(); if(tt) out.push({text:tt, start:0, end:e, position:'top', size: Math.round(32 * (parseFloat(el('titleSizeInp').value) || 100) / 100), color: window.__titleColor || '#FFFFFF', opacity: parseFloat(el('titleOpInp').value)}); var wt = (el('wmTextInp').value || '').trim(); if(wt) out.push({text:wt, start:0, end:e, position:'topleft', size: Math.round(32 * (parseFloat(el('wmSizeInp').value) || 100) / 100), color: window.__wmColor || '#FFFFFF', opacity: parseFloat(el('wmOpInp').value)}); return out; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
 function doExport(){
@@ -2997,6 +3025,7 @@ function doExport(){
     var vt = [];
     if((body.blurMode && body.blurMode !== 'none') || body.blur2Enabled) vt.push('Blur');
     if(body.zoomEvery5s) vt.push('Zoom');
+    if(body.zoomPulse) vt.push('Zoom 3s/2s');
     if(body.rotationDeg) vt.push('လှည့်');
     if(body.videoMirror) vt.push('မှန်ကြည့် (Flip)');
     if(body.enhanceClarity) vt.push('ကြည်လင်မှု');
@@ -3046,6 +3075,7 @@ health();
   var saved = readUpPersist();
   if(saved && saved.projectId === pid){ el('progText').textContent = 'တင်တာ မပြီးသေးဘူး (' + saved.fileName + ') — Export ကို နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။'; }
 })();
+restoreLastCacheOnLoad();
 if(pid){ refreshAll(); }
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible'){
@@ -3702,6 +3732,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const blurEq1 = blur1Dark ? ',eq=brightness=-0.8:saturation=0.3' : '';
   const blurEq2 = blur2Dark ? ',eq=brightness=-0.8:saturation=0.3' : '';
   const zoomEvery5s = !!o.zoomEvery5s;
+  const zoomPulse = !!o.zoomPulse;
   const zoomStrength = ['light', 'medium', 'strong'].includes(o.zoomStrength) ? o.zoomStrength : 'medium';
   const zoomMax = ZOOM_MAX[zoomStrength];
   const narrationSync = o.narrationSync === 'timed' ? 'timed' : 'continuous';
@@ -3858,7 +3889,39 @@ app.post('/api/projects/:id/export', async (req, res) => {
         try { fs.rmSync(reorderDir, { recursive: true, force: true }); } catch {}
         inputPath = reorderOut; effStart = 0; effEnd = segDurs.reduce((a, b) => a + b, 0);
       }
-      if (zoomEvery5s) {
+      if (zoomPulse) {
+        // Auto Zoom pulse 3s zoomed / 2s normal, repeating (user request):
+        // cycle = 5s: 3s at zoomMax, 2s at 1.0x, centred crop+scale, concat.
+        // Same segment mechanism as the old zoom pulse, only the segment
+        // lengths differ (unequal 3/2 instead of equal intervals).
+        const totalDurP = Math.max(effEnd - effStart, 0.1);
+        const zoomDirP = fs.mkdtempSync(path.join(OUT_DIR, 'zoomp-'));
+        const segFilesP = []; const segDursP = [];
+        const hasAudioP = !!p.metadata?.audioCodec;
+        let tP = effStart; let zoomedP = true; let siP = 0;
+        while (tP < effEnd) {
+          const wantP = zoomedP ? 3 : 2;
+          const segDurP = Math.min(wantP, effEnd - tP);
+          if (segDurP <= 0) break;
+          const zP = zoomedP ? zoomMax : 1.0;
+          const segFileP = path.join(zoomDirP, `seg${siP}.mp4`);
+          const srcWP = p.metadata?.width; const srcHP = p.metadata?.height;
+          const vfP = zP === 1.0 ? 'null' : `crop=iw/${zP}:ih/${zP},scale=${srcWP || 'iw'}:${srcHP || 'ih'}`;
+          const argsSegP = ['-y', '-ss', String(tP), '-t', String(segDurP), '-i', inputPath, '-vf', vfP, '-c:v', 'libx264', '-preset', 'veryfast'];
+          if (hasAudioP) argsSegP.push('-c:a', 'aac'); else argsSegP.push('-an');
+          argsSegP.push(segFileP);
+          await run('ffmpeg', argsSegP);
+          segFilesP.push(segFileP); segDursP.push(segDurP);
+          tP += segDurP; zoomedP = !zoomedP; siP++;
+        }
+        if (segFilesP.length) {
+          const zoomOutP = path.join(OUT_DIR, `${p.id}-zoomp.mp4`);
+          await concatOrXfade(segFilesP, segDursP, zoomOutP, hasAudioP);
+          try { fs.rmSync(zoomDirP, { recursive: true, force: true }); } catch {}
+          inputPath = zoomOutP; effStart = 0; effEnd = totalDurP;
+        }
+      }
+      if (zoomEvery5s && !zoomPulse) {
         // Zoom pulse: cuts the current timeline (original, split-joined, or
         // reordered) into zoomIntervalSec segments with alternating zoom.
         // Uses inputPath/effStart/effEnd so it composes with the split pass
@@ -3889,8 +3952,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
         inputPath = zoomOut; effStart = 0; effEnd = totalDur;
       }
       const effDuration = Math.max(effEnd - effStart, 0.1);
-      const transitionApplied = transition === 'crossfade' ? ((sceneOrderApplied || zoomEvery5s) ? 'crossfade' : 'fade (fallback: crossfade needs scene reorder or zoom segments)') : transition;
-      const transitionNote = transition === 'crossfade' && !(sceneOrderApplied || zoomEvery5s) ? 'Crossfade requested but no segment pass is active (no scene reorder, no zoom) — fade in/out was used instead.' : (sceneOrderNote || null);
+      const transitionApplied = transition === 'crossfade' ? ((sceneOrderApplied || zoomEvery5s || zoomPulse) ? 'crossfade' : 'fade (fallback: crossfade needs scene reorder or zoom segments)') : transition;
+      const transitionNote = transition === 'crossfade' && !(sceneOrderApplied || zoomEvery5s || zoomPulse) ? 'Crossfade requested but no segment pass is active (no scene reorder, no zoom) — fade in/out was used instead.' : (sceneOrderNote || null);
       const _ap = String(aspect || '16:9').split(':'); const _aw = parseFloat(_ap[0]) || 16; const _ah = parseFloat(_ap[1]) || 9;
       const _mw = parseInt((p.metadata && p.metadata.width) || 0, 10), _mh = parseInt((p.metadata && p.metadata.height) || 0, 10);
       const _srcMin = (_mw > 0 && _mh > 0) ? Math.min(_mw, _mh) : 720;
