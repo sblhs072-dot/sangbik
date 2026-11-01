@@ -1124,8 +1124,8 @@ async function runAutoJob(projectId, opts) {
     // the job finishes even if the check times out (120s) or fails.
     for (let i = 0; i < allPieces.length; i++) {
       const piece = allPieces[i];
-      const burmese = skipTranslate ? piece.original : (gt.translations ? (gt.translations[i] || '') : '');
-      const line = { ...piece, burmese: skipTranslate ? burmese : sanitizeBurmese(burmese), translationPending: !burmese, translationPendingReason: burmese ? null : 'Translation failed — see job message.' };
+      const burmese = skipTranslate ? '' : (gt.translations ? (gt.translations[i] || '') : '');
+      const line = { ...piece, burmese: skipTranslate ? '' : sanitizeBurmese(burmese), translationPending: !burmese, translationPendingReason: skipTranslate ? 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' : (burmese ? null : 'Translation failed — see job message.') };
       p.autoJob.lines.push(line);
       if (!p.translationLines.some(l => l.start === line.start && l.original === line.original)) p.translationLines.push(line);
     }
@@ -1223,7 +1223,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey10</h1>
+<h1>🎬 Sangbik — Website · phonekey11</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1615,7 +1615,7 @@ async function geminiPhoneTranslateBatch(texts, sourceLang){
 async function phoneTranslateEmptyLines(){
   var idxs = [];
   lines.forEach(function(l, i){ if(phoneNeedsTranslation(l)) idxs.push(i); });
-  if(!idxs.length) return false;
+  if(!idxs.length){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ/မပြင်ရသေးတဲ့ လိုင်း မရှိဘူး။'); return false; }
   var tb = el('translateBtn'); if(tb) tb.disabled = true;
   var eng = phoneTranslateEngine() || 'gemini';
   var scn = (eng === 'gemini' && window.__sangbikSceneFrames) ? window.__sangbikSceneFrames.length : 0;
@@ -1978,14 +1978,14 @@ el('translateBtn').onclick = function(){
   oinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-oidx'), 10); if(lines[idx]) lines[idx].original = inp.value; });
   if (phoneTranslateEngine() && !phoneTranslateFailedOnce) { phoneTranslateEmptyLines(); return; }
   var todo = 0;
-  lines.forEach(function(l){ if(l.original && l.original.trim() && !(l.burmese && l.burmese.trim())) todo++; });
+  lines.forEach(function(l){ if(l.original && l.original.trim() && phoneNeedsTranslation(l)) todo++; });
   if(!todo){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ ရှိတဲ့ လိုင်း မရှိဘူး။'); return; }
   el('translateBtn').disabled = true;
   msg('ဘာသာပြန်နေပါတယ်… (' + todo + ' လိုင်း)');
   api('/projects/' + pid + '/translate-lines', 'POST', {lines: lines}).then(function(j){
     el('translateBtn').disabled = false;
     var filled = 0;
-    (j.lines || []).forEach(function(rl, i){ if(lines[i] && rl.burmese && !(lines[i].burmese && lines[i].burmese.trim())){ lines[i].burmese = rl.burmese; filled++; } });
+    (j.lines || []).forEach(function(rl, i){ if(lines[i] && rl.burmese && phoneNeedsTranslation(lines[i])){ lines[i].burmese = rl.burmese; filled++; } });
     linesDirty = true;
     renderLines(); renderTimeline();
     msg('ဘာသာပြန်ပါပြီ: ' + filled + ' လိုင်း' + (j.path ? ' (' + j.path + ')' : '') + ' — စစ်ပြီး သိမ်းပါ။');
@@ -2488,15 +2488,18 @@ app.post('/api/projects/:id/translate-lines', async (req, res) => {
   // Stateless: only the project's existence is checked. No video file is
   // required, and nothing stored on the project is read or written — the
   // caller passes the lines and gets them back with Burmese filled, in the
-  // same order. Only lines with empty Burmese are translated; lines that
-  // already have Burmese pass through untouched.
+  // same order. A line needs translation when its Burmese is empty,
+  // identical to the original, or still contains Chinese/Latin characters
+  // (the state skipped auto-translation leaves behind); lines with real
+  // Burmese pass through untouched.
   const input = Array.isArray(req.body?.lines) ? req.body.lines : [];
   const toTranslate = [];
   const idxMap = [];
   input.forEach((l, i) => {
-    if (l && typeof l.original === 'string' && l.original.trim() && !(l.burmese && l.burmese.trim())) { toTranslate.push({ original: l.original }); idxMap.push(i); }
+    const _b = (l.burmese || '').trim();
+    if (l && typeof l.original === 'string' && l.original.trim() && (!_b || _b === l.original.trim() || /[\u4e00-\u9fff]/.test(_b) || /[A-Za-z]/.test(_b))) { toTranslate.push({ original: l.original }); idxMap.push(i); }
   });
-  if (!toTranslate.length) return res.json({ lines: input, path: 'none', note: 'No empty-Burmese lines to translate.' });
+  if (!toTranslate.length) return res.json({ lines: input, path: 'none', note: 'No lines needing translation.' });
   const gt = await translateLinesWithGoogleOrFallback(toTranslate);
   if (!gt.translations) return res.status(502).json({ error: gt.error });
   const out = input.slice();
