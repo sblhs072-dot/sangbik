@@ -177,7 +177,7 @@ print(json.dumps([tr(t) for t in json.load(sys.stdin)], ensure_ascii=False))`;
 function buildBatchPrompt(texts, sourceLang) {
   const numbered = texts.map((t, i) => (i + 1) + '. ' + t).join('\n');
   const fromPart = (sourceLang && sourceLang !== 'auto') ? ('from ' + (SOURCE_LANG_NAMES[sourceLang] || sourceLang) + ' ') : '';
-  return 'Translate each numbered line ' + fromPart + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout.\n' + numbered;
+  return 'Translate each numbered line ' + fromPart + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Negative and emphatic constructions must sound like spoken Burmese, never like a textbook. In particular, 难 + 不 or 没 + verb means the speaker CANNOT HELP doing it: when the tone is exclamatory or joking, prefer a Burmese rhetorical question. Example: 很难听不见啊, said of a loud obvious sound, becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, never the flat literal မကြားဘဲ နေဖို့ ခက်တယ်. In a plain non-rhetorical case, မနေနိုင်ဘူး or မရဘူး works. Likewise 不得不 becomes မဖြစ်မနေ, and a rhetorical negative keeps its punch instead of turning into a flat statement. If a rendering sounds like word-for-word Burmese, rewrite it the way people actually speak in a drama. Burmese dubbing style: write the way actors speak in a drama, not the way textbooks write. Match the particle to the tone: a soft exclamation ends with လေ, an obvious fact with ပေါ့, a plain statement with တယ်, a question with လား, a rhetorical boast with …ဘဲ နေပါ့မလား. Keep pronouns consistent with the relationship (elders and superiors get respectful forms, friends get plain forms) and keep the same form for the same person throughout. Burmese is verb-final: never mirror Chinese word order. Never translate character by character: 难 is not always ခက်တယ်, 不 is not always မ, and a Chinese question is not always a Burmese question — render the INTENTION and the TONE. If a line read aloud sounds like a textbook, rewrite it until it sounds like someone talking in the scene. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout.\n' + numbered;
 }
 function parseBatchResponse(text, count) {
   if (!text || !text.trim()) throw new Error('Empty batch translation response.');
@@ -925,7 +925,7 @@ async function geminiPolishLines(items, mode, sourceLangName) {
         return (base + i + 1) + '. ' + it;
       }).join('\n');
       const prompt = mode === 'translation'
-        ? 'Check the Burmese translations against their ' + (sourceLangName || 'Chinese') + ' originals. Input lines are "N. <Chinese> ||| <Burmese>". For each line, return the corrected Burmese. Rules: (1) ONLY fix what is CLEARLY wrong — wrong numbers, wrong person names, wrong meaning, non-Burmese characters (Thai, Chinese, or other scripts leaked into the Burmese), garbled words, reversed word order (noun must come BEFORE number+classifier: fix နှစ်ကောင်မြင်း to မြင်းနှစ်ကောင်). (2) Names must be transliterated consistently into Burmese script, never left in Chinese characters. (3) If a translation is already correct, return it EXACTLY unchanged. (4) Do NOT guess at unclear parts, do NOT add or remove sentences. (5) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, each line containing ONLY the corrected Burmese, nothing else.\n\n' + numbered
+        ? 'Check the Burmese translations against their ' + (sourceLangName || 'Chinese') + ' originals. Input lines are "N. <Chinese> ||| <Burmese>". For each line, return the corrected Burmese. Rules: (1) ONLY fix what is CLEARLY wrong — wrong numbers, wrong person names, wrong meaning, non-Burmese characters (Thai, Chinese, or other scripts leaked into the Burmese), garbled words, reversed word order (noun must come BEFORE number+classifier: fix နှစ်ကောင်မြင်း to မြင်းနှစ်ကောင်). Stiff literal negatives also count as wrong: 难 + 不 or 没 must read as natural Burmese (example: an exclamatory 很难听不见 becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, not မကြားဘဲ နေဖို့ ခက်တယ်). Burmese style also counts: a textbook-sounding line must be rewritten spoken-style, with the particle matching the tone (လေ, ပေါ့, လား). (2) Names must be transliterated consistently into Burmese script, never left in Chinese characters. (3) If a translation is already correct, return it EXACTLY unchanged. (4) Do NOT guess at unclear parts, do NOT add or remove sentences. (5) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, each line containing ONLY the corrected Burmese, nothing else.\n\n' + numbered
         : 'Correct Chinese speech-recognition errors in the numbered lines below. These lines come from automatic transcription of Chinese dialogue and contain homophone mistakes, broken idioms, and inconsistent names. For each line, return the corrected Chinese. Rules: (1) ONLY fix what is CLEARLY wrong in context — wrong homophones (for example horse hoof must be 蹄 not 提, a squad must be 队 not 对), broken set phrases (for example limping must be 一瘸一拐 not 一拳一拐), story-context same-sound errors (the guidance of a Buddha is 点化 not 电话; a dragon scale is 鳞 not 林; the lazy-hands proverb is 手懒 not 手揽; petrified is 石化 not 实化; utmost sincerity is 至诚 not 至成), inconsistent person names, obvious wrong characters. (2) If a line is not clearly wrong, return it EXACTLY unchanged. (3) Do NOT guess at unclear parts, do NOT add or remove sentences, do NOT change the meaning. (4) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, nothing else.\n\n' + numbered;
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_POLISH_MODEL || GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
       if (!res.ok) { let detail = ''; try { const j = await res.json(); detail = j.error?.message || j.error?.status || ''; } catch {} throw new Error('Gemini polish failed (HTTP ' + res.status + (detail ? ': ' + detail : '') + ')'); }
@@ -1223,8 +1223,43 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey5</h1>
+<h1>🎬 Sangbik — Website · phonekey10</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div></div>
+<div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
+
+<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-chunks">အပိုင်းခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
+<div id="grp-size" class="toolpanel"><label>အရွယ်အစား: <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select></label><br></div>
+<div id="grp-text" class="toolpanel"><label>စာသား: <input id="ovTextInp" type="text" placeholder="ထည့်မယ့် စာသား" style="width:220px"></label>
+<label>နေရာ: <select id="ovPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option><option value="center">အလယ်</option></select></label>
+<label>အစ (စက္ကန့်): <input id="ovStartInp" type="number" min="0" step="0.5" value="0" style="width:70px"></label>
+<label>အဆုံး (စက္ကန့်): <input id="ovEndInp" type="number" min="0" step="0.5" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label>
+<label>အရွယ်: <select id="ovSizeSel"><option value="18">18</option><option value="24">24</option><option value="32" selected>32</option><option value="48">48</option></select></label>
+<label>အရောင်: <select id="ovColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option><option value="#FF0000">အနီ</option></select></label><br></div>
+<div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br></div>
+<div id="grp-split" class="toolpanel"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
+<div id="grp-chunks" class="toolpanel"><label>အပိုင်း အရှည်: <select id="chunkMinSel"><option value="5" selected>5 မိနစ်</option><option value="10">10 မိနစ်</option><option value="15">15 မိနစ်</option><option value="20">20 မိနစ်</option><option value="custom">ကိုယ်ကြိုက်…</option></select></label> <label id="chunkCustomBox" style="display:none">မိနစ်: <input id="chunkMinInp" type="number" min="1" max="60" value="30" style="width:70px"></label> <button id="chunkSplitBtn">✂ အပိုင်းခွဲပါ</button> <span id="chunkText" class="small"></span><div id="chunkList"></div><br></div>
+<div id="grp-blur" class="toolpanel"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option><option value="background">Background (နောက်ခံ blur)</option></select>
+<label>Blur အပြင်း: <select id="blurStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
+<label>Blur နေရာ: <select id="blurPosSel"><option value="subtitle">စာတန်းနေရာ</option><option value="top">အပေါ်</option><option value="bottom">အောက်</option><option value="left">ဘယ်</option><option value="right">ညာ</option><option value="centre">အလယ်</option><option value="full">အပြည့်</option><option value="custom">ကိုယ်တိုင်ရွေး</option></select></label><br>
+<div id="blurCustomBox" style="display:none"><label>Blur X <input id="blurXInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> Y <input id="blurYInp" type="number" min="0" max="1" step="0.05" value="0.60" style="width:60px"> အကျယ် <input id="blurWInp" type="number" min="0" max="1" step="0.05" value="1" style="width:60px"> အမြင့် <input id="blurHInp" type="number" min="0" max="1" step="0.05" value="0.40" style="width:60px"></label> <span class="small">(0–1, ဗီဒီယိုအချိုးအလိုက်)</span></div>
+<label>Blur အချိန် (စက္ကန့်): အစ <input id="blurStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="blurEndInp" type="number" min="-1" step="1" value="-1" style="width:70px"> <span class="small">(-1 = အဆုံးထိ)</span></label>
+<label><input type="checkbox" id="blur2Chk"> Blur ၂ (အပေါ်ပိုင်း)</label><br></div>
+<div id="grp-zoom" class="toolpanel"><label><input type="checkbox" id="zoomChk" checked> Zoom (ရွေးထားတဲ့ စက္ကန့်တိုင်း)</label>
+<label>Zoom အပြင်း: <select id="zoomStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
+<label>Zoom အကြိမ် (စက္ကန့်): <select id="zoomIntSel"><option value="4" selected>4</option><option value="5">5</option><option value="10">10</option></select></label><br></div>
+<div id="grp-rotate" class="toolpanel"><label>လှည့်: <select id="rotSel"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+<label><input type="checkbox" id="mirrorChk"> မှန်ကြည့် (Mirror)</label><br></div>
+<div id="grp-subs" class="toolpanel"><label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
+<label>စာတန်း အရောင်: <select id="subColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option></select></label>
+<label>စာတန်း နေရာ: <select id="subPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option></select></label><br></div>
+<div id="grp-quality" class="toolpanel"><label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+<label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
+<label>Poster: <select id="posterSel"><option value="0" selected>မရှိ</option><option value="3">3 စက္ကန့်</option><option value="5">5 စက္ကန့်</option></select></label>
+<label><input type="checkbox" id="logoChk" checked> Logo ထည့်</label><br></div>
+<div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br>
+<label>အသံ ရွှေ့ (စက္ကန့်): <input id="narrDelayInp" type="number" min="-30" max="30" step="0.5" value="0" style="width:70px"> <span class="small">(+ = နောက်ကျ, − = စော)</span></label><br>
+<label>နောက်ခံအသံ (Music): <input id="musicFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg"></label> <button id="musicUpBtn">🎵 Music တင်ပါ</button> <span id="musicText" class="small"></span><br>
+<label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br></div></div></div>
 <div id="tab-dashboard" class="tabPanel"><div class="card"><div id="health">ဆာဗာ စစ်နေပါတယ်…</div><div class="small">ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video ပဲ တင်ပါ။ Zoom / blur / crop က မူပိုင်ခွင့်ကို တရားဝင်မဖြစ်စေပါ။</div></div>
 <div class="card"><h2>၁။ Project</h2>
 <button id="newBtn">＋ Project အသစ်</button>
@@ -1259,48 +1294,13 @@ body{padding-bottom:76px}
 <button id="ttsBtn">🔊 အသံ ထုတ်ပါ</button>
 <button id="phoneTtsBtn">📱 ဖုန်းကနေ အသံထုတ် (Thiha/Nilar)</button><div id="phoneTtsText" class="small">ဖုန်းကနေ တိုက်ရိုက် Edge အသံထုတ်မယ် (server ထိန်းတာ မထိဘူး) — Microsoft Edge browser လိုတယ်။</div>
 <div id="ttsText" class="small"></div><audio id="narrAudio" controls style="width:100%;display:none"></audio><label>အသံ အမြန်နှုန်း: <select id="narrSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label></div></div>
-<div id="tab-tools" class="tabPanel" style="display:none"><div class="card"><h2>🛠 Tools</h2>
-
-<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-chunks">အပိုင်းခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
-<div id="grp-size" class="toolpanel"><label>အရွယ်အစား: <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select></label><br></div>
-<div id="grp-text" class="toolpanel"><label>စာသား: <input id="ovTextInp" type="text" placeholder="ထည့်မယ့် စာသား" style="width:220px"></label>
-<label>နေရာ: <select id="ovPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option><option value="center">အလယ်</option></select></label>
-<label>အစ (စက္ကန့်): <input id="ovStartInp" type="number" min="0" step="0.5" value="0" style="width:70px"></label>
-<label>အဆုံး (စက္ကန့်): <input id="ovEndInp" type="number" min="0" step="0.5" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label>
-<label>အရွယ်: <select id="ovSizeSel"><option value="18">18</option><option value="24">24</option><option value="32" selected>32</option><option value="48">48</option></select></label>
-<label>အရောင်: <select id="ovColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option><option value="#FF0000">အနီ</option></select></label><br></div>
-<div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label><br></div>
-<div id="grp-split" class="toolpanel"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
-<div id="grp-chunks" class="toolpanel"><label>အပိုင်း အရှည်: <select id="chunkMinSel"><option value="5" selected>5 မိနစ်</option><option value="10">10 မိနစ်</option><option value="15">15 မိနစ်</option><option value="20">20 မိနစ်</option><option value="custom">ကိုယ်ကြိုက်…</option></select></label> <label id="chunkCustomBox" style="display:none">မိနစ်: <input id="chunkMinInp" type="number" min="1" max="60" value="30" style="width:70px"></label> <button id="chunkSplitBtn">✂ အပိုင်းခွဲပါ</button> <span id="chunkText" class="small"></span><div id="chunkList"></div><br></div>
-<div id="grp-blur" class="toolpanel"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option></select>
-<label>Blur အပြင်း: <select id="blurStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
-<label>Blur နေရာ: <select id="blurPosSel"><option value="subtitle">စာတန်းနေရာ</option><option value="top">အပေါ်</option><option value="bottom">အောက်</option><option value="left">ဘယ်</option><option value="right">ညာ</option><option value="centre">အလယ်</option><option value="full">အပြည့်</option><option value="custom">ကိုယ်တိုင်ရွေး</option></select></label><br>
-<div id="blurCustomBox" style="display:none"><label>Blur X <input id="blurXInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> Y <input id="blurYInp" type="number" min="0" max="1" step="0.05" value="0.60" style="width:60px"> အကျယ် <input id="blurWInp" type="number" min="0" max="1" step="0.05" value="1" style="width:60px"> အမြင့် <input id="blurHInp" type="number" min="0" max="1" step="0.05" value="0.40" style="width:60px"></label> <span class="small">(0–1, ဗီဒီယိုအချိုးအလိုက်)</span></div>
-<label>Blur အချိန် (စက္ကန့်): အစ <input id="blurStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="blurEndInp" type="number" min="-1" step="1" value="-1" style="width:70px"> <span class="small">(-1 = အဆုံးထိ)</span></label>
-<label><input type="checkbox" id="blur2Chk"> Blur ၂ (အပေါ်ပိုင်း)</label><br></div>
-<div id="grp-zoom" class="toolpanel"><label><input type="checkbox" id="zoomChk" checked> Zoom (ရွေးထားတဲ့ စက္ကန့်တိုင်း)</label>
-<label>Zoom အပြင်း: <select id="zoomStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
-<label>Zoom အကြိမ် (စက္ကန့်): <select id="zoomIntSel"><option value="4" selected>4</option><option value="5">5</option><option value="10">10</option></select></label><br></div>
-<div id="grp-rotate" class="toolpanel"><label>လှည့်: <select id="rotSel"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
-<label><input type="checkbox" id="mirrorChk"> မှန်ကြည့် (Mirror)</label><br></div>
-<div id="grp-subs" class="toolpanel"><label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
-<label>စာတန်း အရောင်: <select id="subColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option></select></label>
-<label>စာတန်း နေရာ: <select id="subPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option></select></label><br></div>
-<div id="grp-quality" class="toolpanel"><label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
-<label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
-<label>Poster: <select id="posterSel"><option value="0" selected>မရှိ</option><option value="3">3 စက္ကန့်</option><option value="5">5 စက္ကန့်</option></select></label>
-<label><input type="checkbox" id="logoChk" checked> Logo ထည့်</label><br></div>
-<div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br>
-<label>အသံ ရွှေ့ (စက္ကန့်): <input id="narrDelayInp" type="number" min="-30" max="30" step="0.5" value="0" style="width:70px"> <span class="small">(+ = နောက်ကျ, − = စော)</span></label><br>
-<label>နောက်ခံအသံ (Music): <input id="musicFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg"></label> <button id="musicUpBtn">🎵 Music တင်ပါ</button> <span id="musicText" class="small"></span><br>
-<label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br></div></div></div>
 <div id="tab-videos" class="tabPanel" style="display:none"><div class="card"><h2>📹 Videos</h2>
 <div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><label style="display:block;margin:6px 0"><input type="checkbox" id="fastMuxChk" checked> ⚡ မြန်မြန် export (video ပြန်မရိုက်ဘူး, စာတန်း မကပ်ဘူး — စာတန်းက ဖွင့်/ပိတ်လို့ရတဲ့ track အဖြစ် ပါမယ်)</label><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
 <div id="expText" class="small"></div>
 <div id="dlBox"></div></div></div>
 <div id="tab-profile" class="tabPanel" style="display:none"><div class="card"><h2>👤 Profile</h2><div id="profileHealth" class="small">ဆာဗာ စစ်နေပါတယ်…</div><div id="modeNoteB" class="small"></div><div class="small">Sangbik website — video တွေကို ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div></div><div class="card" style="margin-top:12px"><h3>🔑 Gemini API Key</h3><div class="small">Key ကို ဒီဖုန်းထဲမှာပဲ သိမ်းမယ် — server ကို မပို့ဘူး၊ chat ကို မပို့ဘူး။ Google ကို ဖုန်းကနေ တိုက်ရိုက် ခေါ်မယ် (Studio99 လို)။ Key အပြည့်ကို AI Studio ကနေ ယူရမယ် — Studio99 ထဲမှာ •••• နောက်ဆုံး ၄ လုံးပဲ မြင်ရတယ်။</div><div class="small" style="margin-top:6px"><a href="https://aistudio.google.com/apikey" target="_blank">🔗 Key ယူရန် — AI Studio ဖွင့်ပါ</a></div><div id="phoneKeysList" style="margin-top:8px"></div><div style="display:flex;gap:6px;margin-top:8px"><input type="password" id="phoneKeyInput" placeholder="Gemini API key အသစ်" style="flex:1"><button id="phoneKeyEyeBtn">👁</button></div><div style="display:flex;gap:6px;margin-top:8px"><button id="phoneKeyAddBtn">+ Add</button><button id="phoneKeyTestBtn">Test all</button></div><div id="phoneKeysMsg" class="small"></div></div><div class="card" style="margin-top:12px"><h3>⚡ Groq API Key (မြန်)</h3><div class="small">Groq key ကို ဒီဖုန်းထဲမှာပဲ သိမ်းမယ် — server ကို မပို့ဘူး။ Key ကို console.groq.com ကနေ ယူရမယ်။ Browser က Groq ကို တိုက်ရိုက် ခေါ်လို့ မရရင် Test က ✗ ပြမယ်၊ အဲဒါဆို server နည်းပဲ သုံးပါ။</div><div class="small" style="margin-top:6px"><a href="https://console.groq.com/keys" target="_blank">🔗 Key ယူရန် — Groq Console ဖွင့်ပါ</a></div><div id="groqKeysList" style="margin-top:8px"></div><div style="display:flex;gap:6px;margin-top:8px"><input type="password" id="groqKeyInput" placeholder="Groq API key အသစ်" style="flex:1"><button id="groqKeyEyeBtn">👁</button></div><div style="display:flex;gap:6px;margin-top:8px"><button id="groqKeyAddBtn">+ Add</button><button id="groqKeyTestBtn">Test all</button></div><div id="groqKeysMsg" class="small"></div></div><div class="card" style="margin-top:12px"><h3>🌐 ဖုန်းကနေ ဘာသာပြန်တာ</h3><div style="display:flex;gap:6px;margin-top:8px"><select id="phoneEngineSel" style="flex:1"><option value="gemini">Gemini (မှန်တယ်)</option><option value="groq">Groq (မြန်တယ်)</option></select></div><div class="small">Gemini = မှန်တယ်၊ နှေးတယ်။ Groq = မြန်တယ်၊ စကားလုံး ခပ်တုံးတုံး ဖြစ်နိုင်တယ်။ ရွေးထားတဲ့ engine ရဲ့ key မရှိရင် ကျန်တဲ့ engine ကို သုံးမယ်၊ နှစ်ခုလုံး မရှိရင် server နဲ့ ပြန်မယ်။</div></div></div>
 <div class="card"><div id="msg"></div></div>
-<div id="tabBar"><button id="tabbtn-dashboard" class="tabbtn active" onclick="showTab('dashboard')">Dashboard</button><button id="tabbtn-recap" class="tabbtn" onclick="showTab('recap')">Recap</button><button id="tabbtn-tools" class="tabbtn" onclick="showTab('tools')">Tools</button><button id="tabbtn-videos" class="tabbtn" onclick="showTab('videos')">Videos</button><button id="tabbtn-profile" class="tabbtn" onclick="showTab('profile')">Profile</button></div>
+<div id="tabBar"><button id="tabbtn-dashboard" class="tabbtn active" onclick="showTab('dashboard')">Dashboard</button><button id="tabbtn-recap" class="tabbtn" onclick="showTab('recap')">Recap</button><button id="tabbtn-tools" class="tabbtn" onclick="showTab('videos')">Tools</button><button id="tabbtn-videos" class="tabbtn" onclick="showTab('videos')">Videos</button><button id="tabbtn-profile" class="tabbtn" onclick="showTab('profile')">Profile</button></div>
 <script>
 var pid = localStorage.getItem('sangbik-pid') || '';
 var duration = 0;
@@ -1559,7 +1559,7 @@ function phoneNeedsTranslation(l){
 function phoneBatchPrompt(texts, sourceLang){
   var numbered = texts.map(function(t, i){ return (i + 1) + '. ' + t; }).join('\\n');
   var fromPart = (sourceLang && sourceLang !== 'auto') ? ('from ' + (sourceLang === 'zh' ? 'Chinese' : sourceLang) + ' ') : '';
-  return 'Translate each numbered line ' + fromPart + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout.\\n' + numbered;
+  return 'Translate each numbered line ' + fromPart + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Negative and emphatic constructions must sound like spoken Burmese, never like a textbook. In particular, 难 + 不 or 没 + verb means the speaker CANNOT HELP doing it: when the tone is exclamatory or joking, prefer a Burmese rhetorical question. Example: 很难听不见啊, said of a loud obvious sound, becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, never the flat literal မကြားဘဲ နေဖို့ ခက်တယ်. In a plain non-rhetorical case, မနေနိုင်ဘူး or မရဘူး works. Likewise 不得不 becomes မဖြစ်မနေ, and a rhetorical negative keeps its punch instead of turning into a flat statement. If a rendering sounds like word-for-word Burmese, rewrite it the way people actually speak in a drama. Burmese dubbing style: write the way actors speak in a drama, not the way textbooks write. Match the particle to the tone: a soft exclamation ends with လေ, an obvious fact with ပေါ့, a plain statement with တယ်, a question with လား, a rhetorical boast with …ဘဲ နေပါ့မလား. Keep pronouns consistent with the relationship (elders and superiors get respectful forms, friends get plain forms) and keep the same form for the same person throughout. Burmese is verb-final: never mirror Chinese word order. Never translate character by character: 难 is not always ခက်တယ်, 不 is not always မ, and a Chinese question is not always a Burmese question — render the INTENTION and the TONE. If a line read aloud sounds like a textbook, rewrite it until it sounds like someone talking in the scene. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout.\\n' + numbered;
 }
 function phoneParseBatch(text, count){
   if(!text || !text.trim()) throw new Error('Empty batch translation response.');
@@ -1579,20 +1579,38 @@ var PHONE_GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-f
 async function geminiPhoneTranslateBatch(texts, sourceLang){
   var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။');
   var prompt = phoneBatchPrompt(texts, sourceLang);
-  var lastErr = null;
-  for(var i = 0; i < keys.length; i++){
-    for(var m = 0; m < PHONE_GEMINI_MODELS.length; m++){
-      try {
-        var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + keys[i], { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
-        if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
-        var jj = await r.json();
-        var txt = '';
-        if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
-        return phoneParseBatch(txt, texts.length);
-      } catch(e){ lastErr = e; }
+  var frames = [];
+  try {
+    var sf = window.__sangbikSceneFrames || [];
+    for(var fi = 0; fi < sf.length && fi < 8; fi++){
+      var d = (sf[fi] && sf[fi].data) ? sf[fi].data : '';
+      var b64 = (d.indexOf(',') >= 0) ? d.split(',')[1] : d;
+      if(b64) frames.push(b64);
     }
+  } catch(e){ frames = []; }
+  async function tryChain(parts){
+    var lastErr = null;
+    for(var i = 0; i < keys.length; i++){
+      for(var m = 0; m < PHONE_GEMINI_MODELS.length; m++){
+        try {
+          var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + keys[i], { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+          if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
+          var jj = await r.json();
+          var txt = '';
+          if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
+          return phoneParseBatch(txt, texts.length);
+        } catch(e){ lastErr = e; }
+      }
+    }
+    throw lastErr || new Error('Phone translation failed.');
   }
-  throw lastErr || new Error('Phone translation failed.');
+  if(frames.length){
+    var sceneNote = 'The following images are scene frames from the video, in time order, matching the order of the numbered lines below. Use them to judge who is speaking, the tone, and what is happening, so each translation fits the scene — a boast stays a boast, a joke stays a joke. Do not describe the images; only translate the lines.';
+    var parts = [{ text: sceneNote }, { text: prompt }];
+    frames.forEach(function(b){ parts.push({ inlineData: { mimeType: 'image/jpeg', data: b } }); });
+    try { return await tryChain(parts); } catch(e){ }
+  }
+  return await tryChain([{ text: prompt }]);
 }
 async function phoneTranslateEmptyLines(){
   var idxs = [];
@@ -1600,7 +1618,8 @@ async function phoneTranslateEmptyLines(){
   if(!idxs.length) return false;
   var tb = el('translateBtn'); if(tb) tb.disabled = true;
   var eng = phoneTranslateEngine() || 'gemini';
-  msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + idxs.length + ' လိုင်း)');
+  var scn = (eng === 'gemini' && window.__sangbikSceneFrames) ? window.__sangbikSceneFrames.length : 0;
+  msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + idxs.length + ' လိုင်း' + (scn ? ' + scene ပုံ ' + scn + ' ပုံ' : '') + ')');
   try {
     var origs = idxs.map(function(i){ return lines[i].original; });
     var trs = (eng === 'groq') ? await groqPhoneTranslateBatch(origs, sourceLangChoice()) : await geminiPhoneTranslateBatch(origs, sourceLangChoice());
@@ -1724,6 +1743,7 @@ el('phoneAudioBtn').onclick = async function(){
     msg('Audio ရပါပြီ (' + Math.round(aac.size / 1048576 * 10) / 10 + ' MB) — ' + (sceneFrames.length ? ('scene ပုံ ' + sceneFrames.length + ' ပုံနဲ့အတူ ') : 'scene ပုံ မရလို့ audio ပဲ ') + 'server ကို ပို့နေပါတယ်…');
     var fd = new FormData();
     fd.append('audio', aac, f.name.replace(/[^A-Za-z0-9._-]/g, '_') + '.aac');
+    try { window.__sangbikSceneFrames = sceneFrames; } catch(e){}
     fd.append('framesJson', framesJson);
     fd.append('transcript', transcriptChoice());
     fd.append('sourceLang', sourceLangChoice());
@@ -1759,6 +1779,7 @@ function showTab(which){
     var b = el('tabbtn-' + t); if(b) b.classList.toggle('active', t === which);
   });
   var tp = el('topPreview'); if (tp) tp.style.display = (which === 'videos') ? '' : 'none';
+  var tu = el('toolsUnderVideo'); if (tu) tu.style.display = (which === 'videos') ? '' : 'none';
   if (which === 'profile') { renderPhoneKeys(); renderGroqKeys(); }
   window.scrollTo(0, 0);
 }
@@ -2112,6 +2133,7 @@ function buildExportBody(){
 function doExport(){
   var body = buildExportBody();
   body.fastMux = !!el('fastMuxChk').checked;
+  if(body.fastMux) msg('⚡ Fast export — video ပြန်မရိုက်လို့ Blur, Zoom, လှည့်/မှန်, Poster, Logo, စာသား, အချိုး စတဲ့ visual tools တွေ မပါဘူး။ Trim + စာတန်း track + အသံကတော့ ရတယ်။ Tools တွေ ပါချင်ရင် ⚡ အမှန်ခြစ် ဖြုတ်ပြီး Export ပြန်နှိပ်ပါ။');
   el('expText').textContent = body.fastMux ? 'Fast export လုပ်နေပါတယ် — စက္ကန့်ပိုင်းပဲ ကြာမယ်…' : 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 }
@@ -3021,11 +3043,11 @@ app.post('/api/projects/:id/export', async (req, res) => {
         filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else if (blurMode === 'custom') {
         if (blur2Enabled && blur1Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br2];[d][br2]overlay=x='iw*${blur2X}':y='ih*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br2];[d][br2]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else if (blur2Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='iw*${blur2X}':y='ih*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='iw*${blurX}':y='ih*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         }
       } else {
         filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
