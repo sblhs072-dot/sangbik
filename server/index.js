@@ -727,6 +727,7 @@ async function translateTextToBurmese(text) {
 // Key comes from process.env.GEMINI_API_KEY ONLY. It is never logged, never
 // put in frontend code, and never echoed in any status message.
 const GEMINI_TRANSCRIBE_MODEL = process.env.GEMINI_TRANSCRIBE_MODEL || 'gemini-3.8-flash';
+const GEMINI_MODEL_CHAIN = [...new Set([GEMINI_TRANSCRIBE_MODEL, 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'])];
 function geminiTimestampToSec(t) {
   const m = /^(\d+):(\d{1,2})(?:[.,](\d{1,3}))?$/.exec((t || '').trim());
   if (!m) return null;
@@ -771,12 +772,16 @@ async function geminiTranscribeSegment(wavPath, segDur, lang, frames, summary) {
     geminiParts.unshift({ text: 'Scene images from this clip are attached. Use them to disambiguate homophones: choose the word that matches what is visible (for example, packing vs ramming, a forest vs a scale).' });
     for (const fb of segFrames) geminiParts.push({ inlineData: { mimeType: 'image/jpeg', data: fb } });
   }
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(300000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: geminiParts }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } }) });
-  if (!res.ok) {
+  let res = null; let lastModelErr = null;
+  for (const model of GEMINI_MODEL_CHAIN) {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(300000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: geminiParts }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } }) });
+    if (r.ok) { res = r; break; }
+    if (r.status === 429 || r.status >= 500) { lastModelErr = new Error('Gemini transcription failed (HTTP ' + r.status + ')'); continue; }
     let detail = '';
-    try { const j = await res.json(); detail = j.error?.message || j.error?.status || ''; } catch {}
-    throw new Error('Gemini transcription failed (HTTP ' + res.status + (detail ? ': ' + detail : '') + ')');
+    try { const j = await r.json(); detail = j.error?.message || j.error?.status || ''; } catch {}
+    throw new Error('Gemini transcription failed (HTTP ' + r.status + (detail ? ': ' + detail : '') + ')');
   }
+  if (!res) throw lastModelErr || new Error('Gemini transcription failed on all models');
   const j = await res.json();
   const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('');
   if (!text.trim()) throw new Error('Gemini returned no transcript text');
@@ -1001,8 +1006,14 @@ async function geminiSceneRead(frames) {
     attached++;
   }
   if (!attached) throw new Error('No scene frames to read');
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 2048 } }) });
-  if (!res.ok) throw new Error('Gemini scene read failed (HTTP ' + res.status + ')');
+  let res = null; let lastModelErr = null;
+  for (const model of GEMINI_MODEL_CHAIN) {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 2048 } }) });
+    if (r.ok) { res = r; break; }
+    if (r.status === 429 || r.status >= 500) { lastModelErr = new Error('Gemini scene read failed (HTTP ' + r.status + ')'); continue; }
+    throw new Error('Gemini scene read failed (HTTP ' + r.status + ')');
+  }
+  if (!res) throw lastModelErr || new Error('Gemini scene read failed on all models');
   const j = await res.json();
   const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
   if (!text) throw new Error('Gemini scene read returned no text');
@@ -1024,8 +1035,14 @@ async function geminiSceneCorrect(lines, frames, sourceLangName) {
   if (!attached) return { lines: lines.map(l => l.original), changed: 0 };
   const numbered = lines.map((l, i) => (i + 1) + '. [' + l.start + '-' + l.end + '] ' + l.original).join('\n');
   parts.push({ text: 'Transcript:\n' + numbered });
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
-  if (!res.ok) throw new Error('Gemini scene check failed (HTTP ' + res.status + ')');
+  let res = null; let lastModelErr = null;
+  for (const model of GEMINI_MODEL_CHAIN) {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+    if (r.ok) { res = r; break; }
+    if (r.status === 429 || r.status >= 500) { lastModelErr = new Error('Gemini scene check failed (HTTP ' + r.status + ')'); continue; }
+    throw new Error('Gemini scene check failed (HTTP ' + r.status + ')');
+  }
+  if (!res) throw lastModelErr || new Error('Gemini scene check failed on all models');
   const j = await res.json();
   const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('');
   if (!text.trim()) throw new Error('Gemini scene check returned no text');
@@ -1290,7 +1307,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey25</h1>
+<h1>🎬 Sangbik — Website · phonekey26</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
