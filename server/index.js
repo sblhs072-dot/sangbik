@@ -320,6 +320,29 @@ async function probe(file) {
   const a = j.streams.find(s => s.codec_type === 'audio') || {};
   return { duration: parseFloat(j.format.duration || 0), size: parseInt(j.format.size || 0, 10), format: j.format.format_name, videoCodec: v.codec_name, audioCodec: a.codec_name, width: v.width, height: v.height, resolution: v.width && v.height ? `${v.width}x${v.height}` : null };
 }
+// ADTS sample-rate table (index -> Hz), same order as the phone's adtsPack.
+const ADTS_RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+// Rewrite the sampling-frequency index in every ADTS frame header of buf.
+// Returns null when buf is not a clean ADTS stream (bad syncword / bad length).
+// Frame lengths never depend on the rate, so only the 4 index bits change.
+function adtsRewriteRate(buf, newIdx) {
+  if (!buf || !buf.length) return null;
+  const out = Buffer.from(buf);
+  let off = 0;
+  while (off + 7 <= out.length) {
+    if (out[off] !== 0xFF || (out[off + 1] & 0xF0) !== 0xF0) return null;
+    const fl = ((out[off + 3] & 0x03) << 11) | (out[off + 4] << 3) | ((out[off + 5] & 0xE0) >> 5);
+    if (fl < 7 || off + fl > out.length) return null;
+    out[off + 2] = (out[off + 2] & 0xC3) | (newIdx << 2);
+    off += fl;
+  }
+  if (off !== out.length) return null;
+  return out;
+}
+async function adtsDecodeOk(file) {
+  try { await run('ffmpeg', ['-v', 'error', '-i', file, '-t', '10', '-f', 'null', '-'], { timeout: 60000 }); return true; }
+  catch { return false; }
+}
 function escapeSrt(s) { return s.replace(/\r?\n/g, ' ').trim(); }
 function fmtSrt(t) { const ms = Math.floor(t * 1000); const h = String(Math.floor(ms / 3600000)).padStart(2, '0'); const m = String(Math.floor(ms / 60000) % 60).padStart(2, '0'); const s = String(Math.floor(ms / 1000) % 60).padStart(2, '0'); const r = String(ms % 1000).padStart(3, '0'); return `${h}:${m}:${s},${r}`; }
 function scriptToSegments(script, totalDuration) {
@@ -1200,7 +1223,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey4</h1>
+<h1>🎬 Sangbik — Website · phonekey5</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div></div>
 <div id="tab-dashboard" class="tabPanel"><div class="card"><div id="health">ဆာဗာ စစ်နေပါတယ်…</div><div class="small">ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video ပဲ တင်ပါ။ Zoom / blur / crop က မူပိုင်ခွင့်ကို တရားဝင်မဖြစ်စေပါ။</div></div>
 <div class="card"><h2>၁။ Project</h2>
@@ -2178,12 +2201,40 @@ app.post('/api/projects/:id/audio', audioUpload.single('audio'), async (req, res
     const p = projects[req.params.id];
     if (!p) { if (req.file) fs.unlinkSync(req.file.path); return res.status(404).json({ error: 'Project not found' }); }
     if (!req.file) return res.status(400).json({ error: 'No audio uploaded' });
-    const meta = await probe(req.file.path);
+    let meta = await probe(req.file.path);
     try {
       await run('ffmpeg', ['-v', 'error', '-i', req.file.path, '-t', '10', '-f', 'null', '-'], { timeout: 60000 });
     } catch (de) {
-      try { fs.unlinkSync(req.file.path); } catch {}
-      return res.status(400).json({ error: `Audio decode မရပါ — ဒီ audio file ကို server က ဖတ်မရဘူး: ${de.message}` });
+      // The phone's ADTS headers can claim the wrong sample rate for this
+      // encoder (HE-AAC tracks disagree on core vs output rate, and a wrong
+      // rate makes ffmpeg fail with a scalefactor-bands error even though the
+      // frames themselves are fine). Try the rate doubled, then halved, and
+      // keep the first version that decodes, in place, so transcription later
+      // uses the fixed file.
+      let fixed = false;
+      try {
+        const buf = fs.readFileSync(req.file.path);
+        const firstIdx = buf.length >= 3 ? ((buf[2] >> 2) & 0x0F) : -1;
+        const claimed = ADTS_RATES[firstIdx];
+        const candIdx = [];
+        if (claimed) {
+          for (const mult of [2, 0.5]) {
+            const ci = ADTS_RATES.indexOf(claimed * mult);
+            if (ci >= 0 && ci !== firstIdx && !candIdx.includes(ci)) candIdx.push(ci);
+          }
+        }
+        for (const ci of candIdx) {
+          const rw = adtsRewriteRate(buf, ci);
+          if (!rw) break;
+          fs.writeFileSync(req.file.path, rw);
+          if (await adtsDecodeOk(req.file.path)) { fixed = true; break; }
+        }
+      } catch {}
+      if (!fixed) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ error: `Audio decode မရပါ — ဒီ audio file ကို server က ဖတ်မရဘူး: ${de.message}` });
+      }
+      try { meta = await probe(req.file.path); } catch {}
     }
     p.file = { path: req.file.path, name: req.file.originalname, storedName: path.basename(req.file.path), size: req.file.size };
     let sceneFrames = [];
