@@ -1223,7 +1223,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey11</h1>
+<h1>🎬 Sangbik — Website · phonekey12</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1310,7 +1310,7 @@ function msg(t){ el('msg').textContent = t; }
 function api(path, method, body){
   var o = { method: method || 'GET', headers: {} };
   if (body !== undefined) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(body); }
-  return fetch('/api' + path, o).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); });
+  return fetch('/api' + path, o).then(function(r){ return r.text().then(function(t){ var j = null; try { j = JSON.parse(t); } catch(e){ throw new Error('Server တုံ့ပြန်မှု မမှန်ပါ — server နိုးနေတုန်း (free instance spin-down) ဖြစ်နိုင်တယ်, ခဏစောင့်ပြီး ပြန်နှိပ်ပါ'); } if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); });
 }
 function setPid(id){ pid = id; localStorage.setItem('sangbik-pid', id); el('pidText').textContent = 'Project: ' + id; }
 function health(){ api('/health').then(function(h){ var t = 'ဆာဗာ အဆင်သင့်ဖြစ်ပါပြီ — Whisper ' + (h.whisperOfflineConfigured ? 'ready' : 'NOT installed') + ' + Edge TTS ' + (h.edgeTtsConfigured ? 'ready' : 'NOT installed') + ' | Max ' + h.maxFileMb + ' MB'; el('health').textContent = t; var ph = el('profileHealth'); if(ph) ph.textContent = t; }).catch(function(e){ var m = 'ဆာဗာ မနိုးသေးပါ — ခဏစောင့်ပြီး ပြန်ဖွင့်ပါ (' + e.message + ')'; el('health').textContent = m; var ph2 = el('profileHealth'); if(ph2) ph2.textContent = m; }); }
@@ -1857,7 +1857,7 @@ function pollJob(){
     el('jobText').textContent = 'Auto job: ' + j.status + ' — ' + (j.stage||'') + ' — ' + (j.percent||0) + '% (' + (j.completedSegments||0) + '/' + (j.totalSegments||0) + ') ' + (j.message||'');
     if(j.status === 'running' || j.status === 'queued'){ jobPolling = false; setTimeout(pollJob, 3000); }
     else { jobPolling = false; if(!linesDirty) loadLines(); }
-  }).catch(function(e){ jobPolling = false; el('jobText').textContent = 'Job မရပါ: ' + e.message; });
+  }).catch(function(e){ jobPolling = false; var m = /Project not found/.test(e.message) ? 'Project မရှိတော့ပါ (deploy/restart ကြောင့် ပျက်သွားတာ) — Dashboard မှာ Project အသစ် ဖန်တီးပါ။' : e.message; el('jobText').textContent = 'Job မရပါ: ' + m; });
 }
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function loadLines(){
@@ -1871,7 +1871,7 @@ function loadLines(){
     renderTimeline();
     msg(lines.length + ' လိုင်း ဖွင့်ပါပြီ။' + (pendingExportAfterJob ? ' လိုင်းတွေ စစ်ပြီး Export ကို နောက်တစ်ခါ နှိပ်ပါ။' : ''));
     if(pendingExportAfterJob) pendingExportAfterJob = false;
-  }).catch(function(e){ msg('လိုင်းများ မရပါ: ' + e.message); });
+  }).catch(function(e){ var m = /Project not found/.test(e.message) ? 'Project မရှိတော့ပါ (deploy/restart ကြောင့် ပျက်သွားတာ) — Dashboard မှာ Project အသစ် ဖန်တီးပါ။' : e.message; msg('လိုင်းများ မရပါ: ' + m); });
 }
 function fmtMmSs(s){ var r = Math.max(0, Math.round((s || 0) * 10) / 10); var m = Math.floor(r / 60); var sec = r - m * 60; var si = Math.floor(sec); var frac = Math.round((sec - si) * 10); if(frac === 10){ si += 1; frac = 0; } return m + ':' + String(si).padStart(2, '0') + (frac ? '.' + frac : ''); }
 function parseMmSs(s){
@@ -2208,8 +2208,8 @@ app.post('/api/upload', upload.single('video'), async (req, res) => {
   try {
     const projectId = req.body.projectId;
     const p = projects[projectId];
-    if (!p) { fs.unlinkSync(req.file.path); return res.status(404).json({ error: 'Project not found' }); }
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!p) { fs.unlinkSync(req.file.path); return res.status(404).json({ error: 'Project not found' }); }
     const meta = await probe(req.file.path); // throws if not a real media file
     p.file = { path: req.file.path, name: req.file.originalname, storedName: path.basename(req.file.path), size: req.file.size };
     p.metadata = meta; p.status = 'uploaded'; p.audioOnly = false; saveProjects(projects); enqueueAutoJob(p.id);
@@ -2725,7 +2725,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   // burned in. Timed narration alignment is NOT applied (continuous narration).
   // Split ranges are rejected here (they need re-encode) — use full export.
   if (o.fastMux === true) {
-    if (Array.isArray(o.removeRanges) && o.removeRanges.length) return res.status(400).json({ error: 'Fast export does not support split ranges — use full export.' });
+    if (Array.isArray(o.removeRanges) && o.removeRanges.length) return res.status(400).json({ error: 'Fast export မှာ ခွဲတာ မရပါ — ⚡ အမှန်ခြစ် ဖြုတ်ပြီး Full export လုပ်ပါ။' });
     const fStart = Math.max(0, parseFloat(o.trimStart || 0) || 0);
     const fEndRaw = parseFloat(o.trimEnd);
     const fEnd = Number.isFinite(fEndRaw) && fEndRaw > fStart ? fEndRaw : (p.metadata?.duration || 0);
@@ -3377,16 +3377,16 @@ app.get('/api/projects/:id/export-status', (req, res) => { const p = projects[re
 // re-encode, no quality loss; cuts land on the nearest keyframe, so a part
 // may be a few seconds longer or shorter than N minutes).
 app.post('/api/projects/:id/split-video', async (req, res) => {
-  const p = projects[req.params.id]; if (!p || !p.file || !fs.existsSync(p.file.path)) return res.status(400).json({ error: 'Project or video not found — upload a video first.' });
+  const p = projects[req.params.id]; if (!p || !p.file || !fs.existsSync(p.file.path)) return res.status(400).json({ error: 'Project သို့မဟုတ် video မရှိပါ — video အရင် တင်ပါ။' });
   const minutes = parseFloat(req.body?.minutes);
-  if (!isFinite(minutes) || minutes < 1 || minutes > 60) return res.status(400).json({ error: 'Minutes must be between 1 and 60.' });
+  if (!isFinite(minutes) || minutes < 1 || minutes > 60) return res.status(400).json({ error: 'မိနစ် 1 ကနေ 60 အတွင်း ထည့်ပါ။' });
   try {
     const meta = await probe(p.file.path); const duration = meta.duration || 0;
-    if (!duration) return res.status(400).json({ error: 'Video duration unknown.' });
+    if (!duration) return res.status(400).json({ error: 'Video အချိန် မသိပါ — video ပြန်တင်ကြည့်ပါ။' });
     const segSec = Math.round(minutes * 60);
     const nParts = Math.ceil(duration / segSec);
-    if (nParts < 2) return res.status(400).json({ error: 'Video is shorter than one part — no split needed.' });
-    if (nParts > 48) return res.status(400).json({ error: `That makes ${nParts} parts (max 48) — pick a longer part length.` });
+    if (nParts < 2) return res.status(400).json({ error: 'Video က တစ်ပိုင်းစာထက် တိုနေလို့ ခွဲစရာ မလိုပါ။' });
+    if (nParts > 48) return res.status(400).json({ error: `အပိုင်း ${nParts} ခု ဖြစ်နေလို့ (အများဆုံး 48 ခု) — ပိုရှည်တဲ့ မိနစ် ရွေးပါ။` });
     const ext = path.extname(p.file.path) || '.mp4';
     const base = `split-${p.id}`;
     for (const f of fs.readdirSync(OUT_DIR)) { if (f.startsWith(base)) { try { fs.unlinkSync(path.join(OUT_DIR, f)); } catch {} } }
@@ -3399,15 +3399,15 @@ app.post('/api/projects/:id/split-video', async (req, res) => {
       const m = await probe(f);
       parts.push({ index: i, file: f, duration: m.duration || 0, url: `/api/projects/${p.id}/download/chunk/${i}` });
     }
-    if (!parts.length) return res.status(500).json({ error: 'Split produced no parts.' });
+    if (!parts.length) return res.status(500).json({ error: 'ခွဲတာ အပိုင်း မရပါ — video ပြန်တင်ကြည့်ပါ။' });
     p.splits = parts; saveProjects(projects);
     res.json({ parts: parts.map(({ index, duration, url }) => ({ index, duration, url })) });
-  } catch (e) { res.status(500).json({ error: `Split failed: ${e.message}` }); }
+  } catch (e) { res.status(500).json({ error: `ခွဲတာ မအောင်ပါ: ${e.message}` }); }
 });
 app.get('/api/projects/:id/download/chunk/:index', (req, res) => {
   const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
   const part = (p.splits || []).find(s => s.index === parseInt(req.params.index, 10));
-  if (!part || !fs.existsSync(part.file)) return res.status(404).json({ error: 'Split part not found — run the split again.' });
+  if (!part || !fs.existsSync(part.file)) return res.status(404).json({ error: 'အပိုင်း မတွေ့ပါ — ခွဲတာကို ပြန်လုပ်ပါ။' });
   res.download(part.file, `part${part.index + 1}${path.extname(part.file) || '.mp4'}`);
 });
 app.get('/api/projects/:id/download/:kind', (req, res) => {
