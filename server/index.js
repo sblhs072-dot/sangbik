@@ -1223,7 +1223,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey13</h1>
+<h1>🎬 Sangbik — Website · phonekey14</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1616,7 +1616,7 @@ async function phoneTranslateEmptyLines(){
   var idxs = [];
   lines.forEach(function(l, i){ if(phoneNeedsTranslation(l)) idxs.push(i); });
   if(!idxs.length){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ/မပြင်ရသေးတဲ့ လိုင်း မရှိဘူး။'); return false; }
-  var tb = el('translateBtn'); if(tb) tb.disabled = true;
+  var tb = el('translateBtn'); if(tb) tb.disabled = true; var tbText = tb ? tb.textContent : ''; if(tb) tb.textContent = 'ဘာသာပြန်နေပါတယ်…';
   var eng = phoneTranslateEngine() || 'gemini';
   var scn = (eng === 'gemini' && window.__sangbikSceneFrames) ? window.__sangbikSceneFrames.length : 0;
   msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်နေပါတယ်… (' + idxs.length + ' လိုင်း' + (scn ? ' + scene ပုံ ' + scn + ' ပုံ' : '') + ')');
@@ -1626,13 +1626,22 @@ async function phoneTranslateEmptyLines(){
     idxs.forEach(function(li, k){ lines[li].burmese = trs[k]; });
     linesDirty = true;
     renderLines(); renderTimeline();
-    await api('/projects/' + pid + '/translation', 'PUT', {lines: lines});
-    linesDirty = false;
-    if(tb) tb.disabled = false;
-    msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်ပြီး သိမ်းပါပြီ: ' + idxs.length + ' လိုင်း — စစ်ကြည့်ပါ။');
+    var rescued = false;
+    try {
+      await api('/projects/' + pid + '/translation', 'PUT', {lines: lines});
+      linesDirty = false;
+    } catch(putErr){
+      if(/Project not found/.test(putErr.message) && lines.length){
+        try { await rescueLinesToNewProject(); linesDirty = false; rescued = true; }
+        catch(rescueErr){ linesDirty = true; }
+      } else { throw putErr; }
+    }
+    if(tb) tb.disabled = false; if(tb) tb.textContent = tbText;
+    if(linesDirty){ msg('ဘာသာပြန်ပြီးပြီ၊ ဒါပေမယ့် သိမ်းမရပါ — သိမ်းပါကို နှိပ်ပြီး ပြန်သိမ်းပါ (Project အသစ်မှာ သိမ်းမယ်)။'); return true; }
+    msg('ဖုန်းကနေ ' + (eng === 'groq' ? 'Groq' : 'Gemini') + ' နဲ့ ဘာသာပြန်ပြီး ' + (rescued ? 'Project အသစ်မှာ ' : '') + 'သိမ်းပါပြီ: ' + idxs.length + ' လိုင်း — စစ်ကြည့်ပါ။');
     return true;
   } catch(e){
-    if(tb) tb.disabled = false;
+    if(tb) tb.disabled = false; if(tb) tb.textContent = tbText;
     phoneTranslateFailedOnce = true;
     msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + e.message + ' — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။');
     return false;
@@ -1910,6 +1919,12 @@ el('vid').addEventListener('timeupdate', function(){ var v = el('vid'); var dur 
 el('vid').addEventListener('loadedmetadata', renderTimeline);
 el('timelineStrip').onclick = function(ev){ var r = this.getBoundingClientRect(); var frac = (ev.clientX - r.left) / r.width; var v = el('vid'); var dur = v.duration || duration; if(dur && v.duration) v.currentTime = frac * dur; };
 el('loadBtn').onclick = loadLines;
+function rescueLinesToNewProject(){
+  return api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){
+    setPid(p.id);
+    return api('/projects/' + p.id + '/translation', 'PUT', {lines: lines}).then(function(){ return p; });
+  });
+}
 el('saveBtn').onclick = function(){
   var inputs = el('linesBox').querySelectorAll('input[data-idx]');
   inputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-idx'), 10); lines[idx].burmese = inp.value; });
@@ -1920,7 +1935,15 @@ el('saveBtn').onclick = function(){
   tinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-tidx'), 10); if(!tvals[idx]) tvals[idx] = {}; tvals[idx][inp.getAttribute('data-kind')] = parseMmSs(inp.value); });
   var badTimes = 0;
   Object.keys(tvals).forEach(function(k){ var idx = parseInt(k, 10); var tv = tvals[idx]; if(!lines[idx] || !isFinite(tv.start) || !isFinite(tv.end) || tv.end <= tv.start) { badTimes++; return; } lines[idx].start = tv.start; lines[idx].end = tv.end; });
-  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ linesDirty = false; if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; }), savedAt: Date.now() }); msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : '')); }).catch(function(e){ msg('သိမ်းမရပါ: ' + e.message); });
+  api('/projects/' + pid + '/translation', 'PUT', {lines: lines}).then(function(j){ linesDirty = false; if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; }), savedAt: Date.now() }); msg('သိမ်းပါပြီ: ' + (j.lines ? j.lines.length : lines.length) + ' လိုင်း' + (badTimes ? ' (အချိန် မမှန်တဲ့ ' + badTimes + ' လိုင်း အဟောင်းအတိုင်း ထားပါပြီ)' : ''));   }).catch(function(e){
+    if(/Project not found/.test(e.message) && lines.length){
+      rescueLinesToNewProject().then(function(){
+        linesDirty = false;
+        if(cachedFp && lines.length) writeLinesCache(cachedFp, { lines: lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese }; }), savedAt: Date.now() });
+        msg('Project အဟောင်း ပျက်သွားလို့ Project အသစ်မှာ သိမ်းပါပြီ: ' + lines.length + ' လိုင်း');
+      }).catch(function(){ msg('သိမ်းမရပါ: ' + e.message); });
+    } else { msg('သိမ်းမရပါ: ' + e.message); }
+  });
 };
 function syncEditorInputs(){
   var inputs = el('linesBox').querySelectorAll('input[data-idx]');
@@ -1995,16 +2018,18 @@ el('translateBtn').onclick = function(){
   lines.forEach(function(l){ if(l.original && l.original.trim() && phoneNeedsTranslation(l)) todo++; });
   if(!todo){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ ရှိတဲ့ လိုင်း မရှိဘူး။'); return; }
   el('translateBtn').disabled = true;
+  var tbText2 = el('translateBtn').textContent; el('translateBtn').textContent = 'ဘာသာပြန်နေပါတယ်…';
   msg('ဘာသာပြန်နေပါတယ်… (' + todo + ' လိုင်း)');
-  api('/projects/' + pid + '/translate-lines', 'POST', {lines: lines}).then(function(j){
-    el('translateBtn').disabled = false;
+  var doTranslate = function(){ return api('/projects/' + pid + '/translate-lines', 'POST', {lines: lines}); };
+  doTranslate().catch(function(firstErr){ if(/Project not found/.test(firstErr.message) && lines.length){ return rescueLinesToNewProject().then(function(){ return doTranslate(); }); } throw firstErr; }).then(function(j){
+    el('translateBtn').disabled = false; el('translateBtn').textContent = tbText2;
     var filled = 0;
     (j.lines || []).forEach(function(rl, i){ if(lines[i] && rl.burmese && phoneNeedsTranslation(lines[i])){ lines[i].burmese = rl.burmese; filled++; } });
     linesDirty = true;
     renderLines(); renderTimeline();
     msg('ဘာသာပြန်ပါပြီ: ' + filled + ' လိုင်း' + (j.path ? ' (' + j.path + ')' : '') + ' — စစ်ပြီး သိမ်းပါ။');
   }).catch(function(e){
-    el('translateBtn').disabled = false;
+    el('translateBtn').disabled = false; el('translateBtn').textContent = tbText2;
     msg('ဘာသာပြန်မရပါ: ' + e.message);
   });
 };
