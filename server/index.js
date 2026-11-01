@@ -404,10 +404,12 @@ function writeOverlayAss(project, overlays, W, H) {
   // Burmese text renders exactly like subtitles. One style per overlay carries
   // its size/colour/position; alignment centres the text horizontally.
   const styles = overlays.map((ov, i) => {
-    const align = ov.position === 'top' ? 8 : ov.position === 'center' ? 5 : 2;
+    const align = ov.position === 'top' ? 8 : ov.position === 'topleft' ? 7 : ov.position === 'center' ? 5 : 2;
+    const op = Number.isFinite(parseFloat(ov.opacity)) ? Math.max(0, Math.min(100, parseFloat(ov.opacity))) : 100;
+    const alpha = Math.max(0, Math.min(255, Math.round((1 - op / 100) * 255))).toString(16).padStart(2, '0').toUpperCase();
     const c = ov.color.replace('#', '');
     const bgr = c.slice(4, 6) + c.slice(2, 4) + c.slice(0, 2);
-    return `Style: Ov${i},Noto Sans Myanmar,${ov.size},&H00${bgr}&,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,${align},10,10,10,1`;
+    return `Style: Ov${i},Noto Sans Myanmar,${ov.size},&H${alpha}${bgr}&,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,${align},10,10,10,1`;
   }).join('\n');
   const events = overlays.map((ov, i) => `Dialogue: 0,${fmtAss(ov.start)},${fmtAss(ov.end)},Ov${i},,0,0,0,,${ov.text}`).join('\n');
   const body = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events}\n`;
@@ -1379,27 +1381,38 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey36</h1>
-<div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
+<h1>🎬 Sangbik — Website · phonekey38</h1>
+<div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
 <div id="toolBar"><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-chunks">အပိုင်းခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
 <div id="grp-size" class="toolpanel"><label>အရွယ်အစား: <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select></label><br></div>
-<div id="grp-text" class="toolpanel"><label>စာသား: <input id="ovTextInp" type="text" placeholder="ထည့်မယ့် စာသား" style="width:220px"></label>
-<label>နေရာ: <select id="ovPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option><option value="center">အလယ်</option></select></label>
-<label>အစ (စက္ကန့်): <input id="ovStartInp" type="number" min="0" step="0.5" value="0" style="width:70px"></label>
-<label>အဆုံး (စက္ကန့်): <input id="ovEndInp" type="number" min="0" step="0.5" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label>
-<label>အရွယ်: <select id="ovSizeSel"><option value="18">18</option><option value="24">24</option><option value="32" selected>32</option><option value="48">48</option></select></label>
-<label>အရောင်: <select id="ovColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option><option value="#FF0000">အနီ</option></select></label><br></div>
+<div id="grp-text" class="toolpanel"><div><b>Title Text (မြန်မာစာ)</b></div>
+<label>Title: <input id="titleTextInp" type="text" placeholder="Video Title" style="width:220px"></label>
+<label>Opacity: <input id="titleOpInp" type="range" min="0" max="100" value="100" style="width:120px"> <span id="titleOpTxt">100%</span></label>
+<label>Font Size: <input id="titleSizeInp" type="range" min="50" max="300" value="100" style="width:120px"> <span id="titleSizeTxt">100%</span></label>
+<div class="small">စာလုံးအရောင်: <span id="titleSwatches"><button type="button" data-c="#FFFFFF" style="background:#FFFFFF;width:28px;height:28px;border-radius:50%;border:3px solid #fff"></button> <button type="button" data-c="#FFFF00" style="background:#FFFF00;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#00FFFF" style="background:#00FFFF;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#00FF00" style="background:#00FF00;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#FFA500" style="background:#FFA500;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#FF69B4" style="background:#FF69B4;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#000000" style="background:#000000;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#FF0000" style="background:#FF0000;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button></span></div><br>
+<div><b>Watermark & Logo</b></div>
+<label>Watermark Text: <input id="wmTextInp" type="text" placeholder="@RecapPro" style="width:220px"></label>
+<label>Opacity: <input id="wmOpInp" type="range" min="0" max="100" value="100" style="width:120px"> <span id="wmOpTxt">100%</span></label>
+<label>Font Size: <input id="wmSizeInp" type="range" min="50" max="300" value="100" style="width:120px"> <span id="wmSizeTxt">100%</span></label>
+<div class="small">စာလုံးအရောင်: <span id="wmSwatches"><button type="button" data-c="#FFFFFF" style="background:#FFFFFF;width:28px;height:28px;border-radius:50%;border:3px solid #fff"></button> <button type="button" data-c="#FFFF00" style="background:#FFFF00;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#00FFFF" style="background:#00FFFF;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#00FF00" style="background:#00FF00;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#FFA500" style="background:#FFA500;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#FF69B4" style="background:#FF69B4;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#000000" style="background:#000000;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button> <button type="button" data-c="#FF0000" style="background:#FF0000;width:28px;height:28px;border-radius:50%;border:2px solid #888"></button></span></div>
+<label>Logo W: <input id="logoWInp" type="range" min="0" max="100" value="16" style="width:120px"> <span id="logoWTxt">16%</span></label>
+<label>Logo H: <input id="logoHInp" type="range" min="0" max="100" value="0" style="width:120px"> <span id="logoHTxt">Auto</span></label>
+<button id="logoChangeBtn">🖼 Logo ပြောင်းရွေးမည်</button><input id="logoFileInp" type="file" accept="image/png,image/jpeg" style="display:none"> <span id="logoText" class="small"></span><br></div>
 <div style="display:none"><input id="trimStartInp" type="hidden" value="0"><input id="trimEndInp" type="hidden"></div>
 <div id="grp-split" class="toolpanel"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
 <div id="grp-chunks" class="toolpanel"><label>အပိုင်း အရှည်: <select id="chunkMinSel"><option value="5" selected>5 မိနစ်</option><option value="10">10 မိနစ်</option><option value="15">15 မိနစ်</option><option value="20">20 မိနစ်</option><option value="custom">ကိုယ်ကြိုက်…</option></select></label> <label id="chunkCustomBox" style="display:none">မိနစ်: <input id="chunkMinInp" type="number" min="1" max="60" value="30" style="width:70px"></label> <button id="chunkSplitBtn">✂ အပိုင်းခွဲပါ</button> <span id="chunkText" class="small"></span><div id="chunkList"></div><br></div>
-<div id="grp-blur" class="toolpanel"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option><option value="background">Background (နောက်ခံ blur)</option></select>
-<label>Blur အပြင်း: <select id="blurStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
-<label>Blur နေရာ: <select id="blurPosSel"><option value="subtitle">စာတန်းနေရာ</option><option value="top">အပေါ်</option><option value="bottom">အောက်</option><option value="left">ဘယ်</option><option value="right">ညာ</option><option value="centre">အလယ်</option><option value="full">အပြည့်</option><option value="custom">ကိုယ်တိုင်ရွေး</option></select></label><br>
-<div id="blurCustomBox" style="display:none"><label>Blur X <input id="blurXInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> Y <input id="blurYInp" type="number" min="0" max="1" step="0.05" value="0.60" style="width:60px"> အကျယ် <input id="blurWInp" type="number" min="0" max="1" step="0.05" value="1" style="width:60px"> အမြင့် <input id="blurHInp" type="number" min="0" max="1" step="0.05" value="0.40" style="width:60px"></label> <span class="small">(0–1, ဗီဒီယိုအချိုးအလိုက်)</span></div>
-<label>Blur အချိန် (စက္ကန့်): အစ <input id="blurStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="blurEndInp" type="number" min="-1" step="1" value="-1" style="width:70px"> <span class="small">(-1 = အဆုံးထိ)</span></label>
-<label><input type="checkbox" id="blur2Chk"> Blur ၂ (ကြိုက်တဲ့နေရာ)</label> <div id="blur2Box" style="display:none"><label>Blur ၂ X <input id="blur2XInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> Y <input id="blur2YInp" type="number" min="0" max="1" step="0.05" value="0" style="width:60px"> အကျယ် <input id="blur2WInp" type="number" min="0" max="1" step="0.05" value="1" style="width:60px"> အမြင့် <input id="blur2HInp" type="number" min="0" max="1" step="0.05" value="0.30" style="width:60px"></label> <span class="small">(0-1, ကြိုက်တဲ့နေရာ)</span></div><br></div>
+<div id="grp-blur" class="toolpanel"><div><b>Blur — video ပေါ်က box ကို ဆွဲရွှေ့ပါ (Studio99 ပုံစံ)</b></div>
+<label><input type="checkbox" id="blur1Tgl"> Blur 1</label>
+<label>Blur Type: <select id="blur1Type"><option value="strong" selected>Real Blur (ပိုလေးတယ်)</option><option value="medium">အလယ်</option><option value="light">ပေါ့ပေါ့</option></select></label>
+<label>အကျယ်: <input id="blur1W" type="range" min="5" max="100" value="50" style="width:120px"> <span id="blur1WTxt">50%</span></label>
+<label>အမြင့်: <input id="blur1H" type="range" min="5" max="100" value="30" style="width:120px"> <span id="blur1HTxt">30%</span></label><br>
+<label><input type="checkbox" id="blur2Tgl"> Blur 2</label>
+<label>Blur Type: <select id="blur2Type"><option value="strong" selected>Real Blur (ပိုလေးတယ်)</option><option value="medium">အလယ်</option><option value="light">ပေါ့ပေါ့</option></select></label>
+<label>အကျယ်: <input id="blur2W" type="range" min="5" max="100" value="40" style="width:120px"> <span id="blur2WTxt">40%</span></label>
+<label>အမြင့်: <input id="blur2H" type="range" min="5" max="100" value="25" style="width:120px"> <span id="blur2HTxt">25%</span></label><br>
+<span class="small">Box ကို video ပေါ်မှာ ဆွဲပြီး ရွှေ့နိုင်တယ်။ အကျယ်/အမြင့် slider နဲ့ အရွယ် ပြောင်း။</span><br></div>
 <div id="grp-zoom" class="toolpanel"><label><input type="checkbox" id="zoomChk" checked> Zoom (ရွေးထားတဲ့ စက္ကန့်တိုင်း)</label>
 <label>Zoom အပြင်း: <select id="zoomStrSel"><option value="light">ပေါ့ပေါ့</option><option value="medium" selected>အလယ်</option><option value="strong">ပြင်းပြင်း</option></select></label>
 <label>Zoom အကြိမ် (စက္ကန့်): <select id="zoomIntSel"><option value="4" selected>4</option><option value="5">5</option><option value="10">10</option></select></label><br></div>
@@ -1415,7 +1428,8 @@ body{padding-bottom:76px}
 <div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br><label><input type="checkbox" id="smartSyncChk" checked> 🎯 Video ကို voiceover နဲ့ ထပ်တူကျ (voiceover ရှည်ရင် video နှေး)</label><br>
 <label>အသံ ရွှေ့ (စက္ကန့်): <input id="narrDelayInp" type="number" min="-30" max="30" step="0.5" value="0" style="width:70px"> <span class="small">(+ = နောက်ကျ, − = စော)</span></label><br>
 <label>နောက်ခံအသံ (Music): <input id="musicFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg"></label> <button id="musicUpBtn">🎵 Music တင်ပါ</button> <span id="musicText" class="small"></span><br>
-<label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br></div></div></div>
+<label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br>
+<label>အသံ ကျယ်/တိုး (Original): <input id="origVolInp" type="range" min="0" max="200" value="12" style="width:120px"> <span id="origVolTxt">12%</span></label><br></div></div></div>
 <div id="tab-dashboard" class="tabPanel"><div class="card"><div id="health">ဆာဗာ စစ်နေပါတယ်…</div><div class="small">ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video ပဲ တင်ပါ။ Zoom / blur / crop က မူပိုင်ခွင့်ကို တရားဝင်မဖြစ်စေပါ။</div></div>
 <div class="card"><h2>၁။ Project</h2>
 <button id="newBtn">＋ Project အသစ်</button>
@@ -2851,23 +2865,93 @@ el('urlBtn').onclick = function(){
     pollJob();
   }).catch(function(e){ el('urlText').textContent = 'URL မရပါ: ' + e.message; });
 };
-el('blurPosSel').onchange = function(){ el('blurCustomBox').style.display = (this.value === 'custom') ? 'block' : 'none'; };
-if(el('blur2Chk')) el('blur2Chk').onchange = function(){ var b = el('blur2Box'); if(b) b.style.display = el('blur2Chk').checked ? 'block' : 'none'; };
+// Studio99-style blur boxes (phonekey37): drag a box on the video to move
+// it, sliders set its size, toggle shows/hides it. Fractions (0-1) of the
+// video size; buildExportBody reads blurBoxes directly.
+var blurBoxes = {1: {on: false, x: 0.25, y: 0.30, w: 0.50, h: 0.30}, 2: {on: false, x: 0.10, y: 0.10, w: 0.40, h: 0.25}};
+function renderBlurBoxes(){
+  for(var bi = 1; bi <= 2; bi++){
+    var b = blurBoxes[bi]; var boxEl = el('blurBox' + bi); if(!boxEl) continue;
+    if(!b.on){ boxEl.style.display = 'none'; continue; }
+    boxEl.style.display = 'block';
+    boxEl.style.left = (b.x * 100) + '%'; boxEl.style.top = (b.y * 100) + '%';
+    boxEl.style.width = (b.w * 100) + '%'; boxEl.style.height = (b.h * 100) + '%';
+  }
+}
+function wireBlurBox(bi){
+  var boxEl = el('blurBox' + bi); if(!boxEl) return;
+  var dragging = null;
+  boxEl.addEventListener('pointerdown', function(ev){
+    var wrap = el('vidWrap'); if(!wrap) return;
+    var r = wrap.getBoundingClientRect();
+    var fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
+    dragging = {dx: fx - blurBoxes[bi].x, dy: fy - blurBoxes[bi].y};
+    ev.preventDefault();
+  });
+  window.addEventListener('pointermove', function(ev){
+    if(!dragging) return;
+    var wrap = el('vidWrap'); if(!wrap) return;
+    var r = wrap.getBoundingClientRect();
+    var fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
+    var b = blurBoxes[bi];
+    b.x = Math.max(0, Math.min(1 - b.w, fx - dragging.dx));
+    b.y = Math.max(0, Math.min(1 - b.h, fy - dragging.dy));
+    renderBlurBoxes();
+    ev.preventDefault();
+  });
+  window.addEventListener('pointerup', function(){ dragging = null; });
+}
+wireBlurBox(1); wireBlurBox(2);
+function wireBlurPanel(bi, tglId, wId, hId, wtId, htId){
+  var tgl = el(tglId); if(tgl) tgl.onchange = function(){ blurBoxes[bi].on = !!tgl.checked; renderBlurBoxes(); };
+  var wEl = el(wId); if(wEl) wEl.oninput = function(){ blurBoxes[bi].w = Math.max(0.05, Math.min(1, parseFloat(wEl.value) / 100 || 0.5)); var t = el(wtId); if(t) t.textContent = Math.round(blurBoxes[bi].w * 100) + '%'; renderBlurBoxes(); };
+  var hEl = el(hId); if(hEl) hEl.oninput = function(){ blurBoxes[bi].h = Math.max(0.05, Math.min(1, parseFloat(hEl.value) / 100 || 0.3)); var t = el(htId); if(t) t.textContent = Math.round(blurBoxes[bi].h * 100) + '%'; renderBlurBoxes(); };
+}
+wireBlurPanel(1, 'blur1Tgl', 'blur1W', 'blur1H', 'blur1WTxt', 'blur1HTxt');
+wireBlurPanel(2, 'blur2Tgl', 'blur2W', 'blur2H', 'blur2WTxt', 'blur2HTxt');
+renderBlurBoxes();
+// Studio99-style Title / Watermark / Logo wiring (phonekey38).
+window.__titleColor = '#FFFFFF'; window.__wmColor = '#FFFFFF';
+function wirePct(sliderId, txtId, autoZero){
+  var sl = el(sliderId); if(!sl) return;
+  sl.oninput = function(){ var t = el(txtId); if(t) t.textContent = (autoZero && parseFloat(sl.value) === 0) ? 'Auto' : sl.value + '%'; };
+}
+wirePct('titleOpInp', 'titleOpTxt', false); wirePct('titleSizeInp', 'titleSizeTxt', false);
+wirePct('wmOpInp', 'wmOpTxt', false); wirePct('wmSizeInp', 'wmSizeTxt', false);
+wirePct('logoWInp', 'logoWTxt', false); wirePct('logoHInp', 'logoHTxt', true);
+wirePct('origVolInp', 'origVolTxt', false);
+function wireSwatches(spanId, varName){
+  var sp = el(spanId); if(!sp) return;
+  sp.addEventListener('click', function(ev){
+    var b = ev.target.closest ? ev.target.closest('button[data-c]') : null;
+    if(!b) return;
+    window[varName] = b.getAttribute('data-c');
+    var all = sp.querySelectorAll('button[data-c]');
+    for(var i = 0; i < all.length; i++) all[i].style.border = (all[i] === b) ? '3px solid #fff' : '2px solid #888';
+  });
+}
+wireSwatches('titleSwatches', '__titleColor'); wireSwatches('wmSwatches', '__wmColor');
+if(el('logoChangeBtn')) el('logoChangeBtn').onclick = function(){ var f = el('logoFileInp'); if(f) f.click(); };
+if(el('logoFileInp')) el('logoFileInp').onchange = function(){
+  var f = el('logoFileInp'); if(!f || !f.files || !f.files[0]) return;
+  var fd = new FormData(); fd.append('logo', f.files[0]);
+  var tx = el('logoText'); if(tx) tx.textContent = 'Logo တင်နေပါတယ်…';
+  fetch('/api/logo', {method: 'POST', body: fd}).then(function(r){ return r.json(); }).then(function(j){
+    if(tx) tx.textContent = j.ok ? 'Logo အသစ် ရပါပြီ — နောက် export မှာ သုံးမယ်' : ('Logo မရပါ: ' + (j.error || ''));
+  }).catch(function(e){ if(tx) tx.textContent = 'Logo မရပါ: ' + e.message; });
+};
 if(el('aspectSel')) el('aspectSel').onchange = function(){ window.__aspectChanged = true; };
 function buildExportBody(){
   var clamp01 = function(v, d){ var n = parseFloat(v); return isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
   var trimS = Math.max(0, parseFloat(el('trimStartInp').value) || 0);
   var trimE = parseFloat(el('trimEndInp').value);
   if(!isFinite(trimE) || trimE <= trimS) trimE = duration;
-  var blurPos = el('blurPosSel').value;
-  var blurPresets = {subtitle:[0,0.60,1,0.40], top:[0,0,1,0.30], bottom:[0,0.70,1,0.30], left:[0,0,0.30,1], right:[0.70,0,0.30,1], centre:[0.25,0.25,0.5,0.5], full:[0,0,1,1]};
-  var bp = blurPos === 'custom' ? [clamp01(el('blurXInp').value, 0), clamp01(el('blurYInp').value, 0.60), clamp01(el('blurWInp').value, 1), clamp01(el('blurHInp').value, 0.40)] : (blurPresets[blurPos] || blurPresets.subtitle);
   var rotVal = parseInt(el('rotSel').value, 10) || 0;
   if(rotVal === 270) rotVal = -90; // server clamps rotation to +/-180, and -90 is the same turn as 270
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
   var sr = splitRemovedRanges(); for(var i2 = 0; i2 < sr.length; i2++) splitRanges.push(sr[i2]);
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, blur2Region:{x:clamp01(el('blur2XInp').value, 0), y:clamp01(el('blur2YInp').value, 0), w:clamp01(el('blur2WInp').value, 1), h:clamp01(el('blur2HInp').value, 0.30)}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume: (function(){ var v = parseFloat(el('origVolInp').value); return isFinite(v) ? v / 100 : 0.12; })(), subtitlesOn:true, subtitlesFrom:'translation', blurMode: (blurBoxes[1].on || blurBoxes[2].on) ? 'custom' : 'none', blurStrength: (el('blur1Type') ? el('blur1Type').value : 'strong'), blurStrength2: (el('blur2Type') ? el('blur2Type').value : 'strong'), blur1Enabled: !!blurBoxes[1].on, blurRegion:{x:blurBoxes[1].x, y:blurBoxes[1].y, w:blurBoxes[1].w, h:blurBoxes[1].h}, blurStartSec: 0, blurEndSec: -1, blur2Enabled: !!blurBoxes[2].on, blur2Region:{x:blurBoxes[2].x, y:blurBoxes[2].y, w:blurBoxes[2].w, h:blurBoxes[2].h}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, logoWPct: parseFloat(el('logoWInp').value), logoHPct: parseFloat(el('logoHInp').value), narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var out = []; var e = (duration > 0 ? duration : 99999); var tt = (el('titleTextInp').value || '').trim(); if(tt) out.push({text:tt, start:0, end:e, position:'top', size: Math.round(32 * (parseFloat(el('titleSizeInp').value) || 100) / 100), color: window.__titleColor || '#FFFFFF', opacity: parseFloat(el('titleOpInp').value)}); var wt = (el('wmTextInp').value || '').trim(); if(wt) out.push({text:wt, start:0, end:e, position:'topleft', size: Math.round(32 * (parseFloat(el('wmSizeInp').value) || 100) / 100), color: window.__wmColor || '#FFFFFF', opacity: parseFloat(el('wmOpInp').value)}); return out; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
 function doExport(){
@@ -3140,6 +3224,18 @@ app.post('/api/projects/:id/music', musicUpload.single('music'), async (req, res
 
 app.use((err, req, res, next) => { if (err) return res.status(400).json({ error: err.message }); next(); });
 
+const logoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+app.post('/api/logo', logoUpload.single('logo'), (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer || req.file.buffer.length < 8) return res.status(400).json({ error: 'logo file missing' });
+    const b = req.file.buffer;
+    const isPng = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47;
+    const isJpg = b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
+    if (!isPng && !isJpg) return res.status(400).json({ error: 'only PNG or JPG logo images' });
+    fs.writeFileSync(path.join(__dirname, 'logo.png'), b);
+    res.json({ ok: true, bytes: b.length });
+  } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+});
 app.post('/api/projects/:id/url', async (req, res) => {
   const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
   const { url, confirmed } = req.body || {};
@@ -3563,6 +3659,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const posterTitle = String(o.posterTitle || 'Sangbik').replace(/[^\u1000-\u109FA-Za-z0-9 _-]/g, '').trim() || 'Sangbik';
   const blurStrength = ['light', 'medium', 'strong'].includes(o.blurStrength) ? o.blurStrength : 'medium';
   const blurSigma = BLUR_SIGMA[blurStrength];
+  const blurStrength2 = ['light', 'medium', 'strong'].includes(o.blurStrength2) ? o.blurStrength2 : blurStrength;
+  const blurSigma2 = BLUR_SIGMA[blurStrength2];
   const zoomEvery5s = !!o.zoomEvery5s;
   const zoomStrength = ['light', 'medium', 'strong'].includes(o.zoomStrength) ? o.zoomStrength : 'medium';
   const zoomMax = ZOOM_MAX[zoomStrength];
@@ -3578,7 +3676,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
     if (!ovText) continue;
     const ovS = parseFloat(ov.start), ovE = parseFloat(ov.end);
     if (!Number.isFinite(ovS) || !Number.isFinite(ovE) || ovE <= ovS) continue;
-    textOverlaysIn.push({ start: ovS, end: ovE, text: ovText, position: ['top', 'center', 'bottom'].includes(ov.position) ? ov.position : 'bottom', size: Math.max(12, Math.min(96, parseInt(ov.size, 10) || 32)), color: /^#[0-9A-Fa-f]{6}$/.test(ov.color || '') ? String(ov.color).toUpperCase() : '#FFFFFF' });
+    textOverlaysIn.push({ start: ovS, end: ovE, text: ovText, position: ['top', 'topleft', 'center', 'bottom'].includes(ov.position) ? ov.position : 'bottom', size: Math.max(12, Math.min(96, parseInt(ov.size, 10) || 32)), color: /^#[0-9A-Fa-f]{6}$/.test(ov.color || '') ? String(ov.color).toUpperCase() : '#FFFFFF', opacity: Number.isFinite(parseFloat(ov.opacity)) ? Math.max(0, Math.min(100, parseFloat(ov.opacity))) : 100 });
   }
   const zoomIntervalRaw = parseFloat(o.zoomIntervalSec ?? 5);
   const zoomIntervalSec = Number.isFinite(zoomIntervalRaw) ? Math.max(1, Math.min(30, zoomIntervalRaw)) : 5;
@@ -3819,14 +3917,14 @@ app.post('/api/projects/:id/export', async (req, res) => {
         filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else if (blurMode === 'custom') {
         if (blur2Enabled && blur1Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br2];[d][br2]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]gblur=sigma=${blurSigma2},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br2];[d][br2]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else if (blur2Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma2},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else {
           filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         }
       } else if (blur2Enabled) {
-        filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+        filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma2},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else {
         filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       }
@@ -3838,15 +3936,18 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // preview canvas (logoXFrac/logoYFrac); without them the logo stays at
       // the old top-right corner (W-w-12:12).
       const logoPath = path.join(__dirname, 'logo.png');
-      if (o.logoOn !== false && fs.existsSync(logoPath)) {
-        const logoW = Math.max(64, Math.round(W * 0.16));
+      if (o.logoOn !== false && logoW > 0 && fs.existsSync(logoPath)) {
+        const logoWPct = parseFloat(o.logoWPct);
+        const logoW = Number.isFinite(logoWPct) ? Math.round(W * logoWPct / 100) : Math.max(64, Math.round(W * 0.16));
+        const logoHPct = parseFloat(o.logoHPct);
+        const logoH = Number.isFinite(logoHPct) && logoHPct > 0 ? Math.max(8, Math.round(H * logoHPct / 100)) : -1;
         let lx = W - logoW - 12, ly = 12;
         const lfx = Number(o.logoXFrac), lfy = Number(o.logoYFrac);
         if (Number.isFinite(lfx) && Number.isFinite(lfy)) {
           lx = Math.max(0, Math.min(W - logoW, Math.round(lfx * W - logoW / 2)));
           ly = Math.max(0, Math.min(H - logoW, Math.round(lfy * H - logoW / 2)));
         }
-        filter = filter.replace(/\[vout\]$/, `[vpre];movie='${logoPath.replace(/'/g, "\\'")}',scale=${logoW}:-1,format=rgba[logo];[vpre][logo]overlay=${lx}:${ly}[vout]`);
+        filter = filter.replace(/\[vout\]$/, `[vpre];movie='${logoPath.replace(/'/g, "\\'")}',scale=${logoW}:${logoH},format=rgba[logo];[vpre][logo]overlay=${lx}:${ly}[vout]`);
       }
       // Audio chain: original (volume) + narration (volume, if generated) + music
       // (volume, fades, looped/trimmed to the video duration, if uploaded).
