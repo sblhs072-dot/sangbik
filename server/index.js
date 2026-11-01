@@ -506,6 +506,52 @@ function fitTempo(clipDuration, windowSec) {
   const tempo = Math.min(clipDuration / windowSec, 100.0);
   return { tempo, fitted: true, overflow: (clipDuration / tempo) > windowSec + 1e-6 };
 }
+// Smart Sync (phonekey35): stretch the VIDEO to match the voiceover, never
+// speed up or cut the voiceover. For each timed line: if the Burmese clip
+// (plus the manual narration delay) is longer than its set window, the video
+// segment for that line slows down by (window+extra)/window so the voiceover
+// finishes exactly when the speaker's turn ends; gaps between speakers keep
+// their original length (both sides shift by the same extra). Shorter clips
+// stay natural speed and end early. Overlapping windows (bad transcript)
+// are skipped for stretching and counted. Returns {segments, newDuration,
+// totalExtra, stretchedCount, skippedOverlap, mapTime}.
+function smartSyncPlan(windows, effDuration, delaySec) {
+  const d = Number.isFinite(delaySec) ? delaySec : 0;
+  const wins = (windows || []).map(w => ({ start: parseFloat(w.start) || 0, end: parseFloat(w.end) || 0, duration: parseFloat(w.duration) || 0 })).filter(w => w.end > w.start).sort((a, b) => a.start - b.start);
+  const kept = []; let lastEnd = -Infinity, skippedOverlap = 0;
+  for (const w of wins) { if (w.start < lastEnd - 1e-6) { skippedOverlap++; continue; } kept.push(w); lastEnd = w.end; }
+  const segments = []; let cursor = 0, stretchedCount = 0;
+  for (const w of kept) {
+    const W = w.end - w.start;
+    const extra = Math.max(0, d + w.duration - W);
+    if (w.start > cursor + 1e-6) segments.push({ start: cursor, end: w.start, factor: 1 });
+    const factor = extra > 1e-6 ? (W + extra) / W : 1;
+    if (factor > 1) stretchedCount++;
+    segments.push({ start: w.start, end: w.end, factor });
+    cursor = w.end;
+  }
+  if (effDuration > cursor + 1e-6) segments.push({ start: cursor, end: effDuration, factor: 1 });
+  const clean = segments.filter(sg => sg.end - sg.start > 1e-6);
+  let mappedCursor = 0;
+  for (const sg of clean) { sg.mappedStart = mappedCursor; mappedCursor += (sg.end - sg.start) * sg.factor; }
+  const newDuration = mappedCursor;
+  function mapTime(t) {
+    if (!(t > 0)) return 0;
+    if (t >= effDuration) return newDuration;
+    for (const sg of clean) { if (t >= sg.start - 1e-9 && t < sg.end) return sg.mappedStart + (t - sg.start) * sg.factor; }
+    return newDuration;
+  }
+  return { segments: clean, newDuration, totalExtra: newDuration - effDuration, stretchedCount, skippedOverlap, mapTime };
+}
+// atempo chain for slowing audio by factor a (0 < a <= 1): each atempo must
+// be >= 0.5, so split smaller factors (0.25 -> 0.5,0.5; 0.4 -> 0.5,0.8).
+function atempoChainForFactor(a) {
+  if (!(a < 1 - 1e-9) || !(a > 0)) return '';
+  const parts = []; let x = a;
+  while (x < 0.5 - 1e-9) { parts.push(0.5); x /= 0.5; }
+  if (x < 1 - 1e-9) parts.push(Math.round(x * 10000) / 10000);
+  return parts.map(p => 'atempo=' + p).join(',');
+}
 // Split transcript pieces so no piece is longer than maxSec (default 10s).
 // Sentences end on Chinese/full-width or ASCII marks; time is shared
 // proportionally by character count; a single sentence longer than maxSec
@@ -1333,7 +1379,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey34</h1>
+<h1>🎬 Sangbik — Website · phonekey35</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1366,7 +1412,7 @@ body{padding-bottom:76px}
 <label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
 <label>Poster: <select id="posterSel"><option value="0" selected>မရှိ</option><option value="3">3 စက္ကန့်</option><option value="5">5 စက္ကန့်</option></select></label>
 <label><input type="checkbox" id="logoChk" checked> Logo ထည့်</label><br></div>
-<div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br>
+<div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br><label><input type="checkbox" id="smartSyncChk" checked> 🎯 Video ကို voiceover နဲ့ ထပ်တူကျ (voiceover ရှည်ရင် video နှေး)</label><br>
 <label>အသံ ရွှေ့ (စက္ကန့်): <input id="narrDelayInp" type="number" min="-30" max="30" step="0.5" value="0" style="width:70px"> <span class="small">(+ = နောက်ကျ, − = စော)</span></label><br>
 <label>နောက်ခံအသံ (Music): <input id="musicFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg"></label> <button id="musicUpBtn">🎵 Music တင်ပါ</button> <span id="musicText" class="small"></span><br>
 <label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br></div></div></div>
@@ -2821,7 +2867,7 @@ function buildExportBody(){
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
   var sr = splitRemovedRanges(); for(var i2 = 0; i2 < sr.length; i2++) splitRanges.push(sr[i2]);
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, blur2Region:{x:clamp01(el('blur2XInp').value, 0), y:clamp01(el('blur2YInp').value, 0), w:clamp01(el('blur2WInp').value, 1), h:clamp01(el('blur2HInp').value, 0.30)}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, blur2Region:{x:clamp01(el('blur2XInp').value, 0), y:clamp01(el('blur2YInp').value, 0), w:clamp01(el('blur2WInp').value, 1), h:clamp01(el('blur2HInp').value, 0.30)}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
 function doExport(){
@@ -2837,6 +2883,7 @@ function doExport(){
     if(body.textOverlays && body.textOverlays.length) vt.push('စာသား');
     if(body.removeRanges && body.removeRanges.length) vt.push('ခွဲ');
     if(body.posterSec && body.posterSec > 0) vt.push('Poster');
+    if(body.narrationSync === 'timed' && body.smartSync) vt.push('Smart Sync');
     if(body.subtitles && (body.subtitles.size !== 24 || body.subtitles.color !== '#FFFFFF' || body.subtitles.position !== 'bottom')) vt.push('စာတန်း အပြင်');
     if(body.quality !== '720p' || body.resolution !== 'original' || body.qualityBitrate !== 'original' || body.exportFps !== 'original') vt.push('အရည်အသွေး/Resolution');
     if(window.__aspectChanged) vt.push('အရွယ်အစား');
@@ -3441,7 +3488,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   // audio-only encode; subtitles go in as a toggleable mov_text track, NOT
   // burned in. Timed narration alignment is NOT applied (continuous narration).
   // Split ranges are rejected here (they need re-encode) — use full export.
-  if (o.fastMux === true) {
+  if (o.fastMux === true && !(o.narrationSync === 'timed' && o.smartSync !== false)) {
     if (Array.isArray(o.removeRanges) && o.removeRanges.length) return res.status(400).json({ error: 'Fast export မှာ ခွဲတာ မရပါ — ⚡ အမှန်ခြစ် ဖြုတ်ပြီး Full export လုပ်ပါ။' });
     const fStart = Math.max(0, parseFloat(o.trimStart || 0) || 0);
     const fEndRaw = parseFloat(o.trimEnd);
@@ -3806,7 +3853,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // All inputs are mixed with amix; nothing is silently ignored any more.
       let audioInputs = []; // labelled audio streams to mix, in order
       const hasAudioTrack = !!p.metadata?.audioCodec;
-      if (hasAudioTrack) { filter += `;[0:a]volume=${origVol}[a0]`; audioInputs.push('[a0]'); }
+      if (hasAudioTrack) { audioInputs.push('[a0]'); } // [a0] filter appended later (after the timed plan, so Smart Sync can stretch it).
       let nextInputIdx = 1;
       // Narration: 'continuous' (default, exactly as before) or 'timed'
       // (each spoken line placed at its subtitle start time on the output
@@ -3828,7 +3875,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
           const line = p.translationLines[c.lineIndex];
           if (!line) continue;
           const ls = parseFloat(line.start || 0), le = parseFloat(line.end || 0);
-          let outStart, windowSec;
+          let outStart, windowSec, winStart;
           if (splitActive) {
             // Re-base onto the joined timeline, exactly like subtitles: a line
             // cut out by split is dropped, a line ending in a cut range is clipped.
@@ -3836,10 +3883,12 @@ app.post('/api/projects/:id/export', async (req, res) => {
             if (!rb.length) continue;
             outStart = Math.max(0, rb[0].start + narrationDelaySec);
             windowSec = rb[0].end - rb[0].start;
+            winStart = rb[0].start;
           } else {
             if (le <= start || ls >= end) continue;
             outStart = Math.max(0, ls - start + narrationDelaySec);
             windowSec = Math.min(le, end) - Math.max(ls, start);
+            winStart = Math.max(ls, start) - start;
           }
           if (!(windowSec > 0)) continue;
           // Per-line fitting: speed the clip up so it finishes inside its set
@@ -3847,19 +3896,37 @@ app.post('/api/projects/:id/export', async (req, res) => {
           const fit = fitTempo(c.duration || 0, windowSec);
           if (fit.fitted) narrationFitCount++;
           if (fit.overflow) narrationFitOverflow.push(c.lineIndex);
-          timedClips.push({ file: c.file, outStart, tempo: fit.tempo, windowSec });
+          timedClips.push({ file: c.file, outStart, winStart, duration: c.duration || 0, tempo: fit.tempo, windowSec });
         }
         if (narrationFitOverflow.length) narrationFitNote = 'Voiceover fitting: ' + narrationFitCount + ' line(s) sped up to fit their set times; line(s) ' + narrationFitOverflow.join(', ') + ' were so long that even at 100x they were cut at their window ends (tail lost — shorten the text or lengthen the line).';
         else if (narrationFitCount) narrationFitNote = 'Voiceover fitting: ' + narrationFitCount + ' line(s) sped up to fit their set times.';
       }
+      // Smart Sync (phonekey35): video slows to match the voiceover.
+      // Decided here (after timedClips exist, before any audio filter is
+      // built): only when timed narration is on, the client did not opt out,
+      // the video timeline was not reordered (scene order changes which
+      // content sits at each time), and at least one line actually needs
+      // stretching. The video filter must still end with [vout] so the
+      // stretch can be inserted after the audio chain; otherwise fall back
+      // to the old hard-fit (never ship a half-stretched export).
+      let smartSync = false, smartSyncPlan = null, smartSyncNote = null;
+      if (narrationSync === 'timed' && o.smartSync !== false && !sceneOrderApplied && timedClips.length && filter.endsWith('[vout]')) {
+        const plan = smartSyncPlan(timedClips.map(tc => ({ start: tc.winStart, end: tc.winStart + tc.windowSec, duration: tc.duration })), effDuration, narrationDelaySec);
+        if (plan.stretchedCount > 0) {
+          smartSync = true; smartSyncPlan = plan;
+          narrationFitCount = 0; narrationFitOverflow = [];
+          smartSyncNote = 'Smart Sync: video slowed in ' + plan.stretchedCount + ' place(s) to match the voiceover (output ' + plan.newDuration.toFixed(1) + 's, was ' + effDuration.toFixed(1) + 's); voiceover at natural speed, never sped up or cut.' + (plan.skippedOverlap ? ' ' + plan.skippedOverlap + ' overlapping line(s) were not stretched (check the transcript).' : '');
+          narrationFitNote = smartSyncNote;
+        }
+      }
       if (timedClips.length) {
-        p.export.narrationFitCount = narrationFitCount; p.export.narrationFitOverflow = narrationFitOverflow; p.export.narrationFitNote = narrationFitNote; saveProjects(projects);
+        p.export.narrationFitCount = narrationFitCount; p.export.narrationFitOverflow = narrationFitOverflow; p.export.narrationFitNote = narrationFitNote; if (smartSync) p.export.smartSync = { stretched: smartSyncPlan.stretchedCount, totalExtra: Math.round(smartSyncPlan.totalExtra * 100) / 100, newDuration: Math.round(smartSyncPlan.newDuration * 100) / 100 }; saveProjects(projects);
         for (const tc of timedClips) {
           args.push('-i', tc.file); inputs.push(tc.file);
-          const ms = Math.round(tc.outStart * 1000);
-          const tempoFilter = tc.tempo > 1 ? `atempo=${tc.tempo},` : '';
-          const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`;
-          filter += `;[${nextInputIdx}:a]${tempoFilter}${trimFilter}adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
+          let ms, clipFilter;
+          if (smartSync) { ms = Math.round(Math.max(0, smartSyncPlan.mapTime(tc.winStart) + narrationDelaySec) * 1000); clipFilter = ''; }
+          else { ms = Math.round(tc.outStart * 1000); const tempoFilter = tc.tempo > 1 ? `atempo=${tc.tempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; }
+          filter += `;[${nextInputIdx}:a]${clipFilter}adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
         }
       } else {
         if (narrationSync === 'timed') narrationSyncNote = timedClipsStale ? 'လိုင်းတွေ အသံထုတ်ပြီးမှ ပြင်ထားလို့ timed narration မကိုက်တော့ပါ — continuous အသံ သုံးထားတယ်။ Timed ပြန်ရဖို့ အသံ ပြန်ထုတ်ပါ။' : (p.tts?.file ? 'Timed narration requested but no usable per-line clips were found — used the continuous narration track instead. Re-run voiceover (TTS) after this deploy to generate per-line clips.' : 'Timed narration requested but no narration audio exists — generate voiceover first.');
@@ -3872,6 +3939,33 @@ app.post('/api/projects/:id/export', async (req, res) => {
           audioInputs.push('[a1]'); nextInputIdx++;
         }
       }
+      // Original audio: plain when Smart Sync is off, stretched with the
+      // same segment map when it is on (so it stays in sync with the slowed
+      // video). [a0] was pushed first (amix duration=first = new length).
+      if (hasAudioTrack) {
+        if (smartSync) {
+          const segs = smartSyncPlan.segments;
+          const aLabels = [];
+          let aFilter = `[0:a]asplit=${segs.length}`;
+          for (let i = 0; i < segs.length; i++) aFilter += `[as${i}]`;
+          aFilter += ';';
+          for (let i = 0; i < segs.length; i++) {
+            const sg = segs[i];
+            const aTempo = sg.factor > 1 ? atempoChainForFactor(1 / sg.factor) : '';
+            aFilter += `[as${i}]atrim=start=${sg.start.toFixed(3)}:end=${sg.end.toFixed(3)},${aTempo ? aTempo + ',' : ''}asetpts=PTS-STARTPTS[av${i}];`;
+            aLabels.push(`[av${i}]`);
+          }
+          aFilter += aLabels.join('') + `concat=n=${segs.length}:v=0:a=1[a0s];[a0s]volume=${origVol}[a0]`;
+          filter += ';' + aFilter;
+        } else {
+          filter += `;[0:a]volume=${origVol}[a0]`;
+        }
+      } else if (smartSync && audioInputs.length) {
+        // No original audio track: a silent pad keeps amix at the new length
+        // (otherwise duration=first would cut the mix at the first clip).
+        filter += ';anullsrc=channel_layout=stereo:sample_rate=48000:duration=' + smartSyncPlan.newDuration.toFixed(3) + '[asil]'; audioInputs.unshift('[asil]');
+      }
+      const musicDur = smartSync ? smartSyncPlan.newDuration : effDuration;
       if (hasMusic) {
         // -stream_loop -1 must precede -i so the music loops until amix cuts it off.
         args.push('-stream_loop', '-1', '-i', p.music.path); inputs.push(p.music.path);
@@ -3882,17 +3976,37 @@ app.post('/api/projects/:id/export', async (req, res) => {
           if (musicFadeOut > 0 && musicFadeOut < musicPlayDurSec) mFilter += `,afade=t=out:st=${Math.max(0, musicPlayDurSec - musicFadeOut)}:d=${musicFadeOut}`;
           mFilter += `,atrim=start=${musicTrimStartSec}:end=${musicTrimStartSec + musicPlayDurSec},asetpts=PTS-STARTPTS`;
           if (musicDelaySec > 0) mFilter += `,adelay=${Math.round(musicDelaySec * 1000)}:all=1`;
-          mFilter += `,atrim=duration=${effDuration},asetpts=PTS-STARTPTS[music]`;
+          mFilter += `,atrim=duration=${musicDur},asetpts=PTS-STARTPTS[music]`;
         } else {
           if (musicFadeIn > 0) mFilter += `,afade=t=in:st=0:d=${musicFadeIn}`;
           if (musicFadeOut > 0 && musicFadeOut < effDuration) mFilter += `,afade=t=out:st=${Math.max(0, effDuration - musicFadeOut)}:d=${musicFadeOut}`;
-          mFilter += `,atrim=duration=${effDuration},asetpts=PTS-STARTPTS[music]`;
+          mFilter += `,atrim=duration=${musicDur},asetpts=PTS-STARTPTS[music]`;
         }
         filter += `;${mFilter}`; audioInputs.push('[music]');
       }
       let audioMap;
       if (audioInputs.length === 1) { filter += `;${audioInputs[0]}anull[aout]`; audioMap = '[aout]'; }
       else if (audioInputs.length > 1) { filter += `;${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=first:dropout_transition=0[aout]`; audioMap = '[aout]'; }
+      // Smart Sync video stretch (inserted after the audio chain, so it
+      // rides on the finished [vout] incl. subtitles/logo/fade — subtitles
+      // and overlays burned before the stretch move with their frames).
+      // If the insert point is missing (should not happen — validated
+      // earlier), abort rather than ship a half-synced export.
+      if (smartSync) {
+        const segs = smartSyncPlan.segments;
+        const vLabels = [];
+        let vFilter = `[vstretch]split=${segs.length}`;
+        for (let i = 0; i < segs.length; i++) vFilter += `[vs${i}]`;
+        vFilter += ';';
+        for (let i = 0; i < segs.length; i++) {
+          const sg = segs[i];
+          vFilter += `[vs${i}]trim=start=${sg.start.toFixed(3)}:end=${sg.end.toFixed(3)},setpts=(PTS-STARTPTS)*${sg.factor.toFixed(4)}[vv${i}];`;
+          vLabels.push(`[vv${i}]`);
+        }
+        vFilter += vLabels.join('') + `concat=n=${segs.length}:v=1:a=0[vout]`;
+        if ((filter.match(/\[vout\];/g) || []).length !== 1) throw new Error('Smart Sync video insert failed (unexpected filter layout) — export aborted, retry with Smart Sync off.');
+        filter = filter.replace('[vout];', '[vstretch];' + vFilter + ';');
+      }
       if (fpsVal) filter = filter.replace(/\[vout\]$/, ',fps=' + fpsVal + '[vout]');
       if (audioMap) args.push('-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-c:a', 'aac', outMp4);
       else args.push('-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-an', outMp4);
