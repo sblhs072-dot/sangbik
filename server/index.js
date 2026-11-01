@@ -243,10 +243,10 @@ async function groqTranslateBatch(texts, sourceLang) {
   const content = (j.choices?.[0]?.message?.content || '').trim();
   return parseBatchResponse(content, texts.length);
 }
-async function geminiTranslateBatch(texts, sourceLang) {
+async function geminiTranslateBatch(texts, sourceLang, summary) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_TRANSLATE_MODEL || GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_TRANSLATE_MODEL || GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: (summary ? 'Video context (from watching the video first): ' + summary + ' Translate the lines to fit this story and tone. ' : '') + buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
   const body = await res.text();
   if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 300)}`);
   let j; try { j = JSON.parse(body); } catch { throw new Error('Gemini returned unparseable output.'); }
@@ -256,7 +256,7 @@ async function geminiTranslateBatch(texts, sourceLang) {
 async function withRetry(fn) { let last; for (let a = 0; a < 2; a++) { try { return await fn(); } catch (e) { last = e; if (a === 0) await new Promise(r => setTimeout(r, 5000)); } } throw last; }
 async function withRetrySlow(fn) { let last; const waits = [10000, 20000, 40000]; for (let a = 0; a < 4; a++) { try { return await fn(); } catch (e) { last = e; if (a < 3) await new Promise(r => setTimeout(r, waits[a])); } } throw last; }
 function withTimeout(promise, ms, label) { let timer; const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error((label || 'Call') + ' timed out after ' + Math.round(ms / 1000) + 's')), ms); }); return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)); }
-async function translateLinesWithGoogleOrFallback(lines, sourceLang) {
+async function translateLinesWithGoogleOrFallback(lines, sourceLang, summary) {
   // lines: [{original}] -> {translations, path, error}
   // ACCURACY-FIX: Order: Gemini batched first (accuracy first) -> Groq
   // batched (both with slow retries so transient 429/503 never falls
@@ -267,7 +267,7 @@ async function translateLinesWithGoogleOrFallback(lines, sourceLang) {
   const attempts = [];
   if (process.env.GEMINI_API_KEY) {
     try {
-      const translations = await withRetrySlow(() => geminiTranslateBatch(originals, sourceLang));
+      const translations = await withRetrySlow(() => geminiTranslateBatch(originals, sourceLang, summary));
       return { translations, path: 'gemini-batch', googleLog: 'Translated in one Gemini batch call.', error: null };
     } catch (me) { attempts.push(`Gemini batch: ${me.message}`); }
   }
@@ -759,11 +759,11 @@ function parseGeminiTranscript(text, segDur) {
   if (!plain) return [];
   return [{ start: 0, end: +segDur.toFixed(2), text: plain }];
 }
-async function geminiTranscribeSegment(wavPath, segDur, lang, frames) {
+async function geminiTranscribeSegment(wavPath, segDur, lang, frames, summary) {
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) throw new Error('Gemini key missing');
   const b64 = fs.readFileSync(wavPath).toString('base64');
-  const prompt = (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. When two characters sound the same, choose the one that fits the story context (for example, the guidance of a Buddha, a dragon scale, a proverb about lazy hands). Never invent words that were not spoken. If a part is unclear, transcribe your best guess rather than skipping it.';
+  const prompt = (summary ? 'Video context (from watching the whole video first): ' + summary + ' Use this story context to choose homophones and names that fit; never invent dialogue. ' : '') + (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] spoken words. Timestamps are relative to the start of this clip (0 seconds). Do not add explanations, speaker labels, or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. When two characters sound the same, choose the one that fits the story context (for example, the guidance of a Buddha, a dragon scale, a proverb about lazy hands). Never invent words that were not spoken. If a part is unclear, transcribe your best guess rather than skipping it.';
   const geminiParts = [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }];
   const segFrames = [];
   for (const fr of (frames || [])) { try { const fb = fs.readFileSync(fr.file).toString('base64'); if (fb) segFrames.push(fb); } catch {} }
@@ -784,13 +784,13 @@ async function geminiTranscribeSegment(wavPath, segDur, lang, frames) {
 }
 // Sequential on purpose: the free tier is rate-limited, and one failure must
 // fall the WHOLE job back to Whisper (never a half-Gemini, half-Whisper mix).
-async function transcribeSegmentsWithGemini(segWavs, jobs, onProgress, lang, frames) {
+async function transcribeSegmentsWithGemini(segWavs, jobs, onProgress, lang, frames, summary) {
   const out = [];
   for (let i = 0; i < segWavs.length; i++) {
     const job = jobs[i];
     const segDur = Math.max(0.1, job.end - job.start);
     const segFrames = (frames || []).filter(fr => fr.t >= job.start - 1 && fr.t <= job.end + 1).slice(0, 2);
-    out.push(await geminiTranscribeSegment(segWavs[i], segDur, lang, segFrames));
+    out.push(await geminiTranscribeSegment(segWavs[i], segDur, lang, segFrames, summary));
     if (onProgress) onProgress(i + 1);
   }
   return out;
@@ -988,6 +988,26 @@ async function geminiPolishLines(items, mode, sourceLangName) {
   }
   return { lines: out, changed, fallback: fallbackChunks > 0 };
 }
+async function geminiSceneRead(frames) {
+  const key = process.env.GEMINI_API_KEY || '';
+  if (!key) throw new Error('GEMINI_API_KEY not configured.');
+  const parts = [{ text: 'These are scene frames from a video, in time order. Describe ONLY what is visible, in 3-5 short sentences: who the main people or creatures are, where it takes place, what story is happening, and the tone (funny, serious, dramatic, sad). Do NOT transcribe dialogue, do NOT guess at unclear parts — if something is unclear, say it is unclear. Output only the description, nothing else.' }];
+  let attached = 0;
+  for (const fr of (frames || []).slice(0, 8)) {
+    let b64 = '';
+    try { b64 = fs.readFileSync(fr.file).toString('base64'); } catch {}
+    if (!b64) continue;
+    parts.push({ text: 'Frame at ' + fr.t + 's:' }, { inlineData: { mimeType: 'image/jpeg', data: b64 } });
+    attached++;
+  }
+  if (!attached) throw new Error('No scene frames to read');
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 2048 } }) });
+  if (!res.ok) throw new Error('Gemini scene read failed (HTTP ' + res.status + ')');
+  const j = await res.json();
+  const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
+  if (!text) throw new Error('Gemini scene read returned no text');
+  return text;
+}
 async function geminiSceneCorrect(lines, frames, sourceLangName) {
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
@@ -1074,6 +1094,14 @@ async function runAutoJob(projectId, opts) {
     const engineProgress = function(engineLabel, done) { p.autoJob.completedSegments = done; p.autoJob.percent = Math.round(20 + 50 * done / totalSegments); p.autoJob.message = engineLabel + ' စာသားပြောင်းနေပါတယ် — အပိုင်း ' + done + '/' + totalSegments + ' ပြီးပါပြီ။'; saveProjects(projects); };
     const engineDisplay = { groq: 'Groq Turbo', gemini: 'Gemini', whisper: 'Whisper offline tiny' };
     const fallbackNotes = [];
+    let sceneSummary = '';
+    if (p.frames && p.frames.length && process.env.GEMINI_API_KEY) {
+      try {
+        p.autoJob.stage = 'scene-read'; p.autoJob.message = 'Gemini video ကို အရင် ဖတ်နေပါတယ်…'; saveProjects(projects);
+        sceneSummary = await withTimeout(geminiSceneRead(p.frames), 120000, 'Scene read');
+        if (sceneSummary) { p.sceneSummary = sceneSummary; saveProjects(projects); }
+      } catch (e) { sceneSummary = ''; }
+    }
     for (const engine of transcriptCandidates) {
       try {
         if (engine === 'groq') {
@@ -1082,10 +1110,10 @@ async function runAutoJob(projectId, opts) {
         } else if (engine === 'gemini') {
           if (!process.env.GEMINI_API_KEY) { if (transcriptChoice === 'gemini') fallbackNotes.push('Gemini key မရှိ'); continue; }
           try {
-            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang, p.frames || []);
+            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang, p.frames || [], sceneSummary);
           } catch (e1) {
             await new Promise(r => setTimeout(r, 8000));
-            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang, p.frames || []);
+            whisperResults = await transcribeSegmentsWithGemini(segWavs, jobs, (done) => engineProgress('Gemini', done), sourceLang, p.frames || [], sceneSummary);
           }
         } else {
           if (!whisperInstalled()) { if (transcriptChoice === 'whisper') fallbackNotes.push('Whisper မတပ်ဆင်ထားပါ'); continue; }
@@ -1136,7 +1164,7 @@ async function runAutoJob(projectId, opts) {
     else if (!p.frames || !p.frames.length) sceneNote = 'Scene check skipped — no video frames received from phone.';
     else sceneNote = 'Scene check skipped — no Gemini key on server.';
     p.autoJob.completedSegments = totalSegments; p.autoJob.stage = 'translating-google'; p.autoJob.percent = 70; saveProjects(projects);
-    const gt = skipTranslate ? { translations: null, path: 'skipped-manual', error: 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' } : await translateLinesWithGoogleOrFallback(allPieces, sourceLang);
+    const gt = skipTranslate ? { translations: null, path: 'skipped-manual', error: 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' } : await translateLinesWithGoogleOrFallback(allPieces, sourceLang, sceneSummary);
     if (gt.translations) gt.translations = gt.translations.map(t => sanitizeBurmese(t));
     let repairedCount = 0, repairWarnCount = 0;
     if (gt.translations && !skipTranslate) {
@@ -1198,7 +1226,7 @@ async function runAutoJob(projectId, opts) {
     const weakPath = ['mymemory', 'nllb-offline', 'argos-offline'].includes(p.autoJob.translationPath);
     const fallbackWarning = weakPath ? ' ⚠️ ဘာသာပြန်က အရန်လမ်း (' + p.autoJob.translationPath + ') က ရတာ — လိုင်းတွေ သေချာစစ်ပြီးမှ အသံထုတ်ပါ။' : '';
     p.autoJob.transcriptionProvider = transcriptProvider;
-    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${polishNote ? ' ' + polishNote : ''}${checkNote ? ' ' + checkNote : ''}${sceneNote ? ' ' + sceneNote : ''}${repairedCount ? ' Line repair: ' + repairedCount + ' line(s) re-translated.' : ''}${repairWarnCount ? ' ' + repairWarnCount + ' line(s) still need a human look.' : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}${fallbackWarning}`, finishedAt: new Date().toISOString() };
+    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${polishNote ? ' ' + polishNote : ''}${checkNote ? ' ' + checkNote : ''}${sceneNote ? ' ' + sceneNote : ''}${repairedCount ? ' Line repair: ' + repairedCount + ' line(s) re-translated.' : ''}${repairWarnCount ? ' ' + repairWarnCount + ' line(s) still need a human look.' : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}${sceneSummary ? ' Video read (Gemini): ' + sceneSummary : ''}${fallbackWarning}`, finishedAt: new Date().toISOString() };
     saveProjects(projects);
   } catch (e) {
     p.autoJob = { ...p.autoJob, status: 'failed', stage: 'failed', message: `Auto transcript job failed: ${e.message}`, error: e.message, finishedAt: new Date().toISOString() };
@@ -1262,7 +1290,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey24</h1>
+<h1>🎬 Sangbik — Website · phonekey25</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
