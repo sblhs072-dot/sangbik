@@ -941,7 +941,6 @@ function parseNumberedCorrections(text, count) {
     if (!m) continue;
     out[parseInt(m[1], 10) - 1] = m[2] || '';
   }
-  if (out.length !== count || out.some(x => x === undefined)) throw new Error('Polish response line count mismatch');
   return out;
 }
 async function geminiPolishLines(items, mode, sourceLangName) {
@@ -966,12 +965,15 @@ async function geminiPolishLines(items, mode, sourceLangName) {
       const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('');
       if (!text.trim()) throw new Error('Gemini polish returned no text');
       const fixed = parseNumberedCorrections(text, chunk.length);
+      let usable = 0; for (let k = 0; k < chunk.length; k++) { if ((fixed[k] || '').trim()) usable++; }
+      if (!usable) throw new Error('Gemini polish returned no usable lines');
       for (let k = 0; k < chunk.length; k++) {
         const t = (fixed[k] || '').trim();
         const orig = mode === 'translation' ? chunk[k].burmese : chunk[k];
         const clean = (t && !t.includes('\ufffd')) ? t : orig;
-        if (clean !== orig) changed++;
-        out.push(clean);
+        const final = (mode === 'translation' && clean !== orig && !validateBurmese(clean)) ? orig : clean;
+        if (final !== orig) changed++;
+        out.push(final);
       }
         chunkDone = true;
     } catch (e) {
@@ -1008,6 +1010,8 @@ async function geminiSceneCorrect(lines, frames, sourceLangName) {
   const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('');
   if (!text.trim()) throw new Error('Gemini scene check returned no text');
   const fixed = parseNumberedCorrections(text, lines.length);
+  let usableSc = 0; for (let k = 0; k < lines.length; k++) { if ((fixed[k] || '').trim()) usableSc++; }
+  if (!usableSc) throw new Error('Gemini scene check returned no usable lines');
   let changed = 0;
   const out = lines.map((l, i) => {
     const t = (fixed[i] || '').trim();
@@ -1258,7 +1262,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey23</h1>
+<h1>🎬 Sangbik — Website · phonekey24</h1>
 <div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1595,6 +1599,28 @@ function phoneNeedsTranslation(l){
   if(/[A-Za-z]/.test(b)) return true;
   return false;
 }
+function isValidBurmeseCheck(c, orig){
+  if(!c) return false;
+  var t = c.trim(); if(!t) return false;
+  if(t === (orig || '').trim()) return false;
+  if(/[A-Za-z]/.test(t)) return false;
+  var hasMy = false;
+  for(var i = 0; i < t.length; i++){
+    var cp = t.codePointAt(i);
+    if(cp >= 0x1000 && cp <= 0x109f){ hasMy = true; continue; }
+    if((cp >= 0x0e00 && cp <= 0x0eff) || (cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0x3400 && cp <= 0x4dbf) || (cp >= 0xac00 && cp <= 0xd7af) || (cp >= 0x1100 && cp <= 0x11ff) || (cp >= 0x3040 && cp <= 0x30ff)) return false;
+    if(cp === 0xfffd) return false;
+  }
+  return hasMy;
+}
+function isPunctOnly(str){
+  var t = (str || '').trim(); if(!t) return false;
+  for(var i = 0; i < t.length; i++){
+    var cp = t.codePointAt(i);
+    if((cp >= 0x1000 && cp <= 0x109f) || (cp >= 0x30 && cp <= 0x39) || (cp >= 0x41 && cp <= 0x5a) || (cp >= 0x61 && cp <= 0x7a) || (cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0x3400 && cp <= 0x4dbf) || (cp >= 0xac00 && cp <= 0xd7af) || (cp >= 0x1100 && cp <= 0x11ff) || (cp >= 0x3040 && cp <= 0x30ff) || (cp >= 0x0e00 && cp <= 0x0eff)) return false;
+  }
+  return true;
+}
 function phoneBatchPrompt(texts, sourceLang){
   var numbered = texts.map(function(t, i){ return (i + 1) + '. ' + t; }).join('\\n');
   var fromPart = (sourceLang && sourceLang !== 'auto') ? ('from ' + (sourceLang === 'zh' ? 'Chinese' : sourceLang) + ' ') : '';
@@ -1651,9 +1677,47 @@ async function geminiPhoneTranslateBatch(texts, sourceLang){
   }
   return await tryChain([{ text: prompt }]);
 }
+async function geminiPhoneCheckBatch(items, sourceLang){
+  var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။');
+  var NL = String.fromCharCode(10);
+  var langName = (sourceLang && sourceLang !== 'auto') ? (sourceLang === 'zh' ? 'Chinese' : sourceLang) : 'Chinese';
+  var numbered = items.map(function(it, i){ return (i + 1) + '. ' + it.original + ' ||| ' + it.burmese; }).join(NL);
+  var prompt = 'Check the Burmese translations against their ' + langName + ' originals. Input lines are "N. <original> ||| <Burmese>". For each line, return the corrected Burmese. Rules: (1) ONLY fix what is CLEARLY wrong — wrong numbers, wrong names, wrong meaning, non-Burmese script leaked into the Burmese (Chinese, Thai, Latin letters), garbled words, reversed word order (noun must come BEFORE number+classifier: fix နှစ်ကောင်မြင်း to မြင်းနှစ်ကောင်), dropped words (a leading order or exclamation missing from the Burmese must be restored, for example 住手 must appear as ရပ်စမ်း). (2) A textbook-sounding line must be rewritten the way actors speak in a drama, with the particle matching the tone (soft exclamation လေ, obvious fact ပေါ့, question လား, rhetorical boast …ဘဲ နေပါ့မလား); an exclamatory negative with 难 + 不 or 没 becomes a Burmese rhetorical question when the tone is exclamatory (example: 很难听不见 becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, never the flat literal). (3) If a translation is already correct, return it EXACTLY unchanged. (4) Do NOT guess at unclear parts, do NOT add or remove sentences. (5) A line whose original is only punctuation gets an empty translation. (6) Return exactly ' + items.length + ' lines, numbered exactly like the input, each line containing ONLY the corrected Burmese, nothing else.' + NL + NL + numbered;
+  async function tryChain(){
+    var lastErr = null;
+    for(var i = 0; i < keys.length; i++){
+      for(var m = 0; m < PHONE_GEMINI_MODELS.length; m++){
+        try {
+          var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + keys[i], { method: 'POST', signal: AbortSignal.timeout(120000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+          if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); continue; }
+          var jj = await r.json();
+          var txt = '';
+          if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
+          var out = []; var n = 0;
+          var rawLines = txt.split(NL);
+          for(var li = 0; li < rawLines.length; li++){
+            var line = rawLines[li].trim(); if(!line) continue;
+            var dot = line.indexOf('.'); var par = line.indexOf(')'); var sep = -1;
+            if(dot > 0 && (par < 0 || dot < par)) sep = dot; else if(par > 0) sep = par; else continue;
+            var numPart = line.slice(0, sep); var isNum = numPart.length > 0;
+            for(var ci = 0; ci < numPart.length; ci++){ var ch = numPart[ci]; if(ch < '0' || ch > '9') isNum = false; }
+            if(!isNum) continue;
+            var idx = parseInt(numPart, 10) - 1;
+            if(idx >= 0 && idx < items.length && out[idx] === undefined){ out[idx] = line.slice(sep + 1).trim(); n++; }
+          }
+          if(n === 0) throw new Error('Empty check response.');
+          return out;
+        } catch(e){ lastErr = e; }
+      }
+    }
+    throw lastErr || new Error('Phone check failed.');
+  }
+  return await tryChain();
+}
 async function phoneTranslateEmptyLines(){
   var idxs = [];
   lines.forEach(function(l, i){ if(phoneNeedsTranslation(l)) idxs.push(i); });
+  var checkBefore = {}; idxs.forEach(function(i){ checkBefore[i] = lines[i].burmese || ''; });
   if(!idxs.length){ msg('ဘာသာပြန်စရာ လိုင်း မရှိပါ — မြန်မာ ဗလာ/မပြင်ရသေးတဲ့ လိုင်း မရှိဘူး။'); return false; }
   var tb = el('translateBtn'); window.__sangbikTranslating = true; window.__sangbikTranslatingSince = Date.now(); var tbText = tb ? tb.textContent : ''; if(tb) tb.textContent = 'ဘာသာပြန်နေပါတယ်…'; setTimeout(function(){ if(window.__sangbikTranslating){ window.__sangbikTranslating = false; var b2 = el('translateBtn'); if(b2) b2.textContent = tbText; msg('ဘာသာပြန်တာ ၁၀ မိနစ်ကျော်ကြာနေလို့ ရပ်လိုက်ပါပြီ — ပြန်နှိပ်လို့ ရပါပြီ။'); } }, 600000);
   var eng = phoneTranslateEngine() || 'gemini';
@@ -1688,6 +1752,27 @@ async function phoneTranslateEmptyLines(){
       } catch(gE){ gErr = gE; }
       if(gDone > 0){ done = gDone; failErr = null; usedEng = 'google'; }
       else { if(tb) tb.textContent = tbText; window.__sangbikTranslating = false; phoneTranslateFailedOnce = true; msg('ဖုန်းကနေ ဘာသာပြန်မရပါ: ' + failErr.message + ' (Google လည်း မရပါ: ' + (gErr ? gErr.message : '?') + ') — 🌐 ကို နောက်တစ်ခါ နှိပ်ရင် server နဲ့ ပြန်မယ်။'); return false; }
+    }
+    if(done > 0 && phoneKeys().length){
+      try {
+        var filledIdxs = idxs.filter(function(i){ return lines[i].burmese && lines[i].burmese !== checkBefore[i]; });
+        if(filledIdxs.length){
+          msg('ဘာသာပြန် စစ်နေပါတယ်… (' + filledIdxs.length + ' လိုင်း)');
+          var fixedN = 0;
+          for(var cs = 0; cs < filledIdxs.length; cs += 20){
+            var cpart = filledIdxs.slice(cs, cs + 20);
+            var citems = cpart.map(function(i){ return { original: lines[i].original, burmese: lines[i].burmese }; });
+            var cout = await geminiPhoneCheckBatch(citems, sourceLangChoice());
+            cpart.forEach(function(li, k){
+              var c = (cout[k] === undefined) ? null : (cout[k] || '').trim();
+              if(c === '' && isPunctOnly(lines[li].original)){ if(lines[li].burmese !== ''){ lines[li].burmese = ''; fixedN++; } }
+              else if(c && c !== lines[li].burmese && isValidBurmeseCheck(c, lines[li].original)){ lines[li].burmese = c; fixedN++; }
+            });
+          }
+          if(fixedN){ linesDirty = true; renderLines(); renderTimeline(); }
+          msg('ဘာသာပြန် စစ်ပြီးပြီ (' + fixedN + ' လိုင်း ပြင်ပြီး) — သိမ်းနေပါတယ်…');
+        }
+      } catch(chkErr){ msg('ဘာသာပြန် စစ်တာ မရပါ (' + chkErr.message + ') — ဖြည့်ထားတဲ့ လိုင်းတွေ အတိုင်း သိမ်းမယ်။'); }
     }
     var rescued = false;
     var saveErr = null;
