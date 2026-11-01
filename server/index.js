@@ -1302,6 +1302,16 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 #timelineTicks span{position:absolute;transform:translateX(-50%)}
 #timelineSel{position:absolute;top:0;height:100%;background:rgba(34,197,94,0.30);z-index:1;pointer-events:none}
 #timelineSplitLayer{position:absolute;left:0;top:0;width:100%;height:100%;z-index:1;pointer-events:none}
+#stripToolbar{display:flex;gap:10px;align-items:flex-start;margin:8px 0}
+#stripToolbar button{background:#1e222b;border:1px solid #334155;border-radius:8px;color:#f8fafc;padding:6px 12px;font-size:22px;line-height:1}
+#stripToolbar button span{display:block;font-size:11px;margin-top:3px}
+#audioStrip{display:flex;gap:6px;align-items:stretch;margin:6px 0}
+#audioBarArea{position:relative;flex:1;height:36px;background:#1e222b;border-radius:6px;overflow:visible;cursor:pointer;touch-action:none}
+#audioClipBar{position:absolute;top:0;height:100%;background:rgba(14,165,233,0.45);border:1px solid #0ea5e9;border-radius:4px;z-index:1}
+#audioHandleL,#audioHandleR{position:absolute;top:0;width:18px;height:100%;margin-left:-9px;background:#f8fafc;border:1px solid #0f172a;z-index:3;cursor:ew-resize;touch-action:none}
+#audioClipLabel{position:absolute;left:20px;right:20px;top:50%;transform:translateY(-50%);font-size:11px;color:#f8fafc;white-space:nowrap;overflow:hidden;pointer-events:none}
+#timelineThumbs{position:absolute;left:0;top:0;width:100%;height:100%;display:flex;overflow:hidden;z-index:0;pointer-events:none}
+#timelineThumbs img{flex:1;min-width:0;height:100%;object-fit:cover;pointer-events:none}
 #timelineHandleL,#timelineHandleR{position:absolute;top:0;width:18px;height:100%;margin-left:-9px;background:#f8fafc;border:1px solid #0f172a;z-index:3;cursor:ew-resize;touch-action:none}
 #tabBar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;display:flex;background:#1e222b;border-top:1px solid #333;z-index:50;padding:6px 4px 10px}
 .tabbtn{flex:1;background:transparent;color:#9aa;margin:2px;padding:10px 2px;font-size:13px;min-height:48px}
@@ -1311,11 +1321,11 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey29</h1>
-<div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div></div>
+<h1>🎬 Sangbik — Website · phonekey31</h1>
+<div id="topPreview" class="card"><video id="vid" controls playsinline></video><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
-<div id="toolBar"><button data-goto="grp-trim">ဖြတ်တောက်</button><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-chunks">အပိုင်းခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
+<div id="toolBar"><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-chunks">အပိုင်းခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
 <div id="grp-size" class="toolpanel"><label>အရွယ်အစား: <select id="aspectSel"><option value="9:16">📱 TikTok (9:16)</option><option value="16:9">▶️ YouTube (16:9)</option><option value="1:1">📘 Facebook (1:1)</option><option value="4:3">4:3</option><option value="2:1">2:1</option></select></label><br></div>
 <div id="grp-text" class="toolpanel"><label>စာသား: <input id="ovTextInp" type="text" placeholder="ထည့်မယ့် စာသား" style="width:220px"></label>
 <label>နေရာ: <select id="ovPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option><option value="center">အလယ်</option></select></label>
@@ -1323,7 +1333,7 @@ body{padding-bottom:76px}
 <label>အဆုံး (စက္ကန့်): <input id="ovEndInp" type="number" min="0" step="0.5" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label>
 <label>အရွယ်: <select id="ovSizeSel"><option value="18">18</option><option value="24">24</option><option value="32" selected>32</option><option value="48">48</option></select></label>
 <label>အရောင်: <select id="ovColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option><option value="#FF0000">အနီ</option></select></label><br></div>
-<div id="grp-trim" class="toolpanel"><label>ဖြတ်တောက် (စက္ကန့်): အစ <input id="trimStartInp" type="number" min="0" step="1" value="0" style="width:70px"> အဆုံး <input id="trimEndInp" type="number" min="0" step="1" placeholder="ဗီဒီယိုအဆုံး" style="width:90px"></label> <button id="trimScissorsBtn">✂️ ဒီနေရာမှာ ဖြတ်</button> <button id="trimSplitBtn">✂ Split (ဒီနေရာမှာ ခွဲ)</button> <button id="trimSegDelBtn">🗑 အပိုင်းဖျက်</button> <button id="trimSplitClearBtn">✕ Split တွေ ရှင်း</button> <span id="trimSplitText" class="small"></span><br></div>
+<div style="display:none"><input id="trimStartInp" type="hidden" value="0"><input id="trimEndInp" type="hidden"></div>
 <div id="grp-split" class="toolpanel"><label>ဖြတ်ထုတ် (စက္ကန့်): <input id="splitRangesInp" type="text" placeholder="10-20, 45-60" style="width:200px"> <span class="small">(ဖျက်မယ့် အပိုင်းတွေ, ကော်မာနဲ့ ခြား)</span></label><br></div>
 <div id="grp-chunks" class="toolpanel"><label>အပိုင်း အရှည်: <select id="chunkMinSel"><option value="5" selected>5 မိနစ်</option><option value="10">10 မိနစ်</option><option value="15">15 မိနစ်</option><option value="20">20 မိနစ်</option><option value="custom">ကိုယ်ကြိုက်…</option></select></label> <label id="chunkCustomBox" style="display:none">မိနစ်: <input id="chunkMinInp" type="number" min="1" max="60" value="30" style="width:70px"></label> <button id="chunkSplitBtn">✂ အပိုင်းခွဲပါ</button> <span id="chunkText" class="small"></span><div id="chunkList"></div><br></div>
 <div id="grp-blur" class="toolpanel"><select id="blurSel"><option value="none">Blur မရှိ</option><option value="custom">Blur (စာတန်းနေရာ)</option><option value="full">Blur အပြည့်</option><option value="background">Background (နောက်ခံ blur)</option></select>
@@ -1495,7 +1505,7 @@ el('useCacheBtn').onclick = function(){
   renderLines(); renderTimeline();
   msg('သိမ်းထားတဲ့ ' + lines.length + ' လိုင်း ဖွင့်ပါပြီ — စစ်ပြီး "သိမ်းပါ" နှိပ်ပါ (ပြီးရင် အသံ ထုတ်လို့ရပြီ, upload မလို)။');
 };
-function syncVidRecap(){ var r = el('vidRecap'); if(!r) return; var v = el('vid'); if(v && v.src){ r.src = v.src; r.style.display = ''; } else { r.removeAttribute('src'); r.style.display = 'none'; } }
+function syncVidRecap(){ var r = el('vidRecap'); if(!r) return; var v = el('vid'); if(v && v.src){ r.src = v.src; r.style.display = ''; } else { r.removeAttribute('src'); r.style.display = 'none'; } renderStripThumbs(); }
 el('fileInput').addEventListener('change', function(){
   var f = el('fileInput').files[0]; if(!f) return;
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
@@ -2176,9 +2186,10 @@ function splitSegRemoved(sg){ for(var i = 0; i < splitRemoved.length; i++){ if(s
 function splitRemovedRanges(){ var r = splitRange(); var out = []; for(var i = 0; i < splitRemoved.length; i++){ var a = Math.max(r.s, splitRemoved[i].start); var b = Math.min(r.e, splitRemoved[i].end); if(b > a) out.push({start:a, end:b}); } out.sort(function(x,y){return x.start - y.start;}); var mg = []; for(var j = 0; j < out.length; j++){ if(mg.length && out[j].start <= mg[mg.length - 1].end + 0.001) mg[mg.length - 1].end = Math.max(mg[mg.length - 1].end, out[j].end); else mg.push(out[j]); } return mg; }
 function splitRestoreSeg(sg){ var out = []; for(var i = 0; i < splitRemoved.length; i++){ var r0 = splitRemoved[i]; if(sg.end <= r0.start || sg.start >= r0.end){ out.push(r0); continue; } if(sg.start > r0.start) out.push({start:r0.start, end:sg.start}); if(sg.end < r0.end) out.push({start:sg.end, end:r0.end}); } return out; }
 function splitResetIfNewVideo(){ var v = el('vid'); var k = v ? (v.src || '') : ''; if(k !== splitVidKey){ splitVidKey = k; splitPoints = []; splitRemoved = []; splitSelected = -1; } }
-function renderSplitLayer(){ var layer = el('timelineSplitLayer'); if(!layer) return; var r = splitRange(); if(!r.dur){ layer.innerHTML = ''; return; } var segs = splitSegments(); if(splitSelected >= segs.length) splitSelected = -1; var html = ''; var rmc = 0; for(var i = 0; i < segs.length; i++){ var lp = 100 * segs[i].start / r.dur; var wp = 100 * (segs[i].end - segs[i].start) / r.dur; var rm = splitSegRemoved(segs[i]); if(rm) rmc++; if(rm) html += '<div style="position:absolute;top:0;left:' + lp + '%;width:' + wp + '%;height:100%;background:rgba(239,68,68,0.45)"></div>'; if(splitSelected === i) html += '<div style="position:absolute;top:0;left:' + lp + '%;width:' + wp + '%;height:100%;background:rgba(56,189,248,0.25);outline:2px solid #38bdf8"></div>'; } for(var j = 0; j < splitPoints.length; j++){ var p = splitPoints[j]; if(p > r.s && p < r.e) html += '<div style="position:absolute;top:0;left:' + (100 * p / r.dur) + '%;width:2px;margin-left:-1px;height:100%;background:#f8fafc"></div>'; } layer.innerHTML = html; var tx = el('trimSplitText'); if(tx){ var n = segs.length; tx.textContent = n > 1 ? ('အပိုင်း ' + n + ' ပိုင်း' + (rmc ? (' — ဖျက်ထား ' + rmc + ' ပိုင်း') : '') + (splitSelected >= 0 ? (' — ရွေးထား အပိုင်း ' + (splitSelected + 1)) : '')) : 'Split မရှိသေးပါ — playhead နေရာမှာ Split နှိပ်ပါ'; } var db = el('trimSegDelBtn'); if(db){ db.textContent = (splitSelected >= 0 && splitSelected < segs.length && splitSegRemoved(segs[splitSelected])) ? '↩ အပိုင်းပြန်ထား' : '🗑 အပိုင်းဖျက်'; } }
+function renderSplitLayer(){ var layer = el('timelineSplitLayer'); if(!layer) return; var r = splitRange(); if(!r.dur){ layer.innerHTML = ''; return; } var segs = splitSegments(); if(splitSelected >= segs.length) splitSelected = -1; var html = ''; var rmc = 0; for(var i = 0; i < segs.length; i++){ var lp = 100 * segs[i].start / r.dur; var wp = 100 * (segs[i].end - segs[i].start) / r.dur; var rm = splitSegRemoved(segs[i]); if(rm) rmc++; if(rm) html += '<div style="position:absolute;top:0;left:' + lp + '%;width:' + wp + '%;height:100%;background:rgba(239,68,68,0.45)"></div>'; if(splitSelected === i) html += '<div style="position:absolute;top:0;left:' + lp + '%;width:' + wp + '%;height:100%;background:rgba(56,189,248,0.25);outline:2px solid #38bdf8"></div>'; } for(var j = 0; j < splitPoints.length; j++){ var p = splitPoints[j]; if(p > r.s && p < r.e) html += '<div style="position:absolute;top:0;left:' + (100 * p / r.dur) + '%;width:2px;margin-left:-1px;height:100%;background:#f8fafc"></div>'; } layer.innerHTML = html; var tx = el('trimSplitText'); if(tx){ var n = segs.length; tx.textContent = n > 1 ? ('အပိုင်း ' + n + ' ပိုင်း' + (rmc ? (' — ဖျက်ထား ' + rmc + ' ပိုင်း') : '') + (splitSelected >= 0 ? (' — ရွေးထား အပိုင်း ' + (splitSelected + 1)) : '')) : 'Split မရှိသေးပါ — playhead နေရာမှာ Split နှိပ်ပါ'; } var db = el('trimSegDelBtn'); if(db){ db.innerHTML = (splitSelected >= 0 && splitSelected < segs.length && splitSegRemoved(segs[splitSelected])) ? '↩<span>ပြန်ထား</span>' : '🗑<span>ဖျက်</span>'; } }
 function updateTrimOverlay(){
   splitResetIfNewVideo();
+  renderStripThumbs();
   var dur = trimDur(); var s = Math.max(0, parseFloat(el('trimStartInp').value) || 0); var e = parseFloat(el('trimEndInp').value); if(!isFinite(e) || e <= s) e = dur;
   var sel = el('timelineSel'); var hl = el('timelineHandleL'); var hr = el('timelineHandleR'); var lb = el('timelineSelLabel');
   if(!dur){ if(sel) sel.style.display = 'none'; if(hl) hl.style.display = 'none'; if(hr) hr.style.display = 'none'; if(lb) lb.textContent = ''; renderSplitLayer(); return; }
@@ -2244,6 +2255,81 @@ if(el('trimSegDelBtn')) el('trimSegDelBtn').onclick = function(){
   updateTrimOverlay();
 };
 if(el('trimSplitClearBtn')) el('trimSplitClearBtn').onclick = function(){ splitPoints = []; splitRemoved = []; splitSelected = -1; updateTrimOverlay(); msg('Split တွေ ရှင်းပြီးပြီ'); };
+var audioClip = null; var audioPid = ''; var audioRemoved = false;
+function audioStateOk(){ return !!(audioClip && audioPid === pid); }
+function audioMoveDelay(delay, dxSec, videoDur){ var d = delay + dxSec; if(d < 0) d = 0; var mx = Math.max(0, videoDur - 0.5); if(d > mx) d = mx; return Math.round(d * 10) / 10; }
+function audioLeftEdge(delay, trimStart, playDur, newDelay){ var end = delay + playDur; if(newDelay < 0) newDelay = 0; if(newDelay > end - 0.5) newDelay = Math.max(0, end - 0.5); var shift = newDelay - delay; return {delay: Math.round(newDelay * 10) / 10, trimStart: Math.max(0, Math.round((trimStart + shift) * 10) / 10), playDur: Math.round((end - newDelay) * 10) / 10}; }
+function audioRightEdge(delay, trimStart, audioDur, newEnd){ var mx = Math.max(0.5, audioDur - trimStart); var pd = newEnd - delay; if(pd < 0.5) pd = 0.5; if(pd > mx) pd = mx; return Math.round(pd * 10) / 10; }
+function audioBarPct(delay, playDur, videoDur){ if(!videoDur) return {left: 0, width: 0}; var l = 100 * delay / videoDur; var w = 100 * playDur / videoDur; if(l > 100) l = 100; if(l + w > 100) w = 100 - l; return {left: l, width: Math.max(0, w)}; }
+function renderAudioRow(){
+  var row = el('audioStrip'); if(!row) return;
+  if(audioPid && audioPid !== pid){ audioClip = null; audioRemoved = false; audioPid = pid; }
+  var add = el('audioAddBtn'); var bar = el('audioClipBar'); var rm = el('audioRemoveBtn');
+  if(!audioClip){ if(add) add.style.display = ''; if(bar) bar.style.display = 'none'; if(rm) rm.style.display = 'none'; return; }
+  var dur = trimDur(); var pct = audioBarPct(audioClip.delaySec, audioClip.playDurSec, dur);
+  if(add) add.style.display = 'none'; if(rm) rm.style.display = '';
+  if(bar){ bar.style.display = ''; bar.style.left = pct.left + '%'; bar.style.width = pct.width + '%'; var lb = el('audioClipLabel'); if(lb) lb.textContent = audioClip.name + ' ' + audioClip.delaySec.toFixed(1) + 's-' + (audioClip.delaySec + audioClip.playDurSec).toFixed(1) + 's'; }
+}
+(function(){
+  var drag = null; var startFrac = 0; var startDelay = 0; var startTrim = 0; var startPlay = 0;
+  function areaFrac(ev){ var r = el('audioBarArea').getBoundingClientRect(); return Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)); }
+  function onMove(ev){
+    if(!drag || !audioClip) return;
+    var dur = trimDur(); if(!dur) return;
+    var dx = (areaFrac(ev) - startFrac) * dur;
+    if(drag === 'move'){ audioClip.delaySec = audioMoveDelay(startDelay, dx, dur); }
+    else if(drag === 'L'){ var r = audioLeftEdge(startDelay, startTrim, startPlay, startDelay + dx); audioClip.delaySec = r.delay; audioClip.trimStartSec = r.trimStart; audioClip.playDurSec = r.playDur; }
+    else if(drag === 'R'){ audioClip.playDurSec = audioRightEdge(startDelay, startTrim, audioClip.duration, startDelay + startPlay + dx); }
+    renderAudioRow();
+    if(ev.preventDefault) ev.preventDefault();
+  }
+  function onUp(){ drag = null; }
+  var hl = el('audioHandleL'); var hr = el('audioHandleR'); var bar = el('audioClipBar');
+  if(hl) hl.addEventListener('pointerdown', function(ev){ if(!audioClip || !trimDur()){ msg('Video အရင် ရွေးပါ'); return; } drag = 'L'; startFrac = areaFrac(ev); startDelay = audioClip.delaySec; startTrim = audioClip.trimStartSec; startPlay = audioClip.playDurSec; try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){} if(ev.preventDefault) ev.preventDefault(); });
+  if(hr) hr.addEventListener('pointerdown', function(ev){ if(!audioClip || !trimDur()){ msg('Video အရင် ရွေးပါ'); return; } drag = 'R'; startFrac = areaFrac(ev); startDelay = audioClip.delaySec; startTrim = audioClip.trimStartSec; startPlay = audioClip.playDurSec; try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){} if(ev.preventDefault) ev.preventDefault(); });
+  if(bar) bar.addEventListener('pointerdown', function(ev){ var t = ev.target; if(t && (t.id === 'audioHandleL' || t.id === 'audioHandleR')) return; if(!audioClip || !trimDur()) return; drag = 'move'; startFrac = areaFrac(ev); startDelay = audioClip.delaySec; try{ bar.setPointerCapture(ev.pointerId); }catch(e2){} });
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+})();
+if(el('audioAddBtn')) el('audioAddBtn').onclick = function(){ el('audioRowFileInp').click(); };
+if(el('audioRowFileInp')) el('audioRowFileInp').onchange = function(){
+  var f = el('audioRowFileInp').files[0]; el('audioRowFileInp').value = ''; if(!f) return;
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  var fd = new FormData(); fd.append('music', f);
+  msg('Audio တင်နေပါတယ်…');
+  fetch('/api/projects/' + pid + '/music', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).then(function(j){ var d = (j.music && j.music.duration) ? parseFloat(j.music.duration) : 0; audioClip = {name: (j.music ? j.music.name : f.name), duration: d, delaySec: 0, trimStartSec: 0, playDurSec: d}; audioPid = pid; audioRemoved = false; renderAudioRow(); msg('Audio ရပါပြီ — အတန်းမှာ ဆွဲပြီး နေရာ/အရှည် ပြင်လို့ ရတယ်'); }).catch(function(e){ msg('Audio တင်မရပါ: ' + e.message); });
+};
+if(el('audioRemoveBtn')) el('audioRemoveBtn').onclick = function(){ audioClip = null; audioRemoved = true; renderAudioRow(); msg('Audio အတန်း ဖျက်ပြီ — နောက် export မှာ အသံ မပါဘူး'); };
+var thumbVidKey = ''; var thumbGenerating = false;
+function stripThumbCount(dur){ if(!dur || dur <= 0) return 0; if(dur > 300) return 20; if(dur > 120) return 16; return 12; }
+function stripThumbTimes(dur){ var n = stripThumbCount(dur); var ts = []; for(var i = 0; i < n; i++) ts.push((i + 0.5) * dur / n); return ts; }
+function renderStripThumbs(){
+  var box = el('timelineThumbs'); if(!box) return;
+  var v = el('vid'); var src = v ? (v.src || '') : ''; var dur = trimDur();
+  function curSrc(){ var vv = el('vid'); return vv ? (vv.src || '') : ''; }
+  if(!src || !dur){ box.innerHTML = ''; thumbVidKey = ''; return; }
+  if(src === thumbVidKey || thumbGenerating) return;
+  thumbGenerating = true;
+  var hv = document.createElement('video'); hv.muted = true; hv.playsInline = true; hv.preload = 'auto'; hv.src = src;
+  hv.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;visibility:hidden;';
+  document.body.appendChild(hv);
+  var cv = document.createElement('canvas'); cv.width = 160; cv.height = 90; var cx = cv.getContext('2d');
+  var times = stripThumbTimes(dur); var deadline = Date.now() + 15000; var idx = 0;
+  function stop(){ thumbGenerating = false; if(curSrc() === src) thumbVidKey = src; try{ hv.remove(); }catch(e){} }
+  function next(){
+    if(curSrc() !== src){ thumbGenerating = false; try{ hv.remove(); }catch(e2){} return; }
+    if(Date.now() > deadline || idx >= times.length){ stop(); return; }
+    var t = times[idx]; var done = false;
+    function step(){ if(done) return; done = true; try{ cx.drawImage(hv, 0, 0, 160, 90); var im = document.createElement('img'); im.src = cv.toDataURL('image/jpeg', 0.6); box.appendChild(im); }catch(e3){} idx++; next(); }
+    function onSeek(){ hv.removeEventListener('seeked', onSeek); step(); }
+    hv.addEventListener('seeked', onSeek);
+    try{ hv.currentTime = Math.min(t, Math.max(0, dur - 0.1)); }catch(e4){ step(); }
+    setTimeout(function(){ hv.removeEventListener('seeked', onSeek); step(); }, 1500);
+  }
+  function onMeta(){ hv.removeEventListener('loadedmetadata', onMeta); box.innerHTML = ''; next(); }
+  hv.addEventListener('loadedmetadata', onMeta);
+  setTimeout(function(){ if(thumbGenerating && !box.children.length){ hv.removeEventListener('loadedmetadata', onMeta); stop(); } }, 5000);
+}
 el('loadBtn').onclick = loadLines;
 function rescueLinesToNewProject(){
   return api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}, 120000).then(function(p){
@@ -2515,7 +2601,7 @@ el('musicUpBtn').onclick = function(){
   var f = el('musicFileInp').files[0]; if(!f){ msg('Music file အရင် ရွေးပါ'); return; }
   var fd = new FormData(); fd.append('music', f);
   el('musicText').textContent = 'Music တင်နေပါတယ်…';
-  fetch('/api/projects/' + pid + '/music', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).then(function(j){ el('musicText').textContent = 'Music ရပါပြီ: ' + (j.music ? j.music.name : f.name); msg('Music သိမ်းပါပြီ — နောက် export မှာ ပါမယ်'); }).catch(function(e){ el('musicText').textContent = 'Music မရပါ: ' + e.message; });
+  fetch('/api/projects/' + pid + '/music', {method:'POST', body:fd}).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).then(function(j){ el('musicText').textContent = 'Music ရပါပြီ: ' + (j.music ? j.music.name : f.name); if(j.music){ var md = parseFloat(j.music.duration) || 0; audioClip = {name: j.music.name, duration: md, delaySec: 0, trimStartSec: 0, playDurSec: md}; audioPid = pid; audioRemoved = false; renderAudioRow(); } msg('Music သိမ်းပါပြီ — နောက် export မှာ ပါမယ်'); }).catch(function(e){ el('musicText').textContent = 'Music မရပါ: ' + e.message; });
 };
 el('chunkMinSel').onchange = function(){ el('chunkCustomBox').style.display = (el('chunkMinSel').value === 'custom') ? '' : 'none'; };
 el('chunkSplitBtn').onclick = function(){
@@ -2563,7 +2649,7 @@ function buildExportBody(){
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
   var sr = splitRemovedRanges(); for(var i2 = 0; i2 < sr.length; i2++) splitRanges.push(sr[i2]);
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, blur2Region:{x:clamp01(el('blur2XInp').value, 0), y:clamp01(el('blur2YInp').value, 0), w:clamp01(el('blur2WInp').value, 1), h:clamp01(el('blur2HInp').value, 0.30)}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume:0.12, subtitlesOn:true, subtitlesFrom:'translation', blurMode: el('blurSel').value, blurStrength: el('blurStrSel').value, blurRegion:{x:bp[0], y:bp[1], w:bp[2], h:bp[3]}, blurStartSec: Math.max(0, parseFloat(el('blurStartInp').value) || 0), blurEndSec: parseFloat(el('blurEndInp').value), blur2Enabled: el('blur2Chk').checked, blur2Region:{x:clamp01(el('blur2XInp').value, 0), y:clamp01(el('blur2YInp').value, 0), w:clamp01(el('blur2WInp').value, 1), h:clamp01(el('blur2HInp').value, 0.30)}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var t = (el('ovTextInp').value || '').trim(); var a = parseFloat(el('ovStartInp').value) || 0; var b = parseFloat(el('ovEndInp').value); if(!t || !isFinite(b) || b <= a) return []; return [{text:t, start:a, end:b, position: el('ovPosSel').value, size: parseInt(el('ovSizeSel').value, 10) || 32, color: el('ovColorSel').value}]; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
 function doExport(){
@@ -3312,9 +3398,13 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const clarityDenoise = CLARITY_DENOISE[clarityStrength];
   // Music: only used if a music file was uploaded via POST /api/projects/:id/music.
   const musicVol = Math.min(1.5, Math.max(0, parseFloat(o.musicVolume ?? 0.3)));
+  const musicDelaySec = Math.max(0, parseFloat(o.musicDelaySec || 0));
+  const musicTrimStartSec = Math.max(0, parseFloat(o.musicTrimStartSec || 0));
+  const musicPlayDurSec = parseFloat(o.musicPlayDurSec || 0);
+  const musicRemoved = !!o.musicRemoved;
   const musicFadeIn = Math.max(0, parseFloat(o.musicFadeIn || 0));
   const musicFadeOut = Math.max(0, parseFloat(o.musicFadeOut || 0));
-  const hasMusic = !!(p.music && p.music.path && fs.existsSync(p.music.path));
+  const hasMusic = !!(p.music && p.music.path && fs.existsSync(p.music.path)) && !musicRemoved;
   // Scene reorder (validated here; ignored at export with a note if it no longer matches).
   const rawOrder = Array.isArray(p.sceneOrder) ? p.sceneOrder : null;
   const sceneSegs = getSceneSegments(p.scenes || [], start, end);
@@ -3615,9 +3705,17 @@ app.post('/api/projects/:id/export', async (req, res) => {
         args.push('-stream_loop', '-1', '-i', p.music.path); inputs.push(p.music.path);
         const mIdx = nextInputIdx; nextInputIdx++;
         let mFilter = `[${mIdx}:a]volume=${musicVol}`;
-        if (musicFadeIn > 0) mFilter += `,afade=t=in:st=0:d=${musicFadeIn}`;
-        if (musicFadeOut > 0 && musicFadeOut < effDuration) mFilter += `,afade=t=out:st=${Math.max(0, effDuration - musicFadeOut)}:d=${musicFadeOut}`;
-        mFilter += `,atrim=duration=${effDuration},asetpts=PTS-STARTPTS[music]`;
+        if (musicPlayDurSec > 0) {
+          if (musicFadeIn > 0) mFilter += `,afade=t=in:st=0:d=${musicFadeIn}`;
+          if (musicFadeOut > 0 && musicFadeOut < musicPlayDurSec) mFilter += `,afade=t=out:st=${Math.max(0, musicPlayDurSec - musicFadeOut)}:d=${musicFadeOut}`;
+          mFilter += `,atrim=start=${musicTrimStartSec}:end=${musicTrimStartSec + musicPlayDurSec},asetpts=PTS-STARTPTS`;
+          if (musicDelaySec > 0) mFilter += `,adelay=${Math.round(musicDelaySec * 1000)}:all=1`;
+          mFilter += `,atrim=duration=${effDuration},asetpts=PTS-STARTPTS[music]`;
+        } else {
+          if (musicFadeIn > 0) mFilter += `,afade=t=in:st=0:d=${musicFadeIn}`;
+          if (musicFadeOut > 0 && musicFadeOut < effDuration) mFilter += `,afade=t=out:st=${Math.max(0, effDuration - musicFadeOut)}:d=${musicFadeOut}`;
+          mFilter += `,atrim=duration=${effDuration},asetpts=PTS-STARTPTS[music]`;
+        }
         filter += `;${mFilter}`; audioInputs.push('[music]');
       }
       let audioMap;
