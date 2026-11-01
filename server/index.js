@@ -1381,7 +1381,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey41</h1>
+<h1>🎬 Sangbik — Website · phonekey42</h1>
 <div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1465,7 +1465,7 @@ body{padding-bottom:76px}
 <div class="card"><h2>၄။ မြန်မာအသံ</h2>
 <select id="voiceSel"><option value="my-MM-ThihaNeural">Thiha (ကျား)</option><option value="my-MM-NilarNeural">Nilar (မ)</option></select>
 <button id="ttsBtn">🔊 အသံ ထုတ်ပါ</button>
-<button id="phoneTtsBtn">📱 ဖုန်းကနေ အသံထုတ် (Thiha/Nilar)</button><div id="phoneTtsText" class="small">ဖုန်းကနေ တိုက်ရိုက် Edge အသံထုတ်မယ် (server ထိန်းတာ မထိဘူး) — Microsoft Edge browser လိုတယ်။</div>
+<button id="phoneTtsBtn">📱 ဖုန်းကနေ အသံထုတ် (Thiha/Nilar)</button><div id="phoneTtsText" class="small">ဖုန်းကနေ တိုက်ရိုက် Edge အသံထုတ်မယ် (server ထိန်းတာ မထိဘူး) — Shell app (Sangbik) ထဲမှာ သုံးပါ၊ Chrome ထဲမှာ မရဘူး။</div>
 <div id="ttsText" class="small"></div><audio id="narrAudio" controls style="width:100%;display:none"></audio><label>အသံ အမြန်နှုန်း: <select id="narrSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label></div></div>
 <div id="tab-videos" class="tabPanel" style="display:none"><div class="card"><h2>📹 Videos</h2>
 <div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><label style="display:block;margin:6px 0"><input type="checkbox" id="fastMuxChk" checked> ⚡ မြန်မြန် export (video ပြန်မရိုက်ဘူး, စာတန်း မကပ်ဘူး — စာတန်းက ဖွင့်/ပိတ်လို့ရတဲ့ track အဖြစ် ပါမယ်)</label><div class="small">Method: Fast = video ပြန်မရိုက်ဘူး (မြန်); Stable = Full export (အမှန်ခြစ် ဖြုတ်)။ Blur/Zoom/Flip စတဲ့ visual tools တွေက copyright ကို မဖြေရှင်းဘူး — ခွင့်ပြုထားတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
@@ -2811,8 +2811,8 @@ el('phoneTtsBtn').onclick = function(){
     function runGroup(start){
       if(start >= items.length) return Promise.resolve();
       var group = [];
-      for(var k = 0; k < 3 && start + k < items.length; k++) group.push(synthOne(start + k));
-      return Promise.all(group).then(function(){ return new Promise(function(res){ setTimeout(res, 400); }).then(function(){ return runGroup(start + 3); }); });
+      for(var k = 0; k < 4 && start + k < items.length; k++) group.push(synthOne(start + k));
+      return Promise.all(group).then(function(){ return new Promise(function(res){ setTimeout(res, 400); }).then(function(){ return runGroup(start + 4); }); });
     }
     return runGroup(0).then(function(){
       var fd = new FormData();
