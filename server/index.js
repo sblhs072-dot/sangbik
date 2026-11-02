@@ -1381,7 +1381,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey50</h1>
+<h1>🎬 Sangbik — Website · phonekey51</h1>
 <div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1461,7 +1461,7 @@ body{padding-bottom:76px}
 <label>Translation engine: <select id="transModeSel"><option value="auto">Auto (Gemini လှည့် → Google)</option><option value="gemini">GEMINI only</option><option value="google">GOOGLE only</option></select></label> <button id="translateBtn">🌐 ဘာသာပြန်ပါ</button>
 <button id="transSrtDlBtn">⬇ ဘာသာပြန် SRT ဒေါင်းလုဒ်</button>
 <div id="cacheBox" class="small" style="display:none">⚡ ဒီ video ရဲ့ လိုင်းတွေ ဖုန်းထဲမှာ သိမ်းထားပြီးသား — <button id="useCacheBtn">သိမ်းထားတဲ့ လိုင်းတွေ သုံး (upload မလို)</button></div>
-<div id="linesBox"></div></div>
+<div id="linesBox"></div><div id="titleBox" style="margin-top:10px;border-top:1px solid #444;padding-top:8px"><h3>🎬 ဇာတ်ကားခေါင်းစဉ်</h3><button id="titlesBtn">✨ ခေါင်းစဉ် ၃-၄ ခု ထုတ်ပါ</button><div id="titlesText" class="small"></div><div id="titlesList"></div><div id="titlesPicked" class="small"></div></div></div>
 <div class="card"><h2>၄။ မြန်မာအသံ</h2>
 <select id="voiceSel"><option value="my-MM-ThihaNeural">Thiha (ကျား)</option><option value="my-MM-NilarNeural">Nilar (မ)</option></select>
 <button id="ttsBtn">🔊 အသံ ထုတ်ပါ</button>
@@ -2852,6 +2852,78 @@ function playPhoneVoiceLocal(){
     playNext();
   } catch(e){ msg('အသံ ဖွင့်မရပါ: ' + e.message); }
 }
+function cleanTitleLine(ln){
+  var t = ln.trim();
+  var i = 0;
+  while(i < t.length && t[i] >= '0' && t[i] <= '9') i++;
+  if(i > 0 && i < t.length && (t[i] === '.' || t[i] === ')' || t[i] === ':' || t[i] === '-')){ i++; while(i < t.length && t[i] === ' ') i++; t = t.slice(i); }
+  else if(t.length > 0 && (t[0] === '-' || t[0] === '•')){ t = t.slice(1).trim(); }
+  if(t.length > 1){
+    var f = t[0], lch = t[t.length - 1];
+    var dq = String.fromCharCode(34);
+    if((f === dq && lch === dq) || (f === '“' && lch === '”')) t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+async function geminiPhoneTitles(storyText, sceneDesc){
+  var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။');
+  var NL = String.fromCharCode(10);
+  var prompt = 'You write Myanmar movie-recap video titles. Given the story below (Burmese subtitles of a Chinese drama recap' + (sceneDesc ? ' plus a scene description' : '') + '), write EXACTLY 4 different titles in Burmese.' + NL + 'Rules: each title on its own line, numbered 1 to 4, no other text. Each title under 15 words, punchy spoken Burmese, not wordy, not literal. Each title must make viewers curious to watch: use a twist, a hidden fate, a reversal, a secret, or an impossible situation from THIS story. Do NOT spoil the ending. Do NOT invent events not in the story. Do NOT use generic phrases alone. Be specific to the story hook. Output ONLY the 4 titles.' + NL + (sceneDesc ? ('Scene: ' + sceneDesc + NL) : '') + 'Subtitles:' + NL + storyText;
+  var lastErr = null;
+  for(var i = 0; i < keys.length; i++){
+    for(var m = 0; m < PHONE_GEMINI_MODELS.length; m++){
+      try {
+        var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[m] + ':generateContent?key=' + keys[i], { method: 'POST', signal: AbortSignal.timeout(120000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+        if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); if(r.status === 429 && m + 1 < PHONE_GEMINI_MODELS.length){ try { noteQuotaSwitch(PHONE_GEMINI_MODELS[m], PHONE_GEMINI_MODELS[m + 1]); } catch(e){} } continue; }
+        var jj = await r.json();
+        var txt = '';
+        if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
+        var out = [];
+        txt.split(String.fromCharCode(10)).forEach(function(ln){
+          var t = cleanTitleLine(ln);
+          if(t.length > 3 && out.indexOf(t) < 0) out.push(t);
+        });
+        if(out.length) return out.slice(0, 4);
+        lastErr = new Error('Gemini returned no titles.');
+      } catch(e){ lastErr = e; }
+    }
+  }
+  throw lastErr || new Error('Phone titles failed.');
+}
+if(el('titlesBtn')) el('titlesBtn').onclick = function(){
+  if(!lines || !lines.length){ msg('စာသား မရှိသေးပါ — အရင် 🎙️ နဲ့ စာသား ထုတ်ပါ'); return; }
+  var btn = el('titlesBtn'); btn.disabled = true;
+  el('titlesText').textContent = 'ခေါင်းစဉ် ထုတ်နေပါတယ်…';
+  el('titlesList').innerHTML = ''; el('titlesPicked').textContent = '';
+  var parts = [];
+  (lines || []).forEach(function(l){ var t = (l.burmese || '').trim() || (l.original || '').trim(); if(t) parts.push(t); });
+  var story = parts.join(' ');
+  if(story.length > 4000) story = story.slice(0, 4000);
+  var sd = ''; try { sd = window.__sangbikSceneDesc || ''; } catch(e){}
+  geminiPhoneTitles(story, sd).then(function(titles){
+    btn.disabled = false;
+    el('titlesText').textContent = 'ကြိုက်တဲ့ ခေါင်းစဉ်ကို နှိပ်ရွေးပါ — ရွေးလိုက်ရင် Poster မှာလည်း ထည့်ပေးမယ်။';
+    var list = el('titlesList');
+    titles.forEach(function(t, ti){
+      var b = document.createElement('button');
+      b.textContent = (ti + 1) + '. ' + t;
+      b.style.display = 'block'; b.style.width = '100%'; b.style.textAlign = 'left'; b.style.margin = '4px 0';
+      b.onclick = function(){
+        var all = list.querySelectorAll('button');
+        for(var k = 0; k < all.length; k++) all[k].style.border = '2px solid #888';
+        b.style.border = '3px solid #fff';
+        window.__sangbikPickedTitle = t;
+        el('titlesPicked').textContent = 'ရွေးထားတဲ့ ခေါင်းစဉ်: ' + t;
+        var pi = el('oneTapPosterInp'); if(pi) pi.value = t;
+        msg('ခေါင်းစဉ် ရွေးပြီးပြီ — Poster မှာလည်း ထည့်ပေးထားတယ်');
+      };
+      list.appendChild(b);
+    });
+  }).catch(function(e){
+    btn.disabled = false;
+    el('titlesText').textContent = 'ခေါင်းစဉ် မရပါ: ' + e.message + ' — ပြန်နှိပ်ပြီး ထပ်ကြိုးစားပါ';
+  });
+};
 el('phoneTtsBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
   if(linesDirty){ msg('အရင် "သိမ်းပါ" ကို နှိပ်ပါ — မသိမ်းရသေးတဲ့ လိုင်းတွေ အသံမှာ မပါဘူး'); return; }
