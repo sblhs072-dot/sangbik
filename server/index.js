@@ -1399,7 +1399,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey57</h1>
+<h1>🎬 Sangbik — Website · phonekey58</h1>
 <div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div><div id="subBox" style="position:absolute;border:2px dashed #facc15;background:rgba(250,204,21,0.12);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#facc15;color:#000;padding:0 4px">စာတန်းထိုး</span><span id="subBoxHandle" style="position:absolute;right:0;bottom:0;width:28px;height:28px;background:#facc15;color:#000;font-size:18px;line-height:28px;text-align:center;cursor:nwse-resize">↘</span></div><div id="wmBox" style="position:absolute;border:2px solid #4ade80;background:rgba(74,222,128,0.12);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#4ade80;color:#000;padding:0 4px">Sangrecap</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1463,7 +1463,6 @@ body{padding-bottom:76px}
 <div class="small" id="transcriptRow"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label> <label>မူရင်းစကား: <select id="sourceLangSel"><option value="auto" selected>Auto</option><option value="zh">တရုတ်</option><option value="en">English</option><option value="ko">ကိုရီးယား</option><option value="ja">ဂျပန်</option><option value="hi">ဟိန္ဒီ (India)</option><option value="th">ထိုင်း</option></select></label></div>
 <div class="small"><label>Video နည်း: <select id="modeSel"><option value="phone">Phone-only (video ဖုန်းထဲမှာပဲ)</option><option value="zero">Zero-upload (SRT + MP3)</option></select></label></div>
 <button id="phoneAudioBtn" style="display:none">🎙️ Audio ပို့ပြီး စာသားပြောင်း</button>
-<button id="phoneOnePassBtn" style="display:none">🎙️✨ One-pass (မြန်မာ တိုက်ရိုက်)</button>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
 <div id="jobText"></div>
 <div id="urlRow"><div class="small">Link နဲ့ ယူမလား (တိုက်ရိုက် .mp4 link ပဲ ရမယ်)</div>
@@ -2294,24 +2293,6 @@ function phonePublishDirectLines(parsedLines){
   });
   return true;
 }
-el('phoneOnePassBtn').onclick = async function(){
-  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
-  var f = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
-  if(!f){ msg('Video အရင် ရွေးပါ'); return; }
-  if(!localFile || localFilePid !== pid){ localFile = f; localFilePid = pid; }
-  try{
-    msg('One-pass: Gemini အသံကို တိုက်ရိုက် မြန်မာလို နားထောင်နေပါတယ်…');
-    var aac = await extractAudioAAC(f);
-    var sceneFrames = [];
-    try { sceneFrames = await extractSceneFrames(f, 8); } catch(e){ sceneFrames = []; }
-    var keys = phoneKeys();
-    if(!keys.length){ msg('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။'); return; }
-    if(aac.size > 18 * 1048576){ msg('Audio ကြီးလွန်းလို့ One-pass မရပါ — 🎙️ နဲ့ server ကို ပို့ပါ။'); return; }
-    var oneLines = await phoneDirectOnePass(aac, sceneFrames, sourceLangChoice());
-    if(oneLines && oneLines.length){ phonePublishDirectLines(oneLines); msg('One-pass ပြီးပါပြီ: ' + oneLines.length + ' လိုင်း (မြန်မာ တိုက်ရိုက်)' + quotaSwitchNote() + ' — လိုင်းတွေ ကြည့်ပြီး 💾 သိမ်းပါ။'); return; }
-    msg('One-pass က လိုင်းမရပါ — 🎙️ နဲ့ ပြန်စမ်းပါ။');
-  } catch(e){ msg('One-pass မရပါ: ' + e.message + ' — 🎙️ နဲ့ ပြန်စမ်းပါ။'); }
-};
 el('phoneAudioBtn').onclick = async function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   var f = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
@@ -2411,7 +2392,6 @@ function applyMode(){
   var otb = el('oneTapExpBtn'); if(otb) otb.style.display = zero ? 'none' : '';
   var zn = el('zeroNote'); if(zn) zn.style.display = zero ? '' : 'none';
   var pb = el('phoneAudioBtn'); if(pb) pb.style.display = phone ? '' : 'none';
-  var ob = el('phoneOnePassBtn'); if(ob) ob.style.display = phone ? '' : 'none';
   var pn = el('phoneNote'); if(pn) pn.style.display = phone ? '' : 'none';
   var wc = el('whisperCard'); if(wc) wc.style.display = phone ? '' : 'none';
   var mn = el('modeNoteB'); if(mn) mn.textContent = 'Video နည်း: ' + (zero ? 'Zero-upload (SRT + MP3)' : 'Phone-only (video ဖုန်းထဲမှာပဲ)');
