@@ -1399,7 +1399,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey60</h1>
+<h1>🎬 Sangbik — Website · phonekey61</h1>
 <div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div><div id="subBox" style="position:absolute;border:2px dashed #facc15;background:rgba(250,204,21,0.12);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#facc15;color:#000;padding:0 4px">စာတန်းထိုး</span><span id="subBoxHandle" style="position:absolute;right:0;bottom:0;width:28px;height:28px;background:#facc15;color:#000;font-size:18px;line-height:28px;text-align:center;cursor:nwse-resize">↘</span></div><div id="wmBox" style="position:absolute;border:2px solid #4ade80;background:rgba(74,222,128,0.12);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#4ade80;color:#000;padding:0 4px">Sangrecap</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1532,13 +1532,117 @@ function clearUpPersist(){ try{ localStorage.removeItem(UP_KEY); }catch(e){} }
 function clearLocalFile(){ if(localFileUrl){ try{ URL.revokeObjectURL(localFileUrl); }catch(e){} localFileUrl = ''; } localFile = null; localFilePid = ''; syncVidRecap(); }
 function readUpPersist(){ try{ var s = localStorage.getItem(UP_KEY); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
 function nextIncomplete(received, total){ for(var i = 0; i < total; i++){ if(!received[i]) return i; } return total; }
+function idbVideoOpen(){
+  return new Promise(function(res, rej){
+    try {
+      if(!window.indexedDB){ rej(new Error('no indexedDB')); return; }
+      var req = window.indexedDB.open('sangbik-videos', 1);
+      req.onupgradeneeded = function(){ try { var db = req.result; if(db && !db.objectStoreNames.contains('videos')) db.createObjectStore('videos'); } catch(e){} };
+      req.onsuccess = function(){ res(req.result); };
+      req.onerror = function(){ rej(req.error || new Error('idb open failed')); };
+    } catch(e){ rej(e); }
+  });
+}
+function idbVideoSave(file){
+  try {
+    if(!file) return Promise.resolve();
+    return idbVideoOpen().then(function(db){
+      return new Promise(function(res){
+        try {
+          var tx = db.transaction(['videos'], 'readwrite');
+          var st = tx.objectStore('videos');
+          var putReq = st.put({blob: file, name: file.name || 'video.mp4', size: file.size || 0, lastModified: file.lastModified || 0, type: file.type || 'video/mp4', savedAt: Date.now()}, 'current');
+          putReq.onsuccess = function(){ res(); };
+          putReq.onerror = function(){ res(); };
+          tx.oncomplete = function(){ res(); };
+          tx.onerror = function(){ res(); };
+        } catch(e){ res(); }
+      });
+    }).catch(function(){});
+  } catch(e){ return Promise.resolve(); }
+}
+function idbVideoGet(){
+  return idbVideoOpen().then(function(db){
+    return new Promise(function(res){
+      try {
+        var tx = db.transaction(['videos'], 'readonly');
+        var st = tx.objectStore('videos');
+        var getReq = st.get('current');
+        getReq.onsuccess = function(){ res(getReq.result || null); };
+        getReq.onerror = function(){ res(null); };
+      } catch(e){ res(null); }
+    });
+  }).catch(function(){ return null; });
+}
+function idbVideoClear(){
+  return idbVideoOpen().then(function(db){
+    return new Promise(function(res){
+      try {
+        var tx = db.transaction(['videos'], 'readwrite');
+        var st = tx.objectStore('videos');
+        var delReq = st.delete('current');
+        delReq.onsuccess = function(){ res(); };
+        delReq.onerror = function(){ res(); };
+        tx.oncomplete = function(){ res(); };
+        tx.onerror = function(){ res(); };
+      } catch(e){ res(); }
+    });
+  }).catch(function(){});
+}
+function autoRecoverWipedProject(){
+  try { clearUpPersist(); } catch(e){}
+  var hasLines = false;
+  try { var lc = readLinesCache(); Object.keys(lc).forEach(function(fp){ if(lc[fp] && lc[fp].lines && lc[fp].lines.length) hasLines = true; }); } catch(e){}
+  return idbVideoGet().then(function(v){
+    if(!v && !hasLines){
+      setPid(''); el('pidText').textContent = 'Project မရွေးရသေးပါ';
+      msg('Project server မှာ ပျက်သွားပြီ (deploy/restart) — ဒါပေမယ့် စာသားတွေ ဖုန်းထဲမှာ ရှိနေသေးတယ်။ Video ပြန်ရွေးရင် စာသားတွေ ပြန်ပေါ်မယ်၊ Project အသစ်မှာ သိမ်းပြီး အသံ/export ပြန်ရမယ်။');
+      return;
+    }
+    return api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){
+      setPid(p.id);
+      try {
+        var vidFile = localFile;
+        if(!vidFile && v && v.blob){
+          try {
+            try { vidFile = new File([v.blob], v.name || 'video.mp4', {type: v.type || 'video/mp4', lastModified: v.lastModified || Date.now()}); } catch(fe){ vidFile = v.blob; try { vidFile.name = v.name || 'video.mp4'; } catch(ne){} }
+          } catch(e){ vidFile = null; }
+        }
+        if(vidFile){
+          localFile = vidFile; localFilePid = p.id;
+          try{ localFileUrl = URL.createObjectURL(vidFile); el('vid').src = localFileUrl; }catch(e){}
+          syncVidRecap();
+        }
+        try { if(!lines.length) restoreLastCacheOnLoad(); } catch(e){}
+        var hasVideo = !!localFile;
+        var hasLinesNow = lines.length > 0;
+        var m = 'Project server မှာ ပျက်သွားလို့ Project အသစ် အလိုအလျောက် ပြန်ဖန်တီးပါပြီ';
+        if(hasVideo) m += ' — video ပြန်ရပါပြီ';
+        if(hasLinesNow) m += ' (' + lines.length + ' လိုင်း ရှိနေပါပြီ)';
+        m += ' — ပြန်ရွေးစရာ မလိုပါ။';
+        if(hasLinesNow) m += ' လိုင်းတွေ စစ်ပြီး 💾 သိမ်းပါ။';
+        msg(m);
+        try {
+          if(lines.length && !cachedFp && localFile){
+            fileFingerprint(localFile).then(function(fp){ cachedFp = fp; scheduleCacheSave(); }).catch(function(){});
+          }
+        } catch(e){}
+      } catch(e){
+        try { msg('Project အသစ် ရပါပြီ: ' + p.id); } catch(e2){}
+      }
+    }).catch(function(){
+      setPid(''); el('pidText').textContent = 'Project မရွေးရသေးပါ';
+      msg('Project server မှာ ပျက်သွားပြီ (deploy/restart) — Project အသစ် အလိုအလျောက် မရလို့ Dashboard ကနေ Project အသစ် ဖန်တီးပြီး video ပြန်ရွေးပါ။');
+    });
+  }).catch(function(){});
+}
 function refreshAll(){
   if(!pid) return;
   api('/projects/' + pid).then(function(p){
     duration = (p.metadata && p.metadata.duration) || duration;
     if(p.file && !p.file.sourceUrl && !p.audioOnly) el('vid').src = '/api/projects/' + pid + '/preview';
     if(!linesDirty){ lines = p.translationLines || []; renderLines(); renderTimeline(); }
-  }).catch(function(e){ if(e && /Project not found/.test(e.message)){ setPid(''); el('pidText').textContent = 'Project မရွေးရသေးပါ'; msg('Project server မှာ ပျက်သွားပြီ (deploy/restart) — ဒါပေမယ့် စာသားတွေ ဖုန်းထဲမှာ ရှိနေသေးတယ်။ Video ပြန်ရွေးရင် စာသားတွေ ပြန်ပေါ်မယ်၊ Project အသစ်မှာ သိမ်းပြီး အသံ/export ပြန်ရမယ်။'); } });
+  }).catch(function(e){ if(e && /Project not found/.test(e.message)){ autoRecoverWipedProject(); } });
   pollJob();
   refreshExport();
 }
@@ -1640,13 +1744,15 @@ el('fileInput').addEventListener('change', function(){
     msg('Recap tab မှာ video ရွေးပြီး 🎙️ နှိပ်ပါ');
   el('progText').textContent = 'Local preview — server ထဲ မတင်သေးပါ';
   checkLinesCache(f);
+  try { idbVideoSave(f); } catch(e){}
 });
-el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); syncVidRecap(); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
+el('newBtn').onclick = function(){ api('/projects','POST',{title:'ရုပ်ရှင် ပြန်ပြောပြချက်',mode:'recap'}).then(function(p){ setPid(p.id); upState = null; clearUpPersist(); try { idbVideoClear(); } catch(e){} clearLocalFile(); el('vid').removeAttribute('src'); syncVidRecap(); linesDirty = false; lines = []; msg('Project အသစ် ရပါပြီ: ' + p.id); }).catch(function(e){ msg('Project မရပါ: ' + e.message); }); };
 el('listBtn').onclick = function(){ api('/projects').then(function(ps){ var h=''; ps.forEach(function(p){ h += '<div>' + p.id + ' — ' + (p.status||'') + ' ' + (p.file ? '🎬' : '') + ' <button data-pid="' + p.id + '">ရွေးပါ</button></div>'; }); el('projList').innerHTML = h || '(မရှိပါ)'; var bs = el('projList').querySelectorAll('button'); bs.forEach(function(b){ b.onclick = function(){ setPid(b.getAttribute('data-pid')); clearLocalFile(); loadLines(); }; }); }).catch(function(e){ msg('List မရပါ: ' + e.message); }); };
 function clearAllProjects(){
   if (!confirm('Project အားလုံးနဲ့ တင်ထားတဲ့ video တွေ အကုန်ဖျက်မှာလား? ဒါကို ပြန်ယူလို့မရပါ။')) return;
   api('/projects', 'DELETE').then(function(){
     setPid(''); el('pidText').textContent = 'Project မရွေးရသေးပါ'; el('projList').innerHTML = '';
+    try { idbVideoClear(); } catch(e){}
     upState = null; clearUpPersist(); clearLocalFile(); el('vid').removeAttribute('src'); syncVidRecap();
     linesDirty = false; lines = []; renderLines();
     msg('Project အားလုံး ဖျက်ပြီးပါပြီ။');
