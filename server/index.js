@@ -1381,8 +1381,8 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey51</h1>
-<div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
+<h1>🎬 Sangbik — Website · phonekey52</h1>
+<div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div><div id="subBox" style="position:absolute;border:2px dashed #facc15;background:rgba(250,204,21,0.12);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#facc15;color:#000;padding:0 4px">စာတန်းထိုး</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
 <div id="toolBar"><button data-goto="grp-split">ခွဲ</button><button data-goto="grp-chunks">အပိုင်းခွဲ</button><button data-goto="grp-blur">Blur</button><button data-goto="grp-zoom">Zoom</button><button data-goto="grp-rotate">လှည့်/မှန်</button><button data-goto="grp-subs">စာတန်း</button><button data-goto="grp-quality">အရည်အသွေး</button><button data-goto="grp-audio">အသံ/ညှိ</button><button data-goto="grp-size">အရွယ်အစား</button><button data-goto="grp-text">စာသား</button></div>
@@ -1422,7 +1422,7 @@ body{padding-bottom:76px}
 <label><input type="checkbox" id="mirrorChk"> မှန်ကြည့် (Mirror)</label><br></div>
 <div id="grp-subs" class="toolpanel"><label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
 <label>စာတန်း အရောင်: <select id="subColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option></select></label>
-<label>စာတန်း နေရာ: <select id="subPosSel"><option value="bottom">အောက်</option><option value="top">အပေါ်</option></select></label><br></div>
+<span class="small">စာတန်း နေရာ: video ပေါ်က အဝါရောင် box ကို ဆွဲရွှေ့ပါ</span><br></div>
 <div id="grp-quality" class="toolpanel"><label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label><div class="toolpanel"><label>Resolution: <select id="exportResSel"><option value="original">Original</option><option value="720p">720p</option><option value="480p">480p</option><option value="360p">360p</option></select></label> <label>Quality: <select id="exportBitSel"><option value="original">Original</option><option value="2.5M">Low (2.5 Mbps)</option><option value="4.0M">Normal (4.0 Mbps)</option><option value="6.5M">High (6.5 Mbps)</option></select></label> <label>Frame rate: <select id="exportFpsSel"><option value="original">Original</option><option value="30">30</option><option value="25">25</option><option value="24">24</option></select></label><br><span class="small">Split into parts: 1</span></div>
 <label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
 <label>Poster: <select id="posterSel"><option value="0" selected>မရှိ</option><option value="3">3 စက္ကန့်</option><option value="5">5 စက္ကန့်</option></select></label>
@@ -3056,6 +3056,36 @@ wireBlurPanel(1, 'blur1Tgl', 'blur1W', 'blur1H', 'blur1WTxt', 'blur1HTxt');
 wireBlurPanel(2, 'blur2Tgl', 'blur2W', 'blur2H', 'blur2WTxt', 'blur2HTxt');
 ['blur1DarkChk', 'blur2DarkChk'].forEach(function(id){ var dc = el(id); if(dc) dc.onchange = renderBlurBoxes; });
 renderBlurBoxes();
+var subBoxPos = {x: 0.05, y: 0.08, w: 0.9, h: 0.12};
+function renderSubBox(){
+  var boxEl = el('subBox'); if(!boxEl) return;
+  boxEl.style.display = 'block';
+  boxEl.style.left = (subBoxPos.x * 100) + '%'; boxEl.style.top = (subBoxPos.y * 100) + '%';
+  boxEl.style.width = (subBoxPos.w * 100) + '%'; boxEl.style.height = (subBoxPos.h * 100) + '%';
+}
+(function wireSubBox(){
+  var boxEl = el('subBox'); if(!boxEl) return;
+  var dragging = null;
+  boxEl.addEventListener('pointerdown', function(ev){
+    var wrap = el('vidWrap'); if(!wrap) return;
+    var r = wrap.getBoundingClientRect();
+    var fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
+    dragging = {dx: fx - subBoxPos.x, dy: fy - subBoxPos.y};
+    ev.preventDefault();
+  });
+  window.addEventListener('pointermove', function(ev){
+    if(!dragging) return;
+    var wrap = el('vidWrap'); if(!wrap) return;
+    var r = wrap.getBoundingClientRect();
+    var fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
+    subBoxPos.x = Math.max(0, Math.min(1 - subBoxPos.w, fx - dragging.dx));
+    subBoxPos.y = Math.max(0, Math.min(1 - subBoxPos.h, fy - dragging.dy));
+    renderSubBox();
+    ev.preventDefault();
+  });
+  window.addEventListener('pointerup', function(){ dragging = null; });
+})();
+renderSubBox();
 // Studio99-style Title / Watermark / Logo wiring (phonekey38).
 window.__titleColor = '#FFFFFF'; window.__wmColor = '#FFFFFF';
 function wirePct(sliderId, txtId, autoZero){
@@ -3098,7 +3128,7 @@ function buildExportBody(){
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
   var sr = splitRemovedRanges(); for(var i2 = 0; i2 < sr.length; i2++) splitRanges.push(sr[i2]);
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume: (function(){ try { if(el('origMuteChk') && el('origMuteChk').checked) return 0; } catch(e){} var v = parseFloat(el('origVolInp').value); return isFinite(v) ? v / 100 : 0.12; })(), subtitlesOn:true, subtitlesFrom:'translation', blurMode: (blurBoxes[1].on || blurBoxes[2].on) ? 'custom' : 'none', blurStrength: (el('blur1Type') ? el('blur1Type').value : 'strong'), blurStrength2: (el('blur2Type') ? el('blur2Type').value : 'strong'), blur1Enabled: !!blurBoxes[1].on, blur1Dark: !!(el('blur1DarkChk') && el('blur1DarkChk').checked), blurRegion:{x:blurBoxes[1].x, y:blurBoxes[1].y, w:blurBoxes[1].w, h:blurBoxes[1].h}, blurStartSec: 0, blurEndSec: -1, blur2Enabled: !!blurBoxes[2].on, blur2Dark: !!(el('blur2DarkChk') && el('blur2DarkChk').checked), blur2Region:{x:blurBoxes[2].x, y:blurBoxes[2].y, w:blurBoxes[2].w, h:blurBoxes[2].h}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomPulse: el('zoomPulseChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, logoWPct: parseFloat(el('logoWInp').value), logoHPct: parseFloat(el('logoHInp').value), narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var out = []; var e = (duration > 0 ? duration : 99999); var tt = (el('titleTextInp').value || '').trim(); if(tt) out.push({text:tt, start:0, end:e, position:'top', size: Math.round(32 * (parseFloat(el('titleSizeInp').value) || 100) / 100), color: window.__titleColor || '#FFFFFF', opacity: parseFloat(el('titleOpInp').value)}); var wt = (el('wmTextInp').value || '').trim(); if(wt) out.push({text:wt, start:0, end:e, position:'topleft', size: Math.round(32 * (parseFloat(el('wmSizeInp').value) || 100) / 100), color: window.__wmColor || '#FFFFFF', opacity: parseFloat(el('wmOpInp').value)}); return out; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, posterTitle: (function(){ try { var v = el('oneTapPosterInp'); return v ? v.value.trim() : ''; } catch(e){ return ''; } })(), logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, subX: subBoxPos.x, subY: subBoxPos.y, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume: (function(){ try { if(el('origMuteChk') && el('origMuteChk').checked) return 0; } catch(e){} var v = parseFloat(el('origVolInp').value); return isFinite(v) ? v / 100 : 0.12; })(), subtitlesOn:true, subtitlesFrom:'translation', blurMode: (blurBoxes[1].on || blurBoxes[2].on) ? 'custom' : 'none', blurStrength: (el('blur1Type') ? el('blur1Type').value : 'strong'), blurStrength2: (el('blur2Type') ? el('blur2Type').value : 'strong'), blur1Enabled: !!blurBoxes[1].on, blur1Dark: !!(el('blur1DarkChk') && el('blur1DarkChk').checked), blurRegion:{x:blurBoxes[1].x, y:blurBoxes[1].y, w:blurBoxes[1].w, h:blurBoxes[1].h}, blurStartSec: 0, blurEndSec: -1, blur2Enabled: !!blurBoxes[2].on, blur2Dark: !!(el('blur2DarkChk') && el('blur2DarkChk').checked), blur2Region:{x:blurBoxes[2].x, y:blurBoxes[2].y, w:blurBoxes[2].w, h:blurBoxes[2].h}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomPulse: el('zoomPulseChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, logoWPct: parseFloat(el('logoWInp').value), logoHPct: parseFloat(el('logoHInp').value), narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var out = []; var e = (duration > 0 ? duration : 99999); var tt = (el('titleTextInp').value || '').trim(); if(tt) out.push({text:tt, start:0, end:e, position:'top', size: Math.round(32 * (parseFloat(el('titleSizeInp').value) || 100) / 100), color: window.__titleColor || '#FFFFFF', opacity: parseFloat(el('titleOpInp').value)}); var wt = (el('wmTextInp').value || '').trim(); if(wt) out.push({text:wt, start:0, end:e, position:'topleft', size: Math.round(32 * (parseFloat(el('wmSizeInp').value) || 100) / 100), color: window.__wmColor || '#FFFFFF', opacity: parseFloat(el('wmOpInp').value)}); return out; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, posterTitle: (function(){ try { var v = el('oneTapPosterInp'); return v ? v.value.trim() : ''; } catch(e){ return ''; } })(), logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
 function doExport(){
@@ -3116,7 +3146,7 @@ function doExport(){
     if(body.removeRanges && body.removeRanges.length) vt.push('ခွဲ');
     if(body.posterSec && body.posterSec > 0) vt.push('Poster');
     if(body.narrationSync === 'timed' && body.smartSync) vt.push('Smart Sync');
-    if(body.subtitles && (body.subtitles.size !== 24 || body.subtitles.color !== '#FFFFFF' || body.subtitles.position !== 'bottom')) vt.push('စာတန်း အပြင်');
+    if(body.subtitles && (body.subtitles.size !== 24 || body.subtitles.color !== '#FFFFFF' || body.subtitles.subX !== 0.05 || body.subtitles.subY !== 0.08)) vt.push('စာတန်း နေရာ');
     if(body.quality !== '720p' || body.resolution !== 'original' || body.qualityBitrate !== 'original' || body.exportFps !== 'original') vt.push('အရည်အသွေး/Resolution');
     if(window.__aspectChanged) vt.push('အရွယ်အစား');
     if(vt.length){ body.fastMux = false; el('fastMuxChk').checked = false; msg(vt.join(', ') + ' ပါလို့ Fast export မှာ မရဘူး — Full export နဲ့ လုပ်မယ်။ video ပြန်ရိုက်လို့ မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်။'); }
@@ -3779,6 +3809,45 @@ app.post('/api/projects/:id/tts', async (req, res) => {
   } catch (e) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} res.status(500).json({ error: `TTS failed: ${e.message}` }); }
 });
 
+async function buildPosterCollage(outMp4, W, H, pid) {
+  const meta = await probe(outMp4);
+  const dur = parseFloat(meta?.duration || 0) || 0;
+  let times = [];
+  try {
+    const k = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time,flags', '-of', 'csv=p=0', outMp4], { timeout: 60000 });
+    const kfs = [];
+    for (const line of (k.out || '').split(String.fromCharCode(10))) {
+      const parts = line.split(',');
+      if (parts.length >= 2) {
+        const t = parseFloat(parts[0]);
+        if (Number.isFinite(t) && (parts[1] || '').indexOf('K') >= 0) kfs.push(t);
+      }
+    }
+    const uniq = [...new Set(kfs.map(t => Math.round(t * 100) / 100))].sort((a, b) => a - b);
+    if (uniq.length >= 3) times = [uniq[0], uniq[Math.floor(uniq.length / 2)], uniq[uniq.length - 1]];
+    else times = uniq.slice();
+  } catch (e) { times = []; }
+  if (dur > 0) {
+    for (const f of [0.25, 0.5, 0.75]) {
+      const t = dur * f;
+      if (times.length < 3 && !times.some(x => Math.abs(x - t) < 1.0)) times.push(t);
+    }
+  }
+  while (times.length < 3) times.push(times.length ? times[times.length - 1] + 0.5 : 0.5);
+  times = times.slice(0, 3).sort((a, b) => a - b);
+  const frames = [];
+  for (let i = 0; i < 3; i++) {
+    const fp = path.join(OUT_DIR, `${pid}-collage${i}.jpg`);
+    await run('ffmpeg', ['-y', '-ss', String(times[i]), '-i', outMp4, '-frames:v', '1', '-q:v', '2', fp], { timeout: 60000 });
+    frames.push(fp);
+  }
+  const panelW = Math.max(2, Math.floor(W / 3 / 2) * 2);
+  const collage = path.join(OUT_DIR, `${pid}-collage.jpg`);
+  const fc = `[0:v]scale=${panelW}:${H}:force_original_aspect_ratio=increase,crop=${panelW}:${H}[p0];[1:v]scale=${panelW}:${H}:force_original_aspect_ratio=increase,crop=${panelW}:${H}[p1];[2:v]scale=${panelW}:${H}:force_original_aspect_ratio=increase,crop=${panelW}:${H}[p2];[p0][p1][p2]hstack=inputs=3,scale=${W}:${H}[vout]`;
+  await run('ffmpeg', ['-y', '-i', frames[0], '-i', frames[1], '-i', frames[2], '-filter_complex', fc, '-map', '[vout]', '-frames:v', '1', '-q:v', '2', collage], { timeout: 60000 });
+  for (const f of frames) { try { fs.unlinkSync(f); } catch {} }
+  return collage;
+}
 app.post('/api/projects/:id/export', async (req, res) => {
   const p = projects[req.params.id]; if (!p || !p.file) return res.status(400).json({ error: 'Project or video not found' });
   if (p.audioOnly) return res.status(400).json({ error: 'Phone-only project — export လုပ်ဖို့ video ကို တစ်ခါတည်း တင်ရမယ်။' });
@@ -3860,6 +3929,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const videoMirror = o.videoMirror === true || o.videoMirror === 'true';
   const posterSecRaw = parseInt(o.posterSec ?? o.posterSeconds ?? 0);
   const posterSec = [3, 5].includes(posterSecRaw) ? posterSecRaw : 0;
+  const posterTitleProvided = (typeof o.posterTitle === 'string' && o.posterTitle.trim().length > 0);
   const posterTitle = String(o.posterTitle || 'Sangbik').replace(/[^\u1000-\u109FA-Za-z0-9 _-]/g, '').trim() || 'Sangbik';
   const blurStrength = ['light', 'medium', 'strong', 'xstrong'].includes(o.blurStrength) ? o.blurStrength : 'medium';
   const blurSigma = BLUR_SIGMA[blurStrength];
@@ -4027,7 +4097,22 @@ app.post('/api/projects/:id/export', async (req, res) => {
         try { fs.rmSync(reorderDir, { recursive: true, force: true }); } catch {}
         inputPath = reorderOut; effStart = 0; effEnd = segDurs.reduce((a, b) => a + b, 0);
       }
-      if (zoomPulse) {
+      if (zoomPulse && transition !== 'crossfade' && p.metadata?.width && p.metadata?.height) {
+        // Single-pass overlay zoom (phonekey52, fast path): one encode for
+        // the whole range instead of 24+ segment encodes + concat. Framing
+        // proven identical to segments (bench 60s: PSNR inf/52.1/48.4 at
+        // t=1/4/6, control 10.2dB). t resets after input -ss, so the 3s/2s
+        // pattern starts at the trimmed start, exactly like segments.
+        // Crossfade keeps the segment path below (it needs segments).
+        const totalDurP = Math.max(effEnd - effStart, 0.1);
+        const zoomOutP = path.join(OUT_DIR, `${p.id}-zoomp.mp4`);
+        const fcP = `[0:v]split[a][b];[a]crop=iw/${zoomMax}:ih/${zoomMax},scale=${p.metadata.width}:${p.metadata.height}[zm];[b]null[nm];[nm][zm]overlay=0:0:enable='lt(mod(t,5),3)'[vout]`;
+        const argsP = ['-y', '-ss', String(effStart), '-to', String(effEnd), '-i', inputPath, '-filter_complex', fcP, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast'];
+        if (p.metadata?.audioCodec) argsP.push('-map', '0:a', '-c:a', 'aac'); else argsP.push('-an');
+        argsP.push(zoomOutP);
+        await run('ffmpeg', argsP);
+        inputPath = zoomOutP; effStart = 0; effEnd = totalDurP;
+      } else if (zoomPulse) {
         // Auto Zoom pulse 3s zoomed / 2s normal, repeating (user request):
         // cycle = 5s: 3s at zoomMax, 2s at 1.0x, centred crop+scale, concat.
         // Same segment mechanism as the old zoom pulse, only the segment
@@ -4099,10 +4184,12 @@ app.post('/api/projects/:id/export', async (req, res) => {
       const _s = _targetMin / Math.min(_aw, _ah);
       const W = Math.max(2, Math.round(_aw * _s / 2) * 2), H = Math.max(2, Math.round(_ah * _s / 2) * 2);
       const ar = _aw + '/' + _ah;
-      const align = sub.position === 'top' ? 8 : sub.position === 'middle' ? 5 : 2;
+      const subX = parseFloat(sub.subX); const subY = parseFloat(sub.subY);
+      const hasSubPos = Number.isFinite(subX) && Number.isFinite(subY);
+      const align = hasSubPos ? 7 : (sub.position === 'top' ? 8 : sub.position === 'middle' ? 5 : 2);
       const color = (sub.color || '#FFFFFF').replace('#', '');
       const bgr = color.length === 6 ? color.slice(4, 6) + color.slice(2, 4) + color.slice(0, 2) : 'FFFFFF';
-      const style = `FontName=${subFont},FontSize=${sub.size || 24},PrimaryColour=&H${bgr}&,Alignment=${align}`;
+      const style = `FontName=${subFont},FontSize=${sub.size || 24},PrimaryColour=&H${bgr}&,Alignment=${align}` + (hasSubPos ? `,MarginL=${Math.round(Math.max(0, Math.min(1, subX)) * W)},MarginV=${Math.round(Math.max(0, Math.min(1, subY)) * H)}` : '');
       const scaleFlags = (enhanceClarity && quality === '1080p') ? ':flags=lanczos' : '';
       const baseVf = `crop='if(gt(iw/ih,${ar}),ih*${ar},iw)':'if(gt(iw/ih,${ar}),ih,iw/(${ar}))',scale=${W}:${H}${scaleFlags}`;
       // FILTER ORDER (documented): aspect crop/scale -> blur (if any) -> clarity sharpen+denoise -> subtitles burn-in.
@@ -4373,17 +4460,30 @@ app.post('/api/projects/:id/export', async (req, res) => {
       };
       await run('ffmpeg', args, { onStderr: onMuxProgress });
       let posterApplied = false; let posterNote = null;
-      if (posterSec > 0) {
+      if (posterSec > 0 || posterTitleProvided) {
         try {
-          const posterImg = path.join(OUT_DIR, `${p.id}-poster.jpg`);
+          let posterImg = path.join(OUT_DIR, `${p.id}-poster.jpg`);
           await run('ffmpeg', ['-y', '-ss', '1', '-i', outMp4, '-vframes', '1', posterImg]);
+          let posterDur = posterSec > 0 ? posterSec : 2;
+          let useCollage = false;
+          if (posterTitleProvided) {
+            try {
+              const collageImg = await buildPosterCollage(outMp4, W, H, p.id);
+              posterImg = collageImg; posterDur = 2; useCollage = true;
+            } catch (ce) { posterNote = 'Collage poster failed, single-frame poster used: ' + ce.message; }
+          }
           const posterMp4 = path.join(OUT_DIR, `${p.id}-poster.mp4`);
           let draw = '';
           let notoPath = null;
           try { const fl = await run('fc-list', ['Noto Sans Myanmar', 'file'], { timeout: 15000 }); const line = (fl.out || '').split('\n').find(x => x.toLowerCase().indexOf('.ttf') >= 0); if (line) notoPath = line.split(':')[0].trim(); } catch {}
           if (notoPath) { const safeTitle = posterTitle.replace(/'/g, "").replace(/:/g, ""); draw = `,drawtext=fontfile=${notoPath}:text='${safeTitle}':fontsize=48:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-80`; }
           else { const fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const asciiTitle = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fontPath) && asciiTitle) draw = `,drawtext=fontfile=${fontPath}:text='${asciiTitle}':fontsize=48:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-80`; }
-          await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', 'anullsrc', '-vf', `scale=trunc(iw/2)*2:trunc(ih/2)*2${draw}`, '-t', String(posterSec), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
+          if (useCollage) {
+            const bigFs = Math.max(48, Math.round(H / 10));
+            if (notoPath) { const st = posterTitle.replace(/'/g, '').replace(/:/g, ''); draw = `,drawtext=fontfile=${notoPath}:text='${st}':fontsize=${bigFs}:fontcolor=white:borderw=3:bordercolor=black:box=1:boxcolor=black@0.55:boxborderw=24:x=(w-text_w)/2:y=(h-text_h)/2`; }
+            else { const fp2 = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const at2 = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fp2) && at2) draw = `,drawtext=fontfile=${fp2}:text='${at2}':fontsize=${bigFs}:fontcolor=white:borderw=3:bordercolor=black:box=1:boxcolor=black@0.55:boxborderw=24:x=(w-text_w)/2:y=(h-text_h)/2`; }
+          }
+          await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', 'anullsrc', '-vf', `scale=trunc(iw/2)*2:trunc(ih/2)*2${draw}`, '-t', String(posterDur), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
           const finalMp4 = path.join(OUT_DIR, `${p.id}-recap-poster.mp4`);
           await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex', '[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', finalMp4]);
           outMp4 = finalMp4; posterApplied = true;
