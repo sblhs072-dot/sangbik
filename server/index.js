@@ -398,7 +398,20 @@ function scriptToSegments(script, totalDuration) {
   return lines.map((text, i) => ({ start: i * per, end: (i + 1) * per, text }));
 }
 function fmtAss(t) { const cs = Math.max(0, Math.floor(t * 100)); const h = String(Math.floor(cs / 360000)).padStart(1, '0'); const m = String(Math.floor(cs / 6000) % 60).padStart(2, '0'); const s = String(Math.floor(cs / 100) % 60).padStart(2, '0'); const c = String(cs % 100).padStart(2, '0'); return `${h}:${m}:${s}.${c}`; }
-function writeOverlayAss(project, overlays, W, H) {
+function resolveSubtitleFont(f){ return f === 'Pyidaungsu' ? 'Pyidaungsu' : 'Noto Sans Myanmar'; }
+function resolveFontDir(base){
+  try {
+    const root = base || __dirname;
+    const cands = [path.join(root, 'fonts', 'Pyidaungsu.ttf'), path.join(root, 'Pyidaungsu.ttf')];
+    for (const c of cands) if (fs.existsSync(c)) return path.dirname(c);
+  } catch {}
+  return '';
+}
+function fontsDirArg(){
+  const d = resolveFontDir();
+  return d ? `:fontsdir='${d}'` : '';
+}
+function writeOverlayAss(project, overlays, W, H, font) {
   // Custom text overlays via the proven subtitle burn-in path (libass +
   // fontconfig 'Noto Sans Myanmar', the same font the main subtitles use), so
   // Burmese text renders exactly like subtitles. One style per overlay carries
@@ -414,7 +427,7 @@ function writeOverlayAss(project, overlays, W, H) {
     const alpha = Math.max(0, Math.min(255, Math.round((1 - op / 100) * 255))).toString(16).padStart(2, '0').toUpperCase();
     const c = ov.color.replace('#', '');
     const bgr = c.slice(4, 6) + c.slice(2, 4) + c.slice(0, 2);
-    return `Style: Ov${i},Noto Sans Myanmar,${ov.size},&H${alpha}${bgr}&,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,${useAlign},${mL},10,${mV},1`;
+    return `Style: Ov${i},${font || 'Noto Sans Myanmar'},${ov.size},&H${alpha}${bgr}&,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,${useAlign},${mL},10,${mV},1`;
   }).join('\n');
   const events = overlays.map((ov, i) => `Dialogue: 0,${fmtAss(ov.start)},${fmtAss(ov.end)},Ov${i},,0,0,0,,${ov.text}`).join('\n');
   const body = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${styles}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events}\n`;
@@ -434,7 +447,7 @@ function writeVtt(project, segments, suffix = '') {
 }
 function normaliseLines(lines) {
   if (!Array.isArray(lines)) return [];
-  return lines.map(l => ({ start: parseFloat(l.start || 0), end: parseFloat(l.end || 0), original: String(l.original || ''), burmese: String(l.burmese || ''), manual: !!l.manual, speaker: String(l.speaker || '') })).filter(l => l.end > l.start && l.burmese);
+  return lines.map(l => ({ start: parseFloat(l.start || 0), end: parseFloat(l.end || 0), original: String(l.original || ''), burmese: String(l.burmese || ''), manual: !!l.manual, speaker: String(l.speaker || ''), outro: !!l.outro })).filter(l => l.end > l.start && l.burmese);
 }
 function ttsLinesFingerprint(lines) { let h = 0; const s = (lines || []).map(l => (l.start || 0) + '|' + (l.end || 0) + '|' + (l.burmese || '')).join('\n'); for (let i = 0; i < s.length; i++) { h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0; } return String(h); }
 function getSceneSegments(scenes, start, end) {
@@ -1386,7 +1399,7 @@ body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey54</h1>
+<h1>🎬 Sangbik — Website · phonekey55</h1>
 <div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div><div id="subBox" style="position:absolute;border:2px dashed #facc15;background:rgba(250,204,21,0.12);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#facc15;color:#000;padding:0 4px">စာတန်းထိုး</span><span id="subBoxHandle" style="position:absolute;right:0;bottom:0;width:28px;height:28px;background:#facc15;color:#000;font-size:18px;line-height:28px;text-align:center;cursor:nwse-resize">↘</span></div><div id="wmBox" style="position:absolute;border:2px solid #4ade80;background:rgba(74,222,128,0.12);touch-action:none;cursor:move;box-sizing:border-box"><span style="font-size:12px;background:#4ade80;color:#000;padding:0 4px">Sangrecap</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1426,7 +1439,7 @@ body{padding-bottom:76px}
 <div id="grp-rotate" class="toolpanel"><label>လှည့်: <select id="rotSel"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
 <label><input type="checkbox" id="mirrorChk"> မှန်ကြည့် (Mirror)</label><br></div>
 <div id="grp-subs" class="toolpanel"><label>စာတန်း အရွယ်: <select id="subSizeSel"><option value="18">18</option><option value="24" selected>24</option><option value="32">32</option></select></label>
-<label>စာတန်း အရောင်: <select id="subColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option></select></label>
+<label>စာတန်း အရောင်: <select id="subColorSel"><option value="#FFFFFF">အဖြူ</option><option value="#FFFF00">အဝါ</option></select></label><label>စာတန်း Font: <select id="subFontSel"><option value="Noto Sans Myanmar" selected>Noto Sans Myanmar</option><option value="Pyidaungsu">Pyidaungsu</option></select></label>
 <span class="small">စာတန်း နေရာ: video ပေါ်က အဝါရောင် box ကို ဆွဲရွှေ့ပါ၊ အောက်ညာဘက် ↘ ကနေ ဆွဲပြီး ကြီးသေး လုပ်ပါ (box ကျဉ်းရင် စာကြောင်း တိုပြီး စောစော wrap ဖြစ်မယ်)</span><br></div>
 <div id="grp-quality" class="toolpanel"><label>အရည်အသွေး: <select id="qualitySel"><option value="720p">720p</option><option value="1080p">1080p</option></select></label><div class="toolpanel"><label>Resolution: <select id="exportResSel"><option value="original">Original</option><option value="720p">720p</option><option value="480p">480p</option><option value="360p">360p</option></select></label> <label>Quality: <select id="exportBitSel"><option value="original">Original</option><option value="2.5M">Low (2.5 Mbps)</option><option value="4.0M">Normal (4.0 Mbps)</option><option value="6.5M">High (6.5 Mbps)</option></select></label> <label>Frame rate: <select id="exportFpsSel"><option value="original">Original</option><option value="30">30</option><option value="25">25</option><option value="24">24</option></select></label><br><span class="small">Split into parts: 1</span></div>
 <label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
@@ -1450,6 +1463,7 @@ body{padding-bottom:76px}
 <div class="small" id="transcriptRow"><label>Transcript: <select id="transcriptSel"><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="groq">Groq Turbo</option><option value="whisper">Whisper</option></select></label> <label>မူရင်းစကား: <select id="sourceLangSel"><option value="auto" selected>Auto</option><option value="zh">တရုတ်</option><option value="en">English</option><option value="ko">ကိုရီးယား</option><option value="ja">ဂျပန်</option><option value="hi">ဟိန္ဒီ (India)</option><option value="th">ထိုင်း</option></select></label></div>
 <div class="small"><label>Video နည်း: <select id="modeSel"><option value="phone">Phone-only (video ဖုန်းထဲမှာပဲ)</option><option value="zero">Zero-upload (SRT + MP3)</option></select></label></div>
 <button id="phoneAudioBtn" style="display:none">🎙️ Audio ပို့ပြီး စာသားပြောင်း</button>
+<button id="phoneOnePassBtn" style="display:none">🎙️✨ One-pass (မြန်မာ တိုက်ရိုက်)</button>
 <div class="bar"><i id="progBar"></i></div><div id="progText" class="small"></div>
 <div id="jobText"></div>
 <div id="urlRow"><div class="small">Link နဲ့ ယူမလား (တိုက်ရိုက် .mp4 link ပဲ ရမယ်)</div>
@@ -1461,6 +1475,7 @@ body{padding-bottom:76px}
 <button id="loadBtn">လိုင်းများ ဖွင့်ပါ</button>
 <button id="saveBtn">💾 သိမ်းပါ</button>
 <button id="addLineBtn">＋ လိုင်းထည့်ပါ</button>
+<button id="outroBtn">🙏 Outro ထည့်ပါ</button>
 <input type="file" id="srtFileInp" accept=".srt">
 <button id="srtImportBtn">📄 SRT ထည့်ပါ</button>
 <label>Translation engine: <select id="transModeSel"><option value="auto">Auto (Gemini လှည့် → Google)</option><option value="gemini">GEMINI only</option><option value="google">GOOGLE only</option></select></label> <button id="translateBtn">🌐 ဘာသာပြန်ပါ</button>
@@ -1565,12 +1580,14 @@ function scheduleCacheSave(){
     }, 1000);
   } catch(e){}
 }
+var OUTRO_THANKS = 'ကြည့်ရှုပေးတာ ကျေးဇူးတင်ပါတယ်။';
+var OUTRO_CTA = 'Video ကြိုက်ရင် Like လုပ်ပြီး Follow လုပ်ပေးပါ။';
 function restoreLastCacheOnLoad(){
   try {
     var lc = readLinesCache(); var bestFp = null; var bestAt = -1;
     Object.keys(lc).forEach(function(fp){ var at = (lc[fp] && lc[fp].savedAt) || 0; if(at > bestAt){ bestAt = at; bestFp = fp; } });
     if(bestFp && lc[bestFp] && lc[bestFp].lines && lc[bestFp].lines.length && !lines.length){
-      cachedFp = bestFp; lines = lc[bestFp].lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese, speaker: l.speaker || '' }; });
+      cachedFp = bestFp; lines = lc[bestFp].lines.map(function(l){ return { start: l.start, end: l.end, original: l.original, burmese: l.burmese, speaker: l.speaker || '', outro: (l.outro || l.burmese === OUTRO_THANKS || l.burmese === OUTRO_CTA) }; });
       renderLines(); renderTimeline();
     }
   } catch(e){}
@@ -1757,6 +1774,7 @@ el('phoneKeyTestBtn').onclick = async function(){
 renderPhoneKeys();
 function phoneNeedsTranslation(l){
   if(!l) return false;
+  if(l.outro) return false;
   var b = (l.burmese || '').trim();
   if(!b) return true;
   if(b === (l.original || '').trim()) return true;
@@ -2109,6 +2127,38 @@ function phoneParseTime(pt){
   if(!isFinite(m) || !isFinite(sc) || m < 0 || sc < 0) return null;
   return m * 60 + sc;
 }
+function phoneParseOnePass(text){
+  var out = [];
+  var rows = String(text || '').split(String.fromCharCode(10));
+  for(var i = 0; i < rows.length; i++){
+    var line = rows[i].trim(); if(!line) continue;
+    var o = line.indexOf('['); var c = line.indexOf(']'); if(o < 0 || c < 0 || c <= o + 1) continue;
+    var inside = line.slice(o + 1, c); var dash = inside.indexOf(' - '); if(dash < 0) continue;
+    var st = phoneParseTime(inside.slice(0, dash)); var en = phoneParseTime(inside.slice(dash + 3));
+    if(st === null || en === null || en <= st) continue;
+    var rest = line.slice(c + 1).trim(); var spk = '';
+    if(rest.charAt(0) === '('){ var cp = rest.indexOf(')'); if(cp > 0){ spk = rest.slice(1, cp).trim(); if(spk.length > 24) spk = spk.slice(0, 24); rest = rest.slice(cp + 1).trim(); } }
+    if(!rest) continue;
+    var burmese = ''; var chinese = '';
+    var pi = rest.indexOf('||');
+    if(pi >= 0){ burmese = rest.slice(0, pi).trim(); chinese = rest.slice(pi + 2).trim(); }
+    else {
+      var hasMy = false; var hasCjk = false;
+      for(var k = 0; k < rest.length; k++){ var cc = rest.charCodeAt(k); if(cc >= 0x1000 && cc <= 0x109F) hasMy = true; if(cc >= 0x4E00 && cc <= 0x9FFF) hasCjk = true; }
+      if(hasCjk && !hasMy){ chinese = rest; }
+      else if(hasMy){ burmese = rest; }
+      else { continue; }
+    }
+    if(!burmese && !chinese) continue;
+    var hasAny = false;
+    var all = burmese + chinese;
+    for(var k2 = 0; k2 < all.length; k2++){ var cc2 = all.charCodeAt(k2); if((cc2 >= 0x1000 && cc2 <= 0x109F) || (cc2 >= 0x4E00 && cc2 <= 0x9FFF)){ hasAny = true; break; } }
+    if(!hasAny) continue;
+    out.push({start: Math.round(st * 100) / 100, end: Math.round(en * 100) / 100, original: chinese, burmese: burmese, speaker: spk, manual: false});
+  }
+  out.sort(function(a, b){ return a.start - b.start; });
+  return out;
+}
 function phoneParseTranscript(text){
   var out = [];
   var rows = String(text || '').split(String.fromCharCode(10));
@@ -2162,6 +2212,38 @@ async function phoneSceneRead(sceneFrames){
   }
   return '';
 }
+async function phoneDirectOnePass(aac, sceneFrames, sourceLang){
+  window.__sangbikQuotaSwitches = 0;
+  var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ');
+  var b64 = await blobToBase64(aac);
+  var langName = (sourceLang === 'zh' || sourceLang === 'auto' || !sourceLang) ? 'Chinese' : sourceLang;
+  var prompt = 'Listen to this audio CAREFULLY and write Burmese dubbing lines directly from what you hear, in time order. The speech is in ' + langName + '. Rules: output one line per speaker turn, never merge different speakers into one line. Each line must start with [MM:SS.s - MM:SS.s] then a space, then (Speaker A) or (Speaker B) or a short role name, then a space, then the Burmese dubbing line, then a space, then ||, then a space, then the Chinese words you heard for reference. Write the Burmese FIRST, from the audio meaning directly — never translate from the Chinese text you write after it. Burmese style: natural spoken Burmese for dubbing, short, verb-final, tone particles matching the tone, pronouns consistent with the relationship, cover every clause you hear, never drop a leading order or exclamation. If a part is unclear, inaudible, music, background noise, or a short grunt, DO NOT guess and DO NOT turn it into words — leave that part out entirely (no line for it). Never add a noun (food, animal, person, object) you did not clearly hear, no matter how well it would fit the story or the image. If scene images are attached, use them only to choose names and homophones you actually heard that fit what is visible. Do not add any explanation, only the lines.';
+  var parts = [{text: prompt}, {inlineData: {mimeType: 'audio/aac', data: b64}}];
+  var frameB64s = [];
+  try {
+    for(var fi = 0; fi < (sceneFrames || []).length && fi < 8; fi++){
+      var d = (sceneFrames[fi] && sceneFrames[fi].data) ? sceneFrames[fi].data : '';
+      var fb = (d.indexOf(',') >= 0) ? d.split(',')[1] : d;
+      if(fb) frameB64s.push(fb);
+    }
+  } catch(e){ frameB64s = []; }
+  if(frameB64s.length){ parts.push({text: 'Scene frames from the video, in time order. Use them only to choose names and homophones you actually heard that fit what is visible.'}); frameB64s.forEach(function(b){ parts.push({inlineData: {mimeType: 'image/jpeg', data: b}}); }); }
+  var lastErr = null;
+  for(var ki = 0; ki < keys.length; ki++){
+    for(var mi = 0; mi < PHONE_GEMINI_MODELS.length; mi++){
+      try {
+        var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + PHONE_GEMINI_MODELS[mi] + ':generateContent?key=' + keys[ki], {method: 'POST', signal: AbortSignal.timeout(120000), headers: {'Content-Type': 'application/json'}, body: JSON.stringify({contents: [{parts: parts}]})});
+        if(!r.ok){ lastErr = new Error('Gemini HTTP ' + r.status); if(r.status === 429){ if(mi + 1 < PHONE_GEMINI_MODELS.length) noteQuotaSwitch(PHONE_GEMINI_MODELS[mi], PHONE_GEMINI_MODELS[mi + 1]); else if(ki + 1 < keys.length) noteQuotaSwitch(PHONE_GEMINI_MODELS[mi], PHONE_GEMINI_MODELS[0]); } continue; }
+        var jj = await r.json(); var txt = '';
+        if(jj.candidates && jj.candidates[0] && jj.candidates[0].content && jj.candidates[0].content.parts){ txt = jj.candidates[0].content.parts.map(function(pp){ return pp.text || ''; }).join(''); }
+        var parsed = phoneParseOnePass(txt);
+        if(parsed.length) return parsed;
+        lastErr = new Error('Gemini returned no one-pass lines');
+      } catch(e){ lastErr = e; }
+    }
+  }
+  throw lastErr || new Error('Phone one-pass failed.');
+}
 async function phoneDirectTranscribe(aac, sceneFrames, sourceLang){
   window.__sangbikQuotaSwitches = 0;
   var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ');
@@ -2212,6 +2294,24 @@ function phonePublishDirectLines(parsedLines){
   });
   return true;
 }
+el('phoneOnePassBtn').onclick = async function(){
+  if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
+  var f = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
+  if(!f){ msg('Video အရင် ရွေးပါ'); return; }
+  if(!localFile || localFilePid !== pid){ localFile = f; localFilePid = pid; }
+  try{
+    msg('One-pass: Gemini အသံကို တိုက်ရိုက် မြန်မာလို နားထောင်နေပါတယ်…');
+    var aac = await extractAudioAAC(f);
+    var sceneFrames = [];
+    try { sceneFrames = await extractSceneFrames(f, 8); } catch(e){ sceneFrames = []; }
+    var keys = phoneKeys();
+    if(!keys.length){ msg('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။'); return; }
+    if(aac.size > 18 * 1048576){ msg('Audio ကြီးလွန်းလို့ One-pass မရပါ — 🎙️ နဲ့ server ကို ပို့ပါ။'); return; }
+    var oneLines = await phoneDirectOnePass(aac, sceneFrames, sourceLangChoice());
+    if(oneLines && oneLines.length){ phonePublishDirectLines(oneLines); msg('One-pass ပြီးပါပြီ: ' + oneLines.length + ' လိုင်း (မြန်မာ တိုက်ရိုက်)' + quotaSwitchNote() + ' — လိုင်းတွေ ကြည့်ပြီး 💾 သိမ်းပါ။'); return; }
+    msg('One-pass က လိုင်းမရပါ — 🎙️ နဲ့ ပြန်စမ်းပါ။');
+  } catch(e){ msg('One-pass မရပါ: ' + e.message + ' — 🎙️ နဲ့ ပြန်စမ်းပါ။'); }
+};
 el('phoneAudioBtn').onclick = async function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   var f = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
@@ -2307,6 +2407,7 @@ function applyMode(){
   var otb = el('oneTapExpBtn'); if(otb) otb.style.display = zero ? 'none' : '';
   var zn = el('zeroNote'); if(zn) zn.style.display = zero ? '' : 'none';
   var pb = el('phoneAudioBtn'); if(pb) pb.style.display = phone ? '' : 'none';
+  var ob = el('phoneOnePassBtn'); if(ob) ob.style.display = phone ? '' : 'none';
   var pn = el('phoneNote'); if(pn) pn.style.display = phone ? '' : 'none';
   var wc = el('whisperCard'); if(wc) wc.style.display = phone ? '' : 'none';
   var mn = el('modeNoteB'); if(mn) mn.textContent = 'Video နည်း: ' + (zero ? 'Zero-upload (SRT + MP3)' : 'Phone-only (video ဖုန်းထဲမှာပဲ)');
@@ -2640,6 +2741,20 @@ function syncEditorInputs(){
   tinputs.forEach(function(inp){ var idx = parseInt(inp.getAttribute('data-tidx'), 10); if(!tvals[idx]) tvals[idx] = {}; tvals[idx][inp.getAttribute('data-kind')] = parseMmSs(inp.value); });
   Object.keys(tvals).forEach(function(k){ var idx = parseInt(k, 10); var tv = tvals[idx]; if(!lines[idx] || !isFinite(tv.start) || !isFinite(tv.end) || tv.end <= tv.start) return; lines[idx].start = tv.start; lines[idx].end = tv.end; });
 }
+el('outroBtn').onclick = function(){
+  if(!lines.length){ msg('လိုင်း အရင် ရှိမှ Outro ထည့်လို့ရမယ် — 🎙️ နဲ့ စာသား အရင် ထုတ်ပါ။'); return; }
+  var hasOutro = false;
+  for(var oi = 0; oi < lines.length; oi++){ if(lines[oi].outro || lines[oi].burmese === OUTRO_THANKS || lines[oi].burmese === OUTRO_CTA){ hasOutro = true; break; } }
+  if(hasOutro){ msg('Outro ရှိပြီးသား — ထပ်မထည့်ပါ။'); return; }
+  syncEditorInputs();
+  var lastEnd = 0;
+  for(var li = 0; li < lines.length; li++){ if(lines[li].end > lastEnd) lastEnd = lines[li].end; }
+  lines.push({start: lastEnd + 0.5, end: lastEnd + 5.5, original: '', burmese: OUTRO_THANKS, speaker: '', manual: true, outro: true});
+  lines.push({start: lastEnd + 6.0, end: lastEnd + 11.0, original: '', burmese: OUTRO_CTA, speaker: '', manual: true, outro: true});
+  linesDirty = true;
+  renderLines(); renderTimeline(); scheduleCacheSave(); window.__sangbikVoiceClips = null;
+  msg('Outro ထည့်ပြီးပြီ — Voiceover + Export မှာ ကျေးဇူးတင်စကားနဲ့ Like/Follow ပါမယ်။ 💾 သိမ်းပါ။');
+};
 el('addLineBtn').onclick = function(){
   if(!pid){ msg('Project အရင် ဖန်တီးပါ'); return; }
   syncEditorInputs();
@@ -3169,7 +3284,7 @@ function buildExportBody(){
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
   var sr = splitRemovedRanges(); for(var i2 = 0; i2 < sr.length; i2++) splitRanges.push(sr[i2]);
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, subX: subBoxPos.x, subY: subBoxPos.y, subW: subBoxPos.w, subH: subBoxPos.h, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume: (function(){ try { if(el('origMuteChk') && el('origMuteChk').checked) return 0; } catch(e){} var v = parseFloat(el('origVolInp').value); return isFinite(v) ? v / 100 : 0.12; })(), subtitlesOn:true, subtitlesFrom:'translation', blurMode: (blurBoxes[1].on || blurBoxes[2].on) ? 'custom' : 'none', blurStrength: (el('blur1Type') ? el('blur1Type').value : 'strong'), blurStrength2: (el('blur2Type') ? el('blur2Type').value : 'strong'), blur1Enabled: !!blurBoxes[1].on, blur1Dark: !!(el('blur1DarkChk') && el('blur1DarkChk').checked), blurRegion:{x:blurBoxes[1].x, y:blurBoxes[1].y, w:blurBoxes[1].w, h:blurBoxes[1].h}, blurStartSec: 0, blurEndSec: -1, blur2Enabled: !!blurBoxes[2].on, blur2Dark: !!(el('blur2DarkChk') && el('blur2DarkChk').checked), blur2Region:{x:blurBoxes[2].x, y:blurBoxes[2].y, w:blurBoxes[2].w, h:blurBoxes[2].h}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomPulse: el('zoomPulseChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, logoWPct: parseFloat(el('logoWInp').value), logoHPct: parseFloat(el('logoHInp').value), narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var out = []; var e = (duration > 0 ? duration : 99999); var tt = (el('titleTextInp').value || '').trim(); if(tt) out.push({text:tt, start:0, end:e, position:'top', size: Math.round(32 * (parseFloat(el('titleSizeInp').value) || 100) / 100), color: window.__titleColor || '#FFFFFF', opacity: parseFloat(el('titleOpInp').value)}); var wt = (el('wmTextInp').value || '').trim(); if(wt) out.push({text:wt, start:0, end:e, position:'topleft', x: wmBoxPos.x, y: wmBoxPos.y, size: Math.round(32 * (parseFloat(el('wmSizeInp').value) || 100) / 100), color: window.__wmColor || '#FFFFFF', opacity: parseFloat(el('wmOpInp').value)}); return out; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, posterTitle: (function(){ try { var v = el('oneTapPosterInp'); return v ? v.value.trim() : ''; } catch(e){ return ''; } })(), logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, subX: subBoxPos.x, subY: subBoxPos.y, subW: subBoxPos.w, subH: subBoxPos.h, font: (function(){ try { var s = el('subFontSel'); return s && s.value ? s.value : 'Noto Sans Myanmar'; } catch(e){ return 'Noto Sans Myanmar'; }})()}, narrationVolume:1, originalVolume: (function(){ try { if(el('origMuteChk') && el('origMuteChk').checked) return 0; } catch(e){} var v = parseFloat(el('origVolInp').value); return isFinite(v) ? v / 100 : 0.12; })(), subtitlesOn:true, subtitlesFrom:'translation', blurMode: (blurBoxes[1].on || blurBoxes[2].on) ? 'custom' : 'none', blurStrength: (el('blur1Type') ? el('blur1Type').value : 'strong'), blurStrength2: (el('blur2Type') ? el('blur2Type').value : 'strong'), blur1Enabled: !!blurBoxes[1].on, blur1Dark: !!(el('blur1DarkChk') && el('blur1DarkChk').checked), blurRegion:{x:blurBoxes[1].x, y:blurBoxes[1].y, w:blurBoxes[1].w, h:blurBoxes[1].h}, blurStartSec: 0, blurEndSec: -1, blur2Enabled: !!blurBoxes[2].on, blur2Dark: !!(el('blur2DarkChk') && el('blur2DarkChk').checked), blur2Region:{x:blurBoxes[2].x, y:blurBoxes[2].y, w:blurBoxes[2].w, h:blurBoxes[2].h}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomPulse: el('zoomPulseChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, logoWPct: parseFloat(el('logoWInp').value), logoHPct: parseFloat(el('logoHInp').value), narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var out = []; var e = (duration > 0 ? duration : 99999); var tt = (el('titleTextInp').value || '').trim(); if(tt) out.push({text:tt, start:0, end:e, position:'top', size: Math.round(32 * (parseFloat(el('titleSizeInp').value) || 100) / 100), color: window.__titleColor || '#FFFFFF', opacity: parseFloat(el('titleOpInp').value)}); var wt = (el('wmTextInp').value || '').trim(); if(wt) out.push({text:wt, start:0, end:e, position:'topleft', x: wmBoxPos.x, y: wmBoxPos.y, size: Math.round(32 * (parseFloat(el('wmSizeInp').value) || 100) / 100), color: window.__wmColor || '#FFFFFF', opacity: parseFloat(el('wmOpInp').value)}); return out; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, posterTitle: (function(){ try { var v = el('oneTapPosterInp'); return v ? v.value.trim() : ''; } catch(e){ return ''; } })(), logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
 function doExport(){
@@ -4027,7 +4142,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const transitionDurationRaw = parseFloat(o.transitionDuration || 0.5);
   const transitionDuration = Math.min(2, Math.max(0, Number.isFinite(transitionDurationRaw) ? transitionDurationRaw : 0.5));
   const panMode = ['none', 'left-right', 'right-left'].includes(o.panMode) ? o.panMode : 'none';
-  const subFont = (o.subtitles && o.subtitles.font) ? String(o.subtitles.font) : 'Noto Sans Myanmar';
+  const subFont = resolveSubtitleFont(o.subtitles && o.subtitles.font); const effFont = (subFont === 'Pyidaungsu' && !resolveFontDir()) ? 'Noto Sans Myanmar' : subFont;
   if (!FONT_WHITELIST.includes(subFont)) return res.status(400).json({ error: `Subtitle font not available on this server: ${subFont}. Available fonts: ${FONT_WHITELIST.join(', ')} (for Burmese text use Noto Sans Myanmar).` });
   const enhanceClarity = !!o.enhanceClarity;
   const clarityStrength = ['light', 'medium', 'strong'].includes(o.clarityStrength) ? o.clarityStrength : 'medium';
@@ -4230,7 +4345,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       const align = hasSubPos ? 7 : (sub.position === 'top' ? 8 : sub.position === 'middle' ? 5 : 2);
       const color = (sub.color || '#FFFFFF').replace('#', '');
       const bgr = color.length === 6 ? color.slice(4, 6) + color.slice(2, 4) + color.slice(0, 2) : 'FFFFFF';
-      const style = `FontName=${subFont},FontSize=${sub.size || 24},PrimaryColour=&H${bgr}&,Alignment=${align}` + (hasSubPos ? `,MarginL=${Math.round(Math.max(0, Math.min(1, subX)) * W)},MarginV=${Math.round(Math.max(0, Math.min(1, subY)) * H)}` + (hasSubW ? `,MarginR=${Math.round(Math.max(0, 1 - (Math.max(0, Math.min(1, subX)) + Math.max(0, Math.min(1, subW)))) * W)}` : '') : '');
+      const style = `FontName=${effFont},FontSize=${sub.size || 24},PrimaryColour=&H${bgr}&,Alignment=${align}` + (hasSubPos ? `,MarginL=${Math.round(Math.max(0, Math.min(1, subX)) * W)},MarginV=${Math.round(Math.max(0, Math.min(1, subY)) * H)}` + (hasSubW ? `,MarginR=${Math.round(Math.max(0, 1 - (Math.max(0, Math.min(1, subX)) + Math.max(0, Math.min(1, subW)))) * W)}` : '') : '');
       const scaleFlags = (enhanceClarity && quality === '1080p') ? ':flags=lanczos' : '';
       const baseVf = `crop='if(gt(iw/ih,${ar}),ih*${ar},iw)':'if(gt(iw/ih,${ar}),ih,iw/(${ar}))',scale=${W}:${H}${scaleFlags}`;
       // FILTER ORDER (documented): aspect crop/scale -> blur (if any) -> clarity sharpen+denoise -> subtitles burn-in.
@@ -4242,13 +4357,14 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // Crop x/y expressions are evaluated per frame (t = time in seconds), so this is a real slow pan.
       const panExpr = panMode === 'left-right' ? `min(t/${effDuration},1)` : `1-min(t/${effDuration},1)`;
       const panVf = panMode === 'none' ? null : `scale=${Math.round(W * 1.2)}:${Math.round(H * 1.2)}${scaleFlags},crop=${W}:${H}:x='(iw-ow)*${panExpr}':y='(ih-oh)/2'`;
-      const subFilter = subtitlesOn ? `,subtitles='${srtPath.replace(/'/g, "\\'")}':force_style='${style}'` : '';
+      const subFilter = subtitlesOn ? `,subtitles='${srtPath.replace(/'/g, "\\'")}':force_style='${style}'${fontsDirArg()}` : '';
       let overlayFilter = '';
       let overlayNote = null;
       if (overlaySegs.length) {
         try {
-          const overlayAssPath = writeOverlayAss(p, overlaySegs, W, H);
+          const overlayAssPath = writeOverlayAss(p, overlaySegs, W, H, effFont);
           overlayFilter = `,subtitles='${overlayAssPath.replace(/'/g, "\\'")}'`;
+          overlayFilter += fontsDirArg();
         } catch (oe) { overlayNote = 'Text overlay failed, video kept without it: ' + oe.message; }
       }
       let outMp4 = path.join(OUT_DIR, `${p.id}-recap.mp4`);
