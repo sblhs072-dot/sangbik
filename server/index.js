@@ -1376,12 +1376,12 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 #tabBar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;display:flex;background:#1e222b;border-top:1px solid #333;z-index:50;padding:6px 4px 10px}
 .tabbtn{flex:1;background:transparent;color:#9aa;margin:2px;padding:10px 2px;font-size:13px;min-height:48px}
 .tabbtn.active{background:#2563eb;color:#fff}
-#upBtn,#expBtn{width:100%;box-sizing:border-box;padding:14px;font-size:17px;font-weight:700}
+#upBtn,#expBtn,#oneTapExpBtn{width:100%;box-sizing:border-box;padding:14px;font-size:17px;font-weight:700}
 body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey46</h1>
+<h1>🎬 Sangbik — Website · phonekey47</h1>
 <div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1468,7 +1468,7 @@ body{padding-bottom:76px}
 <button id="phoneTtsBtn">📱 ဖုန်းကနေ အသံထုတ် (Thiha/Nilar)</button><div id="phoneTtsText" class="small">ဖုန်းကနေ တိုက်ရိုက် Edge အသံထုတ်မယ် (server ထိန်းတာ မထိဘူး) — Shell app (Sangbik) ထဲမှာ သုံးပါ၊ Chrome ထဲမှာ မရဘူး။</div>
 <div id="ttsText" class="small"></div><audio id="narrAudio" controls style="width:100%;display:none"></audio><label>အသံ အမြန်နှုန်း: <select id="narrSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label></div></div>
 <div id="tab-videos" class="tabPanel" style="display:none"><div class="card"><h2>📹 Videos</h2>
-<div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><label style="display:block;margin:6px 0"><input type="checkbox" id="fastMuxChk" checked> ⚡ မြန်မြန် export (video ပြန်မရိုက်ဘူး, စာတန်း မကပ်ဘူး — စာတန်းက ဖွင့်/ပိတ်လို့ရတဲ့ track အဖြစ် ပါမယ်)</label><div class="small">Method: Fast = video ပြန်မရိုက်ဘူး (မြန်); Stable = Full export (အမှန်ခြစ် ဖြုတ်)။ Blur/Zoom/Flip စတဲ့ visual tools တွေက copyright ကို မဖြေရှင်းဘူး — ခွင့်ပြုထားတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
+<div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><label style="display:block;margin:6px 0"><input type="checkbox" id="fastMuxChk" checked> ⚡ မြန်မြန် export (video ပြန်မရိုက်ဘူး, စာတန်း မကပ်ဘူး — စာတန်းက ဖွင့်/ပိတ်လို့ရတဲ့ track အဖြစ် ပါမယ်)</label><div class="small">Method: Fast = video ပြန်မရိုက်ဘူး (မြန်); Stable = Full export (အမှန်ခြစ် ဖြုတ်)။ Blur/Zoom/Flip စတဲ့ visual tools တွေက copyright ကို မဖြေရှင်းဘူး — ခွင့်ပြုထားတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div><button id="oneTapExpBtn">🎬 တစ်ချက်နှိပ် Export (အသံ+video တစ်ခါတည်း)</button><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
 <div id="expText" class="small"></div>
 <div id="dlBox"></div></div></div>
 <div id="tab-profile" class="tabPanel" style="display:none"><div class="card"><h2>👤 Profile</h2><div id="profileHealth" class="small">ဆာဗာ စစ်နေပါတယ်…</div><div id="modeNoteB" class="small"></div><div class="small">Sangbik website — video တွေကို ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div></div><div class="card" style="margin-top:12px"><h3>🔑 Gemini API Key</h3><div class="small">Key ကို ဒီဖုန်းထဲမှာပဲ သိမ်းမယ် — server ကို မပို့ဘူး၊ chat ကို မပို့ဘူး။ Google ကို ဖုန်းကနေ တိုက်ရိုက် ခေါ်မယ် (Studio99 လို)။ Key အပြည့်ကို AI Studio ကနေ ယူရမယ် — Studio99 ထဲမှာ •••• နောက်ဆုံး ၄ လုံးပဲ မြင်ရတယ်။</div><div class="small" style="margin-top:6px"><a href="https://aistudio.google.com/apikey" target="_blank">🔗 Key ယူရန် — AI Studio ဖွင့်ပါ</a></div><div id="phoneKeysList" style="margin-top:8px"></div><div style="display:flex;gap:6px;margin-top:8px"><input type="password" id="phoneKeyInput" placeholder="Gemini API key အသစ်" style="flex:1"><button id="phoneKeyEyeBtn">👁</button></div><div style="display:flex;gap:6px;margin-top:8px"><button id="phoneKeyAddBtn">+ Add</button><button id="phoneKeyTestBtn">Test all</button></div><div id="phoneKeysMsg" class="small"></div></div><div class="card" style="margin-top:12px"><h3>⚡ Groq API Key (မြန်)</h3><div class="small">Groq key ကို ဒီဖုန်းထဲမှာပဲ သိမ်းမယ် — server ကို မပို့ဘူး။ Key ကို console.groq.com ကနေ ယူရမယ်။ Browser က Groq ကို တိုက်ရိုက် ခေါ်လို့ မရရင် Test က ✗ ပြမယ်၊ အဲဒါဆို server နည်းပဲ သုံးပါ။</div><div class="small" style="margin-top:6px"><a href="https://console.groq.com/keys" target="_blank">🔗 Key ယူရန် — Groq Console ဖွင့်ပါ</a></div><div id="groqKeysList" style="margin-top:8px"></div><div style="display:flex;gap:6px;margin-top:8px"><input type="password" id="groqKeyInput" placeholder="Groq API key အသစ်" style="flex:1"><button id="groqKeyEyeBtn">👁</button></div><div style="display:flex;gap:6px;margin-top:8px"><button id="groqKeyAddBtn">+ Add</button><button id="groqKeyTestBtn">Test all</button></div><div id="groqKeysMsg" class="small"></div></div><div class="card" style="margin-top:12px"><h3>🌐 ဖုန်းကနေ ဘာသာပြန်တာ</h3><div style="display:flex;gap:6px;margin-top:8px"><select id="phoneEngineSel" style="flex:1"><option value="gemini">Gemini (မှန်တယ်)</option><option value="groq">Groq (မြန်တယ်)</option></select></div><div class="small">Gemini = မှန်တယ်၊ နှေးတယ်။ Groq = မြန်တယ်၊ စကားလုံး ခပ်တုံးတုံး ဖြစ်နိုင်တယ်။ ရွေးထားတဲ့ engine ရဲ့ key မရှိရင် ကျန်တဲ့ engine ကို သုံးမယ်၊ နှစ်ခုလုံး မရှိရင် server နဲ့ ပြန်မယ်။</div></div></div>
@@ -1530,7 +1530,7 @@ function refreshExport(){
     else if(s.status === 'ready'){ el('expText').textContent = 'Export: ready'; el('dlBox').innerHTML = '<a href="/api/projects/' + pid + '/download/video"><button>⬇ Video ဒေါင်းလုဒ်</button></a> <a href="/api/projects/' + pid + '/download/subtitles"><button>⬇ Subtitles (SRT)</button></a>'; }
   }).catch(function(){});
 }
-el('linesBox').addEventListener('input', function(){ linesDirty = true; scheduleCacheSave(); });
+el('linesBox').addEventListener('input', function(){ linesDirty = true; window.__sangbikVoiceClips = null; scheduleCacheSave(); });
 // LINES-CACHE: same video re-picked after a deploy wipe reloads its lines
 // from the phone (localStorage) instead of re-uploading + re-transcribing.
 // Fingerprint = size + SHA-256 of first+last 1MB (fast, no full-file hash).
@@ -1616,7 +1616,7 @@ el('fileInput').addEventListener('change', function(){
   syncVidRecap();
   var saved = readUpPersist();
   var resumed = saved && saved.projectId === pid && saved.fileName === f.name && saved.fileSize === f.size && saved.lastModified === f.lastModified && upIdFor(f) === saved.uploadId;
-  msg('Video ကို phone ထဲမှာပဲ ထားပါပြီ (' + f.name + ', ' + Math.round(f.size/1048576*10)/10 + ' MB) — 🎙️ Audio ပို့တဲ့ ခလုတ်ကို နှိပ်မှ audio တင်မယ်, video မတင်သေးပါ။' + (resumed ? ' Export အတွက် တင်တာ ရပ်သွားခဲ့တဲ့ file ဖြစ်လို့ Export ကို နှိပ်ရင် ရောက်ပြီးသား အပိုင်းတွေ ကျော်ပြီး ဆက်တင်မယ်။' : ''));
+    msg('Recap tab မှာ video ရွေးပြီး 🎙️ နှိပ်ပါ');
   el('progText').textContent = 'Local preview — server ထဲ မတင်သေးပါ';
   checkLinesCache(f);
 });
@@ -2421,7 +2421,7 @@ function renderLines(){
     h += '<div class="line"><div class="t"><input type="text" class="tm" data-tidx="' + idx + '" data-kind="start" value="' + fmtMmSs(l.start) + '"> – <input type="text" class="tm" data-tidx="' + idx + '" data-kind="end" value="' + fmtMmSs(l.end) + '"></div>' + (l.speaker ? '<span class="small">🗣 ' + esc(l.speaker) + '</span> ' : '') + origPart + '<input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"> <button data-del="' + idx + '">✕</button></div>';
   });
   el('linesBox').innerHTML = h || '(လိုင်းမရှိသေးပါ — “လိုင်းထည့်ပါ” နဲ့ ကိုယ်တိုင် ထည့်နိုင်တယ်)';
-  el('linesBox').querySelectorAll('button[data-del]').forEach(function(b){ b.onclick = function(){ var idx = parseInt(b.getAttribute('data-del'), 10); if(isNaN(idx) || !lines[idx]) return; lines.splice(idx, 1); linesDirty = true; renderLines(); renderTimeline(); scheduleCacheSave(); msg('လိုင်း ဖျက်ပါပြီ — သိမ်းမှ အတည်ဖြစ်မယ်။'); }; });
+  el('linesBox').querySelectorAll('button[data-del]').forEach(function(b){ b.onclick = function(){ var idx = parseInt(b.getAttribute('data-del'), 10); if(isNaN(idx) || !lines[idx]) return; lines.splice(idx, 1); linesDirty = true; renderLines(); renderTimeline(); scheduleCacheSave(); window.__sangbikVoiceClips = null; msg('လိုင်း ဖျက်ပါပြီ — သိမ်းမှ အတည်ဖြစ်မယ်။'); }; });
 }
 function fmtTl(s){ s = Math.max(0, Math.floor(s)); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
 function renderTimeline(){
@@ -2836,6 +2836,22 @@ window.__sangbikEdgeDone = function(id, b64, err){
   var cb = window.__sangbikEdgeCb && window.__sangbikEdgeCb[id];
   if(cb) cb(b64, err);
 };
+function playPhoneVoiceLocal(){
+  try {
+    var vc = window.__sangbikVoiceClips;
+    if(!vc || !vc.clips || !vc.clips.length){ msg('အသံ အရင် ထုတ်ပါ'); return; }
+    var na = el('narrAudio'); if(!na) return;
+    var idx = 0;
+    function playNext(){
+      if(idx >= vc.clips.length) return;
+      var url = URL.createObjectURL(vc.clips[idx].blob);
+      na.src = url; na.style.display = '';
+      na.onended = function(){ try { URL.revokeObjectURL(url); } catch(e){} idx++; playNext(); };
+      na.play().catch(function(){});
+    }
+    playNext();
+  } catch(e){ msg('အသံ ဖွင့်မရပါ: ' + e.message); }
+}
 el('phoneTtsBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
   if(linesDirty){ msg('အရင် "သိမ်းပါ" ကို နှိပ်ပါ — မသိမ်းရသေးတဲ့ လိုင်းတွေ အသံမှာ မပါဘူး'); return; }
@@ -2874,16 +2890,11 @@ el('phoneTtsBtn').onclick = function(){
       return Promise.all(group).then(function(){ return new Promise(function(res){ setTimeout(res, 400); }).then(function(){ return runGroup(start + 4); }); });
     }
     return runGroup(0).then(function(){
-      var fd = new FormData();
-      clips.forEach(function(c, ci){ fd.append('clips', c.blob, 'clip' + ci + '.mp3'); });
-      fd.append('lineIndex', JSON.stringify(clips.map(function(c){ return c.lineIndex; })));
-      fd.append('voice', voice); fd.append('pause', '0.5');
-      el('phoneTtsText').textContent = 'အသံတွေ server ကို တင်နေပါတယ်…';
-      return fetch('/api/projects/' + pid + '/narration-phone', { method: 'POST', body: fd }).then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }).then(function(j){
-        el('phoneTtsText').innerHTML = 'ဖုန်းအသံ အဆင်သင့်ဖြစ်ပါပြီ။ <a href="/api/projects/' + pid + '/download/audio">အသံ (MP3) နားထောင်ရန် / ဒေါင်းလုဒ်</a>';
-        var na = el('narrAudio'); if(na){ na.src = '/api/projects/' + pid + '/download/audio'; na.style.display = ''; }
-        msg('ဖုန်းအသံ ရပါပြီ'); btn.disabled = false;
-      });
+      if(linesDirty){ el('phoneTtsText').textContent = 'စာသား ပြင်ထားလို့ အသံ မသိမ်းပါ — သိမ်းပြီး အသံ ပြန်ထုတ်ပါ'; btn.disabled = false; return; }
+      window.__sangbikVoiceClips = { clips: clips, voice: voice, pause: '0.5', lineIndex: clips.map(function(c){ return c.lineIndex; }) };
+      el('phoneTtsText').innerHTML = 'အသံ အဆင်သင့် (' + clips.length + ' လိုင်း) — Export နှိပ်ရင် အသံ+video တစ်ခါတည်း တင်မယ်။ <button id="phoneVoicePreviewBtn">▶ အသံ နားထောင်ရန် (ဖုန်းထဲက)</button>';
+      var pvb = el('phoneVoicePreviewBtn'); if(pvb) pvb.onclick = playPhoneVoiceLocal;
+      msg('ဖုန်းအသံ အဆင်သင့် — Export မှာ တစ်ခါတည်း တင်မယ်'); btn.disabled = false;
     });
   }).catch(function(e){ el('phoneTtsText').textContent = 'ဖုန်းအသံ မရပါ: ' + e.message + ' [code=' + (e.code || '?') + (e.status ? (' status=' + e.status) : '') + '] — ဒီ code ကို ကျွန်တော့်ကို ပြောပါ'; btn.disabled = false; });
 };
@@ -3042,6 +3053,60 @@ function doExport(){
   el('expText').textContent = body.fastMux ? 'Fast export လုပ်နေပါတယ် — စက္ကန့်ပိုင်းပဲ ကြာမယ်…' : 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
   api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 }
+async function oneTapExport(){
+  if(!pid){ msg('Recap tab မှာ video အရင် ရွေးပါ'); return; }
+  if(!lines || !lines.length){ msg('စာသား မရှိသေးပါ — Recap မှာ 🎙️ နှိပ်ပြီး စာသား အရင် ထုတ်ပါ'); return; }
+  if(linesDirty){ msg('အရင် "သိမ်းပါ" ကို နှိပ်ပါ — မသိမ်းရသေးတဲ့ လိုင်းတွေ export မှာ မပါဘူး'); return; }
+  try {
+    var nc = el('narrSyncChk'); if(nc) nc.checked = true;
+    var sc = el('smartSyncChk'); if(sc) sc.checked = true;
+    var zp = el('zoomPulseChk'); if(zp) zp.checked = true;
+    var zc = el('zoomChk'); if(zc) zc.checked = false;
+    var om = el('origMuteChk'); if(om) om.checked = true;
+    var fm = el('fastMuxChk'); if(fm) fm.checked = false;
+  } catch(e){}
+  var p;
+  try { p = await api('/projects/' + pid); } catch(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; return; }
+  if(!p || p.error){ msg('Project server မှာ ပျက်သွားပြီ — Dashboard မှာ Project အသစ် ဖန်တီးပြီး video ပြန်ရွေးပါ'); return; }
+  try {
+    var vc = window.__sangbikVoiceClips;
+    if(vc && vc.clips && vc.clips.length){
+      msg('အသံ တင်နေပါတယ်… (' + vc.clips.length + ' လိုင်း)');
+      var fd = new FormData();
+      vc.clips.forEach(function(c, ci){ fd.append('clips', c.blob, 'clip' + ci + '.mp3'); });
+      fd.append('lineIndex', JSON.stringify(vc.lineIndex));
+      fd.append('voice', vc.voice); fd.append('pause', vc.pause || '0.5');
+      var r = await fetch('/api/projects/' + pid + '/narration-phone', { method: 'POST', body: fd });
+      var j = await r.json().catch(function(){ return {}; });
+      if(!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+      msg('အသံ တင်ပြီးပြီ — video/export ဆက်လုပ်နေပါတယ်…');
+    }
+  } catch(e){
+    if(/Project not found/.test(e.message)) msg('Project server မှာ ပျက်သွားပြီ — Dashboard မှာ Project အသစ် ဖန်တီးပြီး video ပြန်ရွေးပြီး တစ်ချက်နှိပ် Export ပြန်နှိပ်ပါ (အသံ ဖုန်းထဲမှာ ရှိနေသေးရင် ပြန်ထုတ်စရာ မလို)');
+    else el('expText').textContent = 'အသံ တင်မရပါ: ' + e.message;
+    return;
+  }
+  if(p.file && !p.audioOnly){ doExport(); return; }
+  if(p.audioOnly){
+    var f2 = (localFile && localFilePid === pid) ? localFile : (el('fileInput').files[0] || null);
+    if(!f2){ msg('Phone-only project — Export လုပ်ဖို့ video ပြန်ရွေးပြီး တင်ရမယ်။'); return; }
+    if(!localFile || localFilePid !== pid){ localFile = f2; localFilePid = pid; }
+    msg('အသံ+video တစ်ခါတည်း တင်နေပါတယ် — တင်ပြီးရင် Export အလိုလို စမယ်…');
+    uploadFile(f2, {autoTranscript:false, autoTranslate:false});
+    var tries = 0;
+    var timer = setInterval(function(){
+      tries++;
+      if(tries > 300){ clearInterval(timer); el('expText').textContent = 'Video တင်တာ ကြာနေလို့ Export မစပါ — တစ်ချက်နှိပ် Export ကို နောက်တစ်ခါ နှိပ်ပါ။'; return; }
+      api('/projects/' + pid).then(function(pp){
+        if(pp.file && !pp.audioOnly){ clearInterval(timer); doExport(); }
+        else if(!upState || !upState.active){ clearInterval(timer); el('expText').textContent = 'Video တင်တာ ရပ်သွားလို့ Export မစပါ — video ပြန်တင်ပြီး တစ်ချက်နှိပ် Export ပြန်နှိပ်ပါ။'; }
+      }).catch(function(){});
+    }, 3000);
+    return;
+  }
+  msg('Recap tab မှာ video ရွေးပြီး 🎙️ နှိပ်ပါ');
+}
+if(el('oneTapExpBtn')) el('oneTapExpBtn').onclick = oneTapExport;
 el('expBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
   if(upState && upState.active){ msg('Video တင်နေပါတယ် — ပြီးမှ Export နှိပ်ပါ။'); return; }
