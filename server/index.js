@@ -341,7 +341,7 @@ let projects = loadProjects();
 function newId() { return crypto.randomBytes(8).toString('hex'); }
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
-    const { timeout, ...spawnOpts } = opts || {};
+    const { timeout, onStderr, ...spawnOpts } = opts || {};
     const p = spawn(cmd, args, spawnOpts);
     let out = '', err = '', settled = false, timer = null;
     if (timeout && timeout > 0) {
@@ -353,7 +353,7 @@ function run(cmd, args, opts = {}) {
       if (timer.unref) timer.unref();
     }
     const done = (fn) => (...a) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); fn(...a); };
-    p.stdout.on('data', d => out += d); p.stderr.on('data', d => err += d);
+    p.stdout.on('data', d => out += d); p.stderr.on('data', d => { err += d; if (onStderr) { try { onStderr(d.toString()); } catch {} } });
     p.on('error', done(reject));
     p.on('close', done(code => code === 0 ? resolve({ out, err }) : reject(new Error(`${cmd} exited ${code}: ${err.slice(-2000)}`))));
   });
@@ -1376,12 +1376,12 @@ video{width:100%;max-height:340px;background:#000;border-radius:10px}
 #tabBar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;display:flex;background:#1e222b;border-top:1px solid #333;z-index:50;padding:6px 4px 10px}
 .tabbtn{flex:1;background:transparent;color:#9aa;margin:2px;padding:10px 2px;font-size:13px;min-height:48px}
 .tabbtn.active{background:#2563eb;color:#fff}
-#upBtn,#expBtn,#oneTapExpBtn{width:100%;box-sizing:border-box;padding:14px;font-size:17px;font-weight:700}
+#upBtn,#oneTapExpBtn{width:100%;box-sizing:border-box;padding:14px;font-size:17px;font-weight:700}
 body{padding-bottom:76px}
 </style>
 </head>
 <body>
-<h1>🎬 Sangbik — Website · phonekey47</h1>
+<h1>🎬 Sangbik — Website · phonekey50</h1>
 <div id="topPreview" class="card"><div id="vidWrap" style="position:relative"><video id="vid" controls playsinline style="width:100%;display:block"></video><div id="blurBox1" style="display:none;position:absolute;border:2px solid #22d3ee;background:rgba(34,211,238,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#22d3ee;color:#000;padding:0 4px">Blur 1</span></div><div id="blurBox2" style="display:none;position:absolute;border:2px solid #e879f9;background:rgba(232,121,249,0.15);touch-action:none;cursor:move;box-sizing:border-box;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"><span style="font-size:12px;background:#e879f9;color:#000;padding:0 4px">Blur 2</span></div></div><br><label>Video အမြန်နှုန်း: <select id="vidSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label><br><div id="timelineStrip"><div id="timelineThumbs"></div><div id="timelineSel"></div><div id="timelineHandleL"></div><div id="timelineHandleR"></div><div id="timelinePlayhead"></div><div id="timelineMarks"></div><div id="timelineSplitLayer"></div></div><div id="timelineTicks"></div><div id="timelineSelLabel" class="small"></div><div id="stripToolbar"><button id="trimSplitBtn">✂<span>Split</span></button><button id="trimSegDelBtn">🗑<span>ဖျက်</span></button><button id="trimSplitClearBtn">✕<span>ရှင်း</span></button><span id="trimSplitText" class="small"></span></div><div id="audioStrip"><div id="audioBarArea"><button id="audioAddBtn">+ Add audio</button><div id="audioClipBar" style="display:none"><div id="audioHandleL"></div><div id="audioHandleR"></div><span id="audioClipLabel"></span></div></div><button id="audioRemoveBtn" style="display:none">✕</button><input id="audioRowFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"></div></div>
 <div id="toolsUnderVideo" style="display:none"><div class="card"><h2>🛠 Tools</h2>
 
@@ -1468,8 +1468,8 @@ body{padding-bottom:76px}
 <button id="phoneTtsBtn">📱 ဖုန်းကနေ အသံထုတ် (Thiha/Nilar)</button><div id="phoneTtsText" class="small">ဖုန်းကနေ တိုက်ရိုက် Edge အသံထုတ်မယ် (server ထိန်းတာ မထိဘူး) — Shell app (Sangbik) ထဲမှာ သုံးပါ၊ Chrome ထဲမှာ မရဘူး။</div>
 <div id="ttsText" class="small"></div><audio id="narrAudio" controls style="width:100%;display:none"></audio><label>အသံ အမြန်နှုန်း: <select id="narrSpeedSel"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label></div></div>
 <div id="tab-videos" class="tabPanel" style="display:none"><div class="card"><h2>📹 Videos</h2>
-<div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><label style="display:block;margin:6px 0"><input type="checkbox" id="fastMuxChk" checked> ⚡ မြန်မြန် export (video ပြန်မရိုက်ဘူး, စာတန်း မကပ်ဘူး — စာတန်းက ဖွင့်/ပိတ်လို့ရတဲ့ track အဖြစ် ပါမယ်)</label><div class="small">Method: Fast = video ပြန်မရိုက်ဘူး (မြန်); Stable = Full export (အမှန်ခြစ် ဖြုတ်)။ Blur/Zoom/Flip စတဲ့ visual tools တွေက copyright ကို မဖြေရှင်းဘူး — ခွင့်ပြုထားတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div><button id="oneTapExpBtn">🎬 တစ်ချက်နှိပ် Export (အသံ+video တစ်ခါတည်း)</button><button id="expBtn">🎬 VIDEO ထုတ်ပါ (EXPORT)</button>
-<div id="expText" class="small"></div>
+<div id="zeroNote" class="small" style="display:none">Zero-upload နည်းမှာ ဒီကနေ video export မရပါ — video ကို server ပေါ် တင်မှ export လုပ်လို့ရတယ်။ Recap tab ကို ပြန်သွားပြီး အသံ (MP3) + ဘာသာပြန် SRT ကို ဒေါင်းလုဒ်လုပ်ကာ CapCut ထဲမှာ ပေါင်းပါ။</div><label style="display:block;margin:6px 0"><input type="checkbox" id="fastMuxChk" checked> ⚡ မြန်မြန် export (video ပြန်မရိုက်ဘူး, စာတန်း မကပ်ဘူး — စာတန်းက ဖွင့်/ပိတ်လို့ရတဲ့ track အဖြစ် ပါမယ်)</label><div class="small">Method: Fast = video ပြန်မရိုက်ဘူး (မြန်); Stable = Full export (အမှန်ခြစ် ဖြုတ်)။ Blur/Zoom/Flip စတဲ့ visual tools တွေက copyright ကို မဖြေရှင်းဘူး — ခွင့်ပြုထားတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div><input id="oneTapPosterInp" placeholder="Poster စာသား — video ရှေ့ဆုံးမှာ 3 စက္ကန့် ပြမယ် (မလိုရင် ဗလာ ထားပါ)" style="width:100%;box-sizing:border-box;padding:12px;margin:6px 0"><button id="oneTapExpBtn">🎬 တစ်ချက်နှိပ် Export (အသံ+video တစ်ခါတည်း)</button>
+<div id="expText" class="small"></div><div class="bar"><i id="expProgBar"></i></div><div id="expProgText" class="small"></div>
 <div id="dlBox"></div></div></div>
 <div id="tab-profile" class="tabPanel" style="display:none"><div class="card"><h2>👤 Profile</h2><div id="profileHealth" class="small">ဆာဗာ စစ်နေပါတယ်…</div><div id="modeNoteB" class="small"></div><div class="small">Sangbik website — video တွေကို ကိုယ်ပိုင် / ခွင့်ပြုချက်ရတဲ့ video တွေနဲ့ပဲ သုံးပါ။</div></div><div class="card" style="margin-top:12px"><h3>🔑 Gemini API Key</h3><div class="small">Key ကို ဒီဖုန်းထဲမှာပဲ သိမ်းမယ် — server ကို မပို့ဘူး၊ chat ကို မပို့ဘူး။ Google ကို ဖုန်းကနေ တိုက်ရိုက် ခေါ်မယ် (Studio99 လို)။ Key အပြည့်ကို AI Studio ကနေ ယူရမယ် — Studio99 ထဲမှာ •••• နောက်ဆုံး ၄ လုံးပဲ မြင်ရတယ်။</div><div class="small" style="margin-top:6px"><a href="https://aistudio.google.com/apikey" target="_blank">🔗 Key ယူရန် — AI Studio ဖွင့်ပါ</a></div><div id="phoneKeysList" style="margin-top:8px"></div><div style="display:flex;gap:6px;margin-top:8px"><input type="password" id="phoneKeyInput" placeholder="Gemini API key အသစ်" style="flex:1"><button id="phoneKeyEyeBtn">👁</button></div><div style="display:flex;gap:6px;margin-top:8px"><button id="phoneKeyAddBtn">+ Add</button><button id="phoneKeyTestBtn">Test all</button></div><div id="phoneKeysMsg" class="small"></div></div><div class="card" style="margin-top:12px"><h3>⚡ Groq API Key (မြန်)</h3><div class="small">Groq key ကို ဒီဖုန်းထဲမှာပဲ သိမ်းမယ် — server ကို မပို့ဘူး။ Key ကို console.groq.com ကနေ ယူရမယ်။ Browser က Groq ကို တိုက်ရိုက် ခေါ်လို့ မရရင် Test က ✗ ပြမယ်၊ အဲဒါဆို server နည်းပဲ သုံးပါ။</div><div class="small" style="margin-top:6px"><a href="https://console.groq.com/keys" target="_blank">🔗 Key ယူရန် — Groq Console ဖွင့်ပါ</a></div><div id="groqKeysList" style="margin-top:8px"></div><div style="display:flex;gap:6px;margin-top:8px"><input type="password" id="groqKeyInput" placeholder="Groq API key အသစ်" style="flex:1"><button id="groqKeyEyeBtn">👁</button></div><div style="display:flex;gap:6px;margin-top:8px"><button id="groqKeyAddBtn">+ Add</button><button id="groqKeyTestBtn">Test all</button></div><div id="groqKeysMsg" class="small"></div></div><div class="card" style="margin-top:12px"><h3>🌐 ဖုန်းကနေ ဘာသာပြန်တာ</h3><div style="display:flex;gap:6px;margin-top:8px"><select id="phoneEngineSel" style="flex:1"><option value="gemini">Gemini (မှန်တယ်)</option><option value="groq">Groq (မြန်တယ်)</option></select></div><div class="small">Gemini = မှန်တယ်၊ နှေးတယ်။ Groq = မြန်တယ်၊ စကားလုံး ခပ်တုံးတုံး ဖြစ်နိုင်တယ်။ ရွေးထားတဲ့ engine ရဲ့ key မရှိရင် ကျန်တဲ့ engine ကို သုံးမယ်၊ နှစ်ခုလုံး မရှိရင် server နဲ့ ပြန်မယ်။</div></div></div>
 <div class="card"><div id="msg"></div></div>
@@ -2299,7 +2299,7 @@ function applyMode(){
   el('fileInput').style.display = zero ? 'none' : '';
   var tr = el('transcriptRow'); if(tr) tr.style.display = zero ? 'none' : '';
   var ur = el('urlRow'); if(ur) ur.style.display = (zero || phone) ? 'none' : '';
-  el('expBtn').style.display = zero ? 'none' : '';
+  var otb = el('oneTapExpBtn'); if(otb) otb.style.display = zero ? 'none' : '';
   var zn = el('zeroNote'); if(zn) zn.style.display = zero ? '' : 'none';
   var pb = el('phoneAudioBtn'); if(pb) pb.style.display = phone ? '' : 'none';
   var pn = el('phoneNote'); if(pn) pn.style.display = phone ? '' : 'none';
@@ -3026,7 +3026,7 @@ function buildExportBody(){
   var splitRanges = [];
   (el('splitRangesInp').value || '').split(',').forEach(function(part){ var m = part.trim().split('-'); if(m.length === 2){ var a = parseFloat(m[0]), b = parseFloat(m[1]); if(isFinite(a) && isFinite(b) && b > a) splitRanges.push({start:a, end:b}); } });
   var sr = splitRemovedRanges(); for(var i2 = 0; i2 < sr.length; i2++) splitRanges.push(sr[i2]);
-  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume: (function(){ try { if(el('origMuteChk') && el('origMuteChk').checked) return 0; } catch(e){} var v = parseFloat(el('origVolInp').value); return isFinite(v) ? v / 100 : 0.12; })(), subtitlesOn:true, subtitlesFrom:'translation', blurMode: (blurBoxes[1].on || blurBoxes[2].on) ? 'custom' : 'none', blurStrength: (el('blur1Type') ? el('blur1Type').value : 'strong'), blurStrength2: (el('blur2Type') ? el('blur2Type').value : 'strong'), blur1Enabled: !!blurBoxes[1].on, blur1Dark: !!(el('blur1DarkChk') && el('blur1DarkChk').checked), blurRegion:{x:blurBoxes[1].x, y:blurBoxes[1].y, w:blurBoxes[1].w, h:blurBoxes[1].h}, blurStartSec: 0, blurEndSec: -1, blur2Enabled: !!blurBoxes[2].on, blur2Dark: !!(el('blur2DarkChk') && el('blur2DarkChk').checked), blur2Region:{x:blurBoxes[2].x, y:blurBoxes[2].y, w:blurBoxes[2].w, h:blurBoxes[2].h}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomPulse: el('zoomPulseChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, logoWPct: parseFloat(el('logoWInp').value), logoHPct: parseFloat(el('logoHInp').value), narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var out = []; var e = (duration > 0 ? duration : 99999); var tt = (el('titleTextInp').value || '').trim(); if(tt) out.push({text:tt, start:0, end:e, position:'top', size: Math.round(32 * (parseFloat(el('titleSizeInp').value) || 100) / 100), color: window.__titleColor || '#FFFFFF', opacity: parseFloat(el('titleOpInp').value)}); var wt = (el('wmTextInp').value || '').trim(); if(wt) out.push({text:wt, start:0, end:e, position:'topleft', size: Math.round(32 * (parseFloat(el('wmSizeInp').value) || 100) / 100), color: window.__wmColor || '#FFFFFF', opacity: parseFloat(el('wmOpInp').value)}); return out; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
+  var body = {trimStart:trimS, trimEnd:trimE, aspect: el('aspectSel').value, quality: el('qualitySel').value, subtitles:{size: parseInt(el('subSizeSel').value, 10) || 24, color: el('subColorSel').value, position: el('subPosSel').value, font:'Noto Sans Myanmar'}, narrationVolume:1, originalVolume: (function(){ try { if(el('origMuteChk') && el('origMuteChk').checked) return 0; } catch(e){} var v = parseFloat(el('origVolInp').value); return isFinite(v) ? v / 100 : 0.12; })(), subtitlesOn:true, subtitlesFrom:'translation', blurMode: (blurBoxes[1].on || blurBoxes[2].on) ? 'custom' : 'none', blurStrength: (el('blur1Type') ? el('blur1Type').value : 'strong'), blurStrength2: (el('blur2Type') ? el('blur2Type').value : 'strong'), blur1Enabled: !!blurBoxes[1].on, blur1Dark: !!(el('blur1DarkChk') && el('blur1DarkChk').checked), blurRegion:{x:blurBoxes[1].x, y:blurBoxes[1].y, w:blurBoxes[1].w, h:blurBoxes[1].h}, blurStartSec: 0, blurEndSec: -1, blur2Enabled: !!blurBoxes[2].on, blur2Dark: !!(el('blur2DarkChk') && el('blur2DarkChk').checked), blur2Region:{x:blurBoxes[2].x, y:blurBoxes[2].y, w:blurBoxes[2].w, h:blurBoxes[2].h}, rotationDeg: rotVal, videoMirror: el('mirrorChk').checked, zoomEvery5s: el('zoomChk').checked, zoomPulse: el('zoomPulseChk').checked, zoomStrength: el('zoomStrSel').value, enhanceClarity: el('clarityChk').checked, narrationSync: el('narrSyncChk').checked ? 'timed' : 'continuous', smartSync: !!el('smartSyncChk').checked, removeRanges: splitRanges, zoomIntervalSec: parseInt(el('zoomIntSel').value, 10) || 5, posterSec: parseInt(el('posterSel').value, 10) || 0, logoOn: el('logoChk').checked, logoWPct: parseFloat(el('logoWInp').value), logoHPct: parseFloat(el('logoHInp').value), narrationDelaySec: parseFloat(el('narrDelayInp').value) || 0, musicVolume: (function(){ var mv = parseFloat(el('musicVolInp').value); return isFinite(mv) ? mv : 0.3; })(), musicDelaySec: (audioStateOk() ? audioClip.delaySec : 0), musicTrimStartSec: (audioStateOk() ? audioClip.trimStartSec : 0), musicPlayDurSec: (audioStateOk() ? audioClip.playDurSec : 0), musicRemoved: !!(audioRemoved && (!audioPid || audioPid === pid)), textOverlays: (function(){ var out = []; var e = (duration > 0 ? duration : 99999); var tt = (el('titleTextInp').value || '').trim(); if(tt) out.push({text:tt, start:0, end:e, position:'top', size: Math.round(32 * (parseFloat(el('titleSizeInp').value) || 100) / 100), color: window.__titleColor || '#FFFFFF', opacity: parseFloat(el('titleOpInp').value)}); var wt = (el('wmTextInp').value || '').trim(); if(wt) out.push({text:wt, start:0, end:e, position:'topleft', size: Math.round(32 * (parseFloat(el('wmSizeInp').value) || 100) / 100), color: window.__wmColor || '#FFFFFF', opacity: parseFloat(el('wmOpInp').value)}); return out; })(), posterSec: parseInt(el('posterSel').value, 10) || 0, posterTitle: (function(){ try { var v = el('oneTapPosterInp'); return v ? v.value.trim() : ''; } catch(e){ return ''; } })(), logoOn: el('logoChk').checked, resolution: el('exportResSel').value, qualityBitrate: el('exportBitSel').value, exportFps: el('exportFpsSel').value};
   return body;
 }
 function doExport(){
@@ -3051,7 +3051,7 @@ function doExport(){
     else msg('⚡ Fast export — video ပြန်မရိုက်လို့ မြန်တယ်။ Visual tool တစ်ခု ဖွင့်ထားရင် Full export အလိုလို ပြောင်းမယ်။ Trim + စာတန်း track + အသံကတော့ ရတယ်။');
   }
   el('expText').textContent = body.fastMux ? 'Fast export လုပ်နေပါတယ် — စက္ကန့်ပိုင်းပဲ ကြာမယ်…' : 'Export လုပ်နေပါတယ် — မိနစ်အနည်းငယ် ကြာနိုင်ပါတယ်…';
-  api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
+  var epb0 = el('expProgBar'); if(epb0) epb0.style.width = '0%'; var ept0 = el('expProgText'); if(ept0) ept0.textContent = 'Export စတင်နေပါတယ်…'; api('/projects/' + pid + '/export', 'POST', body).then(function(){ pollExport(); }).catch(function(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; });
 }
 async function oneTapExport(){
   if(!pid){ msg('Recap tab မှာ video အရင် ရွေးပါ'); return; }
@@ -3064,6 +3064,7 @@ async function oneTapExport(){
     var zc = el('zoomChk'); if(zc) zc.checked = false;
     var om = el('origMuteChk'); if(om) om.checked = true;
     var fm = el('fastMuxChk'); if(fm) fm.checked = false;
+    var pp = el('oneTapPosterInp'); if(pp && pp.value.trim()){ var ps = el('posterSel'); if(ps) ps.value = '3'; }
   } catch(e){}
   var p;
   try { p = await api('/projects/' + pid); } catch(e){ el('expText').textContent = 'Export မစပါ: ' + e.message; return; }
@@ -3107,7 +3108,7 @@ async function oneTapExport(){
   msg('Recap tab မှာ video ရွေးပြီး 🎙️ နှိပ်ပါ');
 }
 if(el('oneTapExpBtn')) el('oneTapExpBtn').onclick = oneTapExport;
-el('expBtn').onclick = function(){
+if(el('expBtn')) el('expBtn').onclick = function(){
   if(!pid){ msg('Project မရွေးရသေးပါ'); return; }
   if(upState && upState.active){ msg('Video တင်နေပါတယ် — ပြီးမှ Export နှိပ်ပါ။'); return; }
   api('/projects/' + pid).then(function(p){
@@ -3130,8 +3131,8 @@ function pollExport(){
   exportPolling = true;
   api('/projects/' + pid + '/export-status').then(function(s){
     el('expText').textContent = 'Export: ' + (s.status||'') + (s.error ? ' — ' + s.error : '');
-    if(s.status === 'processing'){ exportPolling = false; setTimeout(pollExport, 3000); }
-    else { exportPolling = false; if(s.status === 'ready'){ el('dlBox').innerHTML = '<a href="/api/projects/' + pid + '/download/video"><button>⬇ Video ဒေါင်းလုဒ်</button></a> <a href="/api/projects/' + pid + '/download/subtitles"><button>⬇ Subtitles (SRT)</button></a>'; } }
+    if(s.status === 'processing'){ var epb = el('expProgBar'); var ept = el('expProgText'); var pct = (typeof s.progressPct === 'number' && isFinite(s.progressPct)) ? Math.max(0, Math.min(99, Math.floor(s.progressPct))) : null; if(epb && pct !== null) epb.style.width = pct + '%'; if(ept) ept.textContent = (pct !== null ? pct + '% ' : '') + (s.progressStage || s.progress || ''); exportPolling = false; setTimeout(pollExport, 3000); }
+    else { exportPolling = false; var epb2 = el('expProgBar'); var ept2 = el('expProgText'); if(s.status === 'ready'){ if(epb2) epb2.style.width = '100%'; if(ept2) ept2.textContent = '100% — ဒေါင်းလုဒ်လုပ်လို့ရပြီ'; el('dlBox').innerHTML = '<a href="/api/projects/' + pid + '/download/video"><button>⬇ Video ဒေါင်းလုဒ်</button></a> <a href="/api/projects/' + pid + '/download/subtitles"><button>⬇ Subtitles (SRT)</button></a>'; } }
   }).catch(function(e){ exportPolling = false; el('expText').textContent = 'Export status မရပါ: ' + e.message; });
 }
 if(pid){ setPid(pid); }
@@ -3733,7 +3734,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
     const fNarrVol = parseFloat(o.narrationVolume ?? 1); const fOrigVol = parseFloat(o.originalVolume ?? 0.12);
     const fHasAudio = !!p.metadata?.audioCodec;
     const fOut = path.join(OUT_DIR, `${p.id}-recap.mp4`);
-    p.export = { status: 'processing', progress: 'fast-mux started', fastMux: true, srt: fSrt };
+    p.export = { status: 'processing', progress: 'fast-mux started', progressPct: 0, fastMux: true, srt: fSrt };
     saveProjects(projects);
     (async () => {
       try {
@@ -3751,7 +3752,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         if (fSrt) args.push('-map', srtIdx + ':s', '-c:s', 'mov_text', '-metadata:s:s:0', 'language=bur');
         args.push('-t', String(fDur), fOut);
         await run('ffmpeg', args);
-        p.export = { ...p.export, status: 'ready', file: fOut, fastMux: true, fastNote: 'Fast export: video copied without re-encode; subtitles are a toggleable track (not burned in); narration mixed continuously (not timed to subtitle times); trim (if any) is keyframe-approximate.' };
+        p.export = { ...p.export, status: 'ready', file: fOut, fastMux: true, progressPct: 100, fastNote: 'Fast export: video copied without re-encode; subtitles are a toggleable track (not burned in); narration mixed continuously (not timed to subtitle times); trim (if any) is keyframe-approximate.' };
         saveProjects(projects);
       } catch (e) {
         p.export = { ...p.export, status: 'failed', error: 'Fast export failed: ' + e.message };
@@ -3886,7 +3887,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   if (splitActive) overlaySegs = rebaseSegmentsForSplit(overlaySegs, keepRanges);
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, narrationFitCount: 0, narrationFitOverflow: [], narrationFitNote: null };
+  p.export = { status: 'processing', progress: 'started', progressPct: 0, progressStage: 'ပြင်ဆင်နေပါတယ်', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, narrationFitCount: 0, narrationFitOverflow: [], narrationFitNote: null };
   saveProjects(projects);
   (async () => {
     try {
@@ -4279,7 +4280,26 @@ app.post('/api/projects/:id/export', async (req, res) => {
       if (fpsVal) filter = filter.replace(/\[vout\]$/, ',fps=' + fpsVal + '[vout]');
       if (audioMap) args.push('-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-c:a', 'aac', outMp4);
       else args.push('-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-an', outMp4);
-      await run('ffmpeg', args);
+      let outDur = 0;
+      try { outDur = Math.max(0, (end || 0) - (start || 0)); } catch {}
+      try { p.export = { ...p.export, progressPct: 5, progressStage: 'video ရိုက်နေပါတယ်' }; } catch {}
+      let lastMuxPct = 5;
+      const onMuxProgress = (chunk) => {
+        try {
+          if (!(outDur > 0)) return;
+          let t = -1;
+          const re = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/g;
+          let m;
+          while ((m = re.exec(chunk)) !== null) {
+            const sec = parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3]);
+            if (sec > t) t = sec;
+          }
+          if (t < 0) return;
+          const pct = Math.min(99, Math.max(lastMuxPct, Math.floor(5 + (t / outDur) * 94)));
+          if (pct !== lastMuxPct) { lastMuxPct = pct; p.export = { ...p.export, progressPct: pct, progressStage: 'video ရိုက်နေပါတယ်' }; }
+        } catch {}
+      };
+      await run('ffmpeg', args, { onStderr: onMuxProgress });
       let posterApplied = false; let posterNote = null;
       if (posterSec > 0) {
         try {
@@ -4298,7 +4318,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, narrationSync, narrationSyncNote, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, overlayNote, narrationFitCount, narrationFitOverflow, narrationFitNote };
+      p.export = { status: 'ready', progress: 'done', progressPct: 100, progressStage: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, narrationSync, narrationSyncNote, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, overlayNote, narrationFitCount, narrationFitOverflow, narrationFitNote };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
