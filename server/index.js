@@ -4589,7 +4589,11 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // preview canvas (logoXFrac/logoYFrac); without them the logo stays at
       // the old top-right corner (W-w-12:12).
       const logoPath = path.join(__dirname, 'logo.png');
-      if (o.logoOn !== false && logoW > 0 && fs.existsSync(logoPath)) {
+      // v1.20-syncfix: logoW must be computed BEFORE the condition that
+      // tests it (it was declared inside the block -> ReferenceError on
+      // every logo-ON export). Hoisted; inner computation kept as-is.
+      const logoWPre = Number.isFinite(parseFloat(o.logoWPct)) ? Math.round(W * parseFloat(o.logoWPct) / 100) : Math.max(64, Math.round(W * 0.16));
+      if (o.logoOn !== false && logoWPre > 0 && fs.existsSync(logoPath)) {
         const logoWPct = parseFloat(o.logoWPct);
         const logoW = Number.isFinite(logoWPct) ? Math.round(W * logoWPct / 100) : Math.max(64, Math.round(W * 0.16));
         const logoHPct = parseFloat(o.logoHPct);
@@ -4663,22 +4667,22 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // stretching. The video filter must still end with [vout] so the
       // stretch can be inserted after the audio chain; otherwise fall back
       // to the old hard-fit (never ship a half-stretched export).
-      let smartSync = false, smartSyncPlan = null, smartSyncNote = null;
+      let smartSync = false, ssPlan = null, smartSyncNote = null;
       if (narrationSync === 'timed' && o.smartSync !== false && !sceneOrderApplied && timedClips.length && filter.endsWith('[vout]')) {
         const plan = smartSyncPlan(timedClips.map(tc => ({ start: tc.winStart, end: tc.winStart + tc.windowSec, duration: tc.duration })), effDuration, narrationDelaySec);
         if (plan.stretchedCount > 0) {
-          smartSync = true; smartSyncPlan = plan;
+          smartSync = true; ssPlan = plan;
           narrationFitCount = 0; narrationFitOverflow = [];
           smartSyncNote = 'Smart Sync: video slowed in ' + plan.stretchedCount + ' place(s) to match the voiceover (output ' + plan.newDuration.toFixed(1) + 's, was ' + effDuration.toFixed(1) + 's); voiceover at natural speed, never sped up or cut.' + (plan.skippedOverlap ? ' ' + plan.skippedOverlap + ' overlapping line(s) were not stretched (check the transcript).' : '');
           narrationFitNote = smartSyncNote;
         }
       }
       if (timedClips.length) {
-        p.export.narrationFitCount = narrationFitCount; p.export.narrationFitOverflow = narrationFitOverflow; p.export.narrationFitNote = narrationFitNote; if (smartSync) p.export.smartSync = { stretched: smartSyncPlan.stretchedCount, totalExtra: Math.round(smartSyncPlan.totalExtra * 100) / 100, newDuration: Math.round(smartSyncPlan.newDuration * 100) / 100 }; saveProjects(projects);
+        p.export.narrationFitCount = narrationFitCount; p.export.narrationFitOverflow = narrationFitOverflow; p.export.narrationFitNote = narrationFitNote; if (smartSync) p.export.smartSync = { stretched: ssPlan.stretchedCount, totalExtra: Math.round(ssPlan.totalExtra * 100) / 100, newDuration: Math.round(ssPlan.newDuration * 100) / 100 }; saveProjects(projects);
         for (const tc of timedClips) {
           args.push('-i', tc.file); inputs.push(tc.file);
           let ms, clipFilter;
-          if (smartSync) { ms = Math.round(Math.max(0, smartSyncPlan.mapTime(tc.winStart) + narrationDelaySec) * 1000); clipFilter = ''; }
+          if (smartSync) { ms = Math.round(Math.max(0, ssPlan.mapTime(tc.winStart) + narrationDelaySec) * 1000); clipFilter = ''; }
           else { ms = Math.round(tc.outStart * 1000); const tempoFilter = tc.tempo > 1 ? `atempo=${tc.tempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; }
           filter += `;[${nextInputIdx}:a]${clipFilter}adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
         }
@@ -4698,7 +4702,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // video). [a0] was pushed first (amix duration=first = new length).
       if (hasAudioTrack) {
         if (smartSync) {
-          const segs = smartSyncPlan.segments;
+          const segs = ssPlan.segments;
           const aLabels = [];
           let aFilter = `[0:a]asplit=${segs.length}`;
           for (let i = 0; i < segs.length; i++) aFilter += `[as${i}]`;
@@ -4717,9 +4721,9 @@ app.post('/api/projects/:id/export', async (req, res) => {
       } else if (smartSync && audioInputs.length) {
         // No original audio track: a silent pad keeps amix at the new length
         // (otherwise duration=first would cut the mix at the first clip).
-        filter += ';anullsrc=channel_layout=stereo:sample_rate=48000:duration=' + smartSyncPlan.newDuration.toFixed(3) + '[asil]'; audioInputs.unshift('[asil]');
+        filter += ';anullsrc=channel_layout=stereo:sample_rate=48000:duration=' + ssPlan.newDuration.toFixed(3) + '[asil]'; audioInputs.unshift('[asil]');
       }
-      const musicDur = smartSync ? smartSyncPlan.newDuration : effDuration;
+      const musicDur = smartSync ? ssPlan.newDuration : effDuration;
       if (hasMusic) {
         // -stream_loop -1 must precede -i so the music loops until amix cuts it off.
         args.push('-stream_loop', '-1', '-i', p.music.path); inputs.push(p.music.path);
@@ -4747,7 +4751,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // If the insert point is missing (should not happen — validated
       // earlier), abort rather than ship a half-synced export.
       if (smartSync) {
-        const segs = smartSyncPlan.segments;
+        const segs = ssPlan.segments;
         const vLabels = [];
         let vFilter = `[vstretch]split=${segs.length}`;
         for (let i = 0; i < segs.length; i++) vFilter += `[vs${i}]`;
