@@ -343,6 +343,42 @@ function guardNounMissing(original, burmese) {
   for (const [cn, my] of GUARD_NOUN_MAP) if (o.indexOf(cn) >= 0 && b.indexOf(my) < 0) return { cn, my };
   return null;
 }
+
+// ---- Deterministic Burmese repair (v130): mechanical, not prompt-hope ----
+// Runs as the VERY LAST step on every translation path, AFTER the CJK-echo
+// validator and AFTER any post-guard polish, before lines are stored or
+// returned. Each rule fires ONLY when (a) the Chinese line contains the
+// trigger, (b) the Burmese line LACKS the correct token, and (c) the
+// Burmese line CONTAINS a known-wrong token; then ALL occurrences of the
+// wrong token are replaced with the correct one. No-op on lines already
+// correct, on empty lines, and on lines without the trigger.
+// Deliberately NOT repaired: question particles (လား) — stripping them
+// would break the rhetorical-question style for exclamatory negatives —
+// and dropped words (there is nothing to replace).
+// Wrong-token lists are longest-first so a compound wrong form cannot
+// duplicate on replacement.
+const REPAIR_RULES = [
+  ["西边", "အနောက်ဘက်", ["စပိန်ဘက်", "စီဘက်", "စပိန်"], null],
+  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်"], null],
+  ["赶紧", "မြန်မြန်", ["သတိထား"], null],
+  ["粮食", "ရိက္ခာ", ["ဆန်"], "米"],
+  ["哪只脚", "ဘယ်ခြေထောက်", ["ဘယ်ဘက်ခြေထောက်", "ဘယ်ဘက်"], null],
+  ["蹄", "ခွာ", ["ခြေထောက်"], "脚"],
+  ["老高", "လောင်ကောင်", ["ကိုကိုငြေ"], null],
+  ["不对", "မမှန်ဘူး", ["မဖြစ်နိုင်ဘူး"], null],
+];
+function repairBurmeseLine(original, burmese) {
+  const o = original || '', b0 = burmese || '';
+  if (!b0) return burmese;
+  let b = b0;
+  for (const [trigger, correct, wrongs, requireAbsent] of REPAIR_RULES) {
+    if (o.indexOf(trigger) < 0) continue;
+    if (requireAbsent && o.indexOf(requireAbsent) >= 0) continue;
+    if (b.indexOf(correct) >= 0) continue;
+    for (const w of wrongs) if (b.indexOf(w) >= 0) b = b.split(w).join(correct);
+  }
+  return b;
+}
 async function translateLinesValidated(lines, sourceLang, summary) {
   const originals = lines.map(l => l.original);
   const first = await translateLinesWithGoogleOrFallback(lines, sourceLang, summary);
@@ -380,6 +416,7 @@ async function translateLinesValidated(lines, sourceLang, summary) {
     if (gretry.translations) guardBad.forEach((g, k) => { translations[g.i] = gretry.translations[k]; });
   }
   for (let i = 0; i < translations.length; i++) if (isEchoTranslation(originals[i], translations[i])) translations[i] = '';
+  for (let i = 0; i < translations.length; i++) translations[i] = repairBurmeseLine(originals[i], translations[i]);
   return { translations, path, googleLog: first.googleLog, error: first.error };
 }
 
@@ -1519,7 +1556,7 @@ async function runAutoJob(projectId, opts) {
           for (let k = 0; k < flagged.length; k++) {
             const i = flagged[k]; const nb = sanitizeBurmese(retry[k] || '');
             const nextOrig = i + 1 < allPieces.length ? allPieces[i + 1].original : null;
-            if (nb && !lineNeedsRepair(allPieces[i].original, nb, nextOrig)) { gt.translations[i] = nb; repairedCount++; } else repairWarnCount++;
+            if (nb && !lineNeedsRepair(allPieces[i].original, nb, nextOrig)) { gt.translations[i] = repairBurmeseLine(allPieces[i].original, nb); repairedCount++; } else repairWarnCount++;
           }
         } catch (e) { repairWarnCount += flagged.length; }
       }
@@ -1543,7 +1580,7 @@ async function runAutoJob(projectId, opts) {
       try {
         const cr = await withTimeout(geminiPolishLines(allPieces.map((l, i) => ({ original: l.original, burmese: gt.translations[i] || '' })), 'translation', SOURCE_LANG_NAMES[sourceLang] || 'Chinese'), 180000, 'Translation auto-check');
         if (cr && !cr.fallback && Array.isArray(cr.lines) && cr.lines.length === p.autoJob.lines.length) {
-          p.autoJob.lines.forEach((l, i) => { if (cr.lines[i]) l.burmese = sanitizeBurmese(cr.lines[i]); });
+          p.autoJob.lines.forEach((l, i) => { if (cr.lines[i]) l.burmese = repairBurmeseLine(l.original, sanitizeBurmese(cr.lines[i])); });
           p.translationLines.forEach((l) => { const m = p.autoJob.lines.find(x => x.start === l.start && x.original === l.original); if (m) l.burmese = m.burmese; });
           checkResult = cr;
         } else { checkResult = { fallback: true }; }
@@ -2156,6 +2193,31 @@ function phoneGuardNounMissing(orig, bur){
   for(var k = 0; k < PHONE_GUARD_NOUN_MAP.length; k++){ var cn = PHONE_GUARD_NOUN_MAP[k][0], my = PHONE_GUARD_NOUN_MAP[k][1]; if(o.indexOf(cn) >= 0 && b.indexOf(my) < 0) return {cn: cn, my: my}; }
   return null;
 }
+
+// Deterministic Burmese repair (v130, client mirror of repairBurmeseLine):
+// same rules, same firing conditions, runs last on every phone path.
+var PHONE_REPAIR_RULES = [
+  ["西边", "အနောက်ဘက်", ["စပိန်ဘက်", "စီဘက်", "စပိန်"], null],
+  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်"], null],
+  ["赶紧", "မြန်မြန်", ["သတိထား"], null],
+  ["粮食", "ရိက္ခာ", ["ဆန်"], "米"],
+  ["哪只脚", "ဘယ်ခြေထောက်", ["ဘယ်ဘက်ခြေထောက်", "ဘယ်ဘက်"], null],
+  ["蹄", "ခွာ", ["ခြေထောက်"], "脚"],
+  ["老高", "လောင်ကောင်", ["ကိုကိုငြေ"], null],
+  ["不对", "မမှန်ဘူး", ["မဖြစ်နိုင်ဘူး"], null],
+];
+function phoneRepairLine(orig, bur){
+  var o = orig || '', b = bur || '';
+  if(!b) return bur;
+  for(var r = 0; r < PHONE_REPAIR_RULES.length; r++){
+    var trigger = PHONE_REPAIR_RULES[r][0], correct = PHONE_REPAIR_RULES[r][1], wrongs = PHONE_REPAIR_RULES[r][2], reqAbs = PHONE_REPAIR_RULES[r][3];
+    if(o.indexOf(trigger) < 0) continue;
+    if(reqAbs && o.indexOf(reqAbs) >= 0) continue;
+    if(b.indexOf(correct) >= 0) continue;
+    for(var w = 0; w < wrongs.length; w++){ if(b.indexOf(wrongs[w]) >= 0) b = b.split(wrongs[w]).join(correct); }
+  }
+  return b;
+}
 async function phoneTranslateBatchValidated(origs, sourceLang, spks, eng){
   var first = (eng === 'groq') ? await groqPhoneTranslateBatch(origs, sourceLang, spks) : await geminiPhoneTranslateBatch(origs, sourceLang, spks);
   var out = first.slice();
@@ -2180,12 +2242,13 @@ async function phoneTranslateBatchValidated(origs, sourceLang, spks, eng){
       guardBad.forEach(function(g, k){ out[g.i] = gretry[k]; });
     } catch(e){}
   }
+  for(var i = 0; i < out.length; i++) out[i] = phoneRepairLine(origs[i], out[i]);
   return out;
 }
 async function phoneGuardFixOnePassLines(lines, sourceLang){
   var bad = [];
   for(var i = 0; i < lines.length; i++){ var gm = phoneGuardNounMissing(lines[i].original || '', lines[i].burmese || ''); if(gm) bad.push({i: i, cn: gm.cn, my: gm.my}); }
-  if(!bad.length) return lines;
+  if(!bad.length){ for(var i = 0; i < lines.length; i++) lines[i].burmese = phoneRepairLine(lines[i].original || '', lines[i].burmese || ''); return lines; }
   try {
     var origs = bad.map(function(g){ return lines[g.i].original || ''; });
     var spks = bad.map(function(g){ return lines[g.i].speaker || ''; });
@@ -2193,6 +2256,7 @@ async function phoneGuardFixOnePassLines(lines, sourceLang){
     var fixed = await phoneTranslateBatchValidated(origs, sourceLang, spks, eng);
     bad.forEach(function(g, k){ if(fixed[k]) lines[g.i].burmese = fixed[k]; });
   } catch(e){}
+  for(var i = 0; i < lines.length; i++) lines[i].burmese = phoneRepairLine(lines[i].original || '', lines[i].burmese || '');
   return lines;
 }
 function isValidBurmeseCheck(c, orig){
@@ -4230,7 +4294,7 @@ app.post('/api/projects/:id/translate-lines', async (req, res) => {
     try {
       const translations = await googleTranslateBatch(toTranslate.map(l => l.original), 'my', 'auto');
       const out = input.slice();
-      idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: sanitizeBurmese(translations[k] || '') }); });
+      idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: repairBurmeseLine(input[origIdx].original, sanitizeBurmese(translations[k] || '')) }); });
       return res.json({ lines: out, path: 'google', note: null });
     } catch (ge) { return res.status(502).json({ error: 'Google translation failed: ' + ge.message }); }
   }
