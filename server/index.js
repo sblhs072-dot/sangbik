@@ -344,7 +344,7 @@ function guardNounMissing(original, burmese) {
   return null;
 }
 
-// ---- Deterministic Burmese repair (v130): mechanical, not prompt-hope ----
+// ---- Deterministic Burmese repair (v130, v131: bare slur form + verb-contradiction post-pass) ----
 // Runs as the VERY LAST step on every translation path, AFTER the CJK-echo
 // validator and AFTER any post-guard polish, before lines are stored or
 // returned. Each rule fires ONLY when (a) the Chinese line contains the
@@ -359,7 +359,7 @@ function guardNounMissing(original, burmese) {
 // duplicate on replacement.
 const REPAIR_RULES = [
   ["西边", "အနောက်ဘက်", ["စပိန်ဘက်", "စီဘက်", "စပိန်"], null],
-  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်"], null],
+  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်", "စောက်ပတ်"], null],
   ["赶紧", "မြန်မြန်", ["သတိထား"], null],
   ["粮食", "ရိက္ခာ", ["ဆန်"], "米"],
   ["哪只脚", "ဘယ်ခြေထောက်", ["ဘယ်ဘက်ခြေထောက်", "ဘယ်ဘက်"], null],
@@ -377,6 +377,11 @@ function repairBurmeseLine(original, burmese) {
     if (b.indexOf(correct) >= 0) continue;
     for (const w of wrongs) if (b.indexOf(w) >= 0) b = b.split(w).join(correct);
   }
+  // v131 verb-contradiction post-pass: 来了 means coming, so a Burmese line
+  // claiming "gone" contradicts it. Runs AFTER the noun rules, so a line
+  // needing both repairs ends fully repaired. Never fires when the Burmese
+  // already contains လာ, or when the Chinese has no 来了.
+  if (o.indexOf('来了') >= 0 && b.indexOf('လာ') < 0 && b.indexOf('မရှိတော့ဘူး') >= 0) b = b.split('မရှိတော့ဘူး').join('လာနေပြီ');
   return b;
 }
 async function translateLinesValidated(lines, sourceLang, summary) {
@@ -1373,7 +1378,7 @@ function dualMergeSegmentCues(geminiCues, groqCues) {
     if (best >= 0) {
       used[best] = true;
       const agree = dualNormalizeText(gc.text) === dualNormalizeText(q[best].text);
-      out.push({ start: gc.start, end: gc.end, text: gc.text, speaker: gc.speaker || '', ...(agree ? {} : { dualDisagree: true }) });
+      out.push({ start: gc.start, end: gc.end, text: gc.text, speaker: gc.speaker || '', ...(agree ? {} : { dualDisagree: true, dualAlt: { text: q[best].text, start: q[best].start, end: q[best].end } }) });
     } else {
       out.push({ start: gc.start, end: gc.end, text: gc.text, speaker: gc.speaker || '', dualDisagree: true });
     }
@@ -1396,6 +1401,68 @@ function mergeDualTranscripts(geminiResults, groqResults) {
   }
   return out;
 }
+
+// ---- Third-vote tiebreaker (v132): offline Whisper votes on dual disagreements ----
+// Server dual path ONLY (phone paths have no offline Whisper and never call
+// this). Runs BEFORE translation: merged cues flow into the guarded
+// translation path unchanged. For each segment containing a dualDisagree
+// cue, offline Whisper transcribes THAT segment's wav only; segments with
+// no disagreement never invoke Whisper (bounded cost). Pairing reuses the
+// merge rule (overlap >= max(0.3s, 50% of shorter window), highest
+// similarity wins, each Whisper cue used once). Vote, by normalized text:
+//   Whisper == kept text  -> majority confirms kept text, flag CLEARED.
+//   Whisper == dualAlt    -> majority overrules the Gemini default: adopt
+//                            Groq text + window, flag CLEARED.
+//   Whisper == neither, or no overlapping Whisper cue -> keep Gemini text
+//                            AND flag (unresolved, still needs review).
+// Unpaired flagged cues (Gemini-only / Groq-only) have no dualAlt: a Whisper
+// match clears their flag, a miss keeps it. Fail-open: Whisper not
+// installed, or a per-segment Whisper throw, leaves that segment exactly
+// as v129 produced it (Gemini text + flag). Never crashes the job.
+async function dualResolveDisagreements(merged, segWavs, fns) {
+  const whisperFn = (fns && fns.whisper) || null;
+  const canWhisper = !!whisperFn || (typeof whisperInstalled === 'function' && whisperInstalled());
+  if (!canWhisper) return merged;
+  for (let i = 0; i < merged.length; i++) {
+    const seg = merged[i];
+    if (!seg || !seg.segments || !seg.segments.some(c => c.dualDisagree)) continue;
+    const wav = segWavs && segWavs[i];
+    if (!wav) continue;
+    let wCues;
+    try {
+      const res = whisperFn ? await whisperFn([wav]) : await transcribeOfflineFilesStreaming([wav]);
+      wCues = (res && res[0] && res[0].segments) || [];
+    } catch (e) { continue; }
+    const used = new Array(wCues.length).fill(false);
+    for (const cue of seg.segments) {
+      if (!cue.dualDisagree) continue;
+      const cDur = Math.max(0, cue.end - cue.start);
+      let best = -1, bestSim = -1, bestOverlap = -1;
+      for (let j = 0; j < wCues.length; j++) {
+        if (used[j]) continue;
+        const wc = wCues[j];
+        const overlap = Math.max(0, Math.min(cue.end, wc.end) - Math.max(cue.start, wc.start));
+        const minDur = Math.min(cDur, Math.max(0, wc.end - wc.start));
+        if (overlap < Math.max(0.3, 0.5 * minDur)) continue;
+        const sim = dualTextSimilarity(cue.text, wc.text);
+        if (sim > bestSim || (sim === bestSim && overlap > bestOverlap)) { best = j; bestSim = sim; bestOverlap = overlap; }
+      }
+      if (best < 0) continue;
+      used[best] = true;
+      const wNorm = dualNormalizeText(wCues[best].text);
+      if (wNorm === dualNormalizeText(cue.text)) {
+        delete cue.dualDisagree;
+      } else if (cue.dualAlt && wNorm === dualNormalizeText(cue.dualAlt.text)) {
+        cue.text = cue.dualAlt.text;
+        cue.start = cue.dualAlt.start;
+        cue.end = cue.dualAlt.end;
+        delete cue.dualDisagree;
+      }
+    }
+  }
+  return merged;
+}
+
 // Runs both listeners on the SAME segment grid and merges. Rejects on ANY leg
 // failure so the caller falls back to the unchanged single-listener chain
 // (never a half-dual, half-single mix). fns injects stub legs for tests;
@@ -1405,7 +1472,22 @@ async function runDualTranscription(segWavs, jobs, sourceLang, frames, summary, 
   const groqFn = (fns && fns.groq) || transcribeSegmentsWithGroq;
   const gRes = await geminiFn(segWavs, jobs, (done) => { if (onLegProgress) onLegProgress(done, 'Gemini (dual)'); }, sourceLang, frames || [], summary);
   const qRes = await groqFn(segWavs, jobs, (done) => { if (onLegProgress) onLegProgress(done, 'Groq (dual)'); }, sourceLang);
-  return mergeDualTranscripts(gRes, qRes);
+  const merged = mergeDualTranscripts(gRes, qRes);
+  // THIRD-VOTE TIEBREAKER (v132): resolve dual disagreements with offline
+  // Whisper before translation. Only disagreed segments invoke Whisper;
+  // agreed segments are untouched (bounded cost). Fail-open: any tiebreaker
+  // error leaves the merged result exactly as v129 produced it. The typeof
+  // guard keeps the v129 test harness working (it extracts this function
+  // alone, without the tiebreaker global); in production both live in this
+  // file, so the guard always passes.
+  let resolved = merged;
+  if (typeof dualResolveDisagreements === 'function') {
+    try { resolved = await dualResolveDisagreements(merged, segWavs, fns); } catch (e) { resolved = merged; }
+  }
+  // dualAlt is internal to the tiebreaker; strip it so the returned shape
+  // matches v129 exactly (translation/subtitles only read known fields).
+  for (const seg of resolved) for (const cue of (seg.segments || [])) delete cue.dualAlt;
+  return resolved;
 }
 
 // ---- Auto transcript+translation job (background, never blocks upload) ----
@@ -2194,11 +2276,11 @@ function phoneGuardNounMissing(orig, bur){
   return null;
 }
 
-// Deterministic Burmese repair (v130, client mirror of repairBurmeseLine):
+// Deterministic Burmese repair (v130, v131, client mirror of repairBurmeseLine):
 // same rules, same firing conditions, runs last on every phone path.
 var PHONE_REPAIR_RULES = [
   ["西边", "အနောက်ဘက်", ["စပိန်ဘက်", "စီဘက်", "စပိန်"], null],
-  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်"], null],
+  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်", "စောက်ပတ်"], null],
   ["赶紧", "မြန်မြန်", ["သတိထား"], null],
   ["粮食", "ရိက္ခာ", ["ဆန်"], "米"],
   ["哪只脚", "ဘယ်ခြေထောက်", ["ဘယ်ဘက်ခြေထောက်", "ဘယ်ဘက်"], null],
@@ -2216,6 +2298,7 @@ function phoneRepairLine(orig, bur){
     if(b.indexOf(correct) >= 0) continue;
     for(var w = 0; w < wrongs.length; w++){ if(b.indexOf(wrongs[w]) >= 0) b = b.split(wrongs[w]).join(correct); }
   }
+  if(o.indexOf('来了') >= 0 && b.indexOf('လာ') < 0 && b.indexOf('မရှိတော့ဘူး') >= 0) b = b.split('မရှိတော့ဘူး').join('လာနေပြီ');
   return b;
 }
 async function phoneTranslateBatchValidated(origs, sourceLang, spks, eng){
