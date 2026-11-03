@@ -5123,7 +5123,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
           let aFilter = ''; let aCur = '0:a';
           if (hasAudio) { for (let i = 1; i < segFiles.length; i++) { const out = `a${i}`; aFilter += (aFilter ? ';' : '') + `[${aCur}][${i}:a]acrossfade=d=${td}[${out}]`; aCur = out; } }
           const fc = vFilter + (hasAudio && aFilter ? ';' + aFilter : '');
-          const a2 = [...argsX, '-filter_complex', fc, '-map', `[${cur}]`];
+          const a2 = [...argsX, '-filter_complex_threads', '4', '-filter_complex', fc, '-map', `[${cur}]`];
           if (hasAudio) a2.push('-map', `[${aCur}]`, '-c:a', 'aac'); else a2.push('-an');
           a2.push('-c:v', 'libx264', '-preset', 'veryfast', outPath);
           await run('ffmpeg', a2); return outPath;
@@ -5315,14 +5315,14 @@ app.post('/api/projects/:id/export', async (req, res) => {
         filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else if (blurMode === 'custom') {
         if (blur2Enabled && blur1Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma}${blurEq1},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]gblur=sigma=${blurSigma2}${blurEq2},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br2];[d][br2]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}',gblur=sigma=${blurSigma}${blurEq1}[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}',gblur=sigma=${blurSigma2}${blurEq2}[br2];[d][br2]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else if (blur2Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma2}${blurEq2},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}',gblur=sigma=${blurSigma2}${blurEq2}[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma}${blurEq1},crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}'[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}',gblur=sigma=${blurSigma}${blurEq1}[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         }
       } else if (blur2Enabled) {
-        filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma2}${blurEq2},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+        filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}',gblur=sigma=${blurSigma2}${blurEq2}[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else {
         filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       }
@@ -5524,8 +5524,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
         filter = filter.replace('[vout];', '[vstretch];' + vFilter + ';');
       }
       if (fpsVal) filter = filter.replace(/\[vout\]$/, ',fps=' + fpsVal + '[vout]');
-      if (audioMap) args.push('-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-c:a', 'aac', outMp4);
-      else args.push('-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-an', outMp4);
+      if (audioMap) args.push('-filter_complex_threads', '4', '-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-c:a', 'aac', outMp4);
+      else args.push('-filter_complex_threads', '4', '-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-an', outMp4);
       let outDur = 0;
       try { outDur = Math.max(0, (end || 0) - (start || 0)); } catch {}
       try { touchExportProgress(p, 5, 'video ရိုက်နေပါတယ်'); } catch {}
@@ -5604,7 +5604,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
             }
           } catch (ce) { posterNote = 'Poster stream-copy join unavailable, re-encode used: ' + ce.message; }
           if (!joined) {
-            await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex', '[0:v]setsar=1[v0];[1:v]setsar=1[v1];[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', finalMp4]);
+            await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex_threads', '4', '-filter_complex', '[0:v]setsar=1[v0];[1:v]setsar=1[v1];[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', finalMp4]);
             outMp4 = finalMp4; posterApplied = true;
           }
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
