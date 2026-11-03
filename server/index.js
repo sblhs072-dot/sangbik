@@ -417,7 +417,9 @@ async function probe(file) {
   const j = JSON.parse(out);
   const v = j.streams.find(s => s.codec_type === 'video') || {};
   const a = j.streams.find(s => s.codec_type === 'audio') || {};
-  return { duration: parseFloat(j.format.duration || 0), size: parseInt(j.format.size || 0, 10), format: j.format.format_name, videoCodec: v.codec_name, audioCodec: a.codec_name, width: v.width, height: v.height, resolution: v.width && v.height ? `${v.width}x${v.height}` : null };
+  const parseFps = (x) => { if (!x || typeof x !== 'string') return null; const parts = x.split('/'); const n = parseFloat(parts[0]), d = parseFloat(parts[1] || 1); return (Number.isFinite(n) && Number.isFinite(d) && d !== 0) ? n / d : null; };
+  const fps = parseFps(v.avg_frame_rate) || parseFps(v.r_frame_rate);
+  return { duration: parseFloat(j.format.duration || 0), size: parseInt(j.format.size || 0, 10), format: j.format.format_name, videoCodec: v.codec_name, audioCodec: a.codec_name, width: v.width, height: v.height, resolution: v.width && v.height ? `${v.width}x${v.height}` : null, fps, sar: v.sample_aspect_ratio || null, audioRate: a.sample_rate ? parseInt(a.sample_rate, 10) : null, audioChannels: a.channels || null };
 }
 // ADTS sample-rate table (index -> Hz), same order as the phone's adtsPack.
 const ADTS_RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
@@ -4877,10 +4879,39 @@ app.post('/api/projects/:id/export', async (req, res) => {
             if (notoPath) { const st = posterTitle.replace(/'/g, '').replace(/:/g, ''); draw = `,drawtext=fontfile=${notoPath}:text='${st}':fontsize=${bigFs}:fontcolor=white:borderw=3:bordercolor=black:box=1:boxcolor=black@0.55:boxborderw=24:x=(w-text_w)/2:y=(h-text_h)/2`; }
             else { const fp2 = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const at2 = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fp2) && at2) draw = `,drawtext=fontfile=${fp2}:text='${at2}':fontsize=${bigFs}:fontcolor=white:borderw=3:bordercolor=black:box=1:boxcolor=black@0.55:boxborderw=24:x=(w-text_w)/2:y=(h-text_h)/2`; }
           }
-          await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', 'anullsrc', '-vf', `scale=trunc(iw/2)*2:trunc(ih/2)*2${draw}`, '-t', String(posterDur), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
+          let aRate = 44100, aLayout = 'stereo', mSar = '1:1';
+          try { const mm0 = await probe(outMp4); if (mm0.audioRate) aRate = mm0.audioRate; if (mm0.audioChannels === 1) aLayout = 'mono'; else if (mm0.audioChannels) aLayout = 'stereo'; if (mm0.sar && /^\d+:\d+$/.test(mm0.sar)) mSar = mm0.sar; } catch {}
+          await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', `anullsrc=channel_layout=${aLayout}:sample_rate=${aRate}`, '-vf', `scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=${mSar.replace(':', '/')}${draw}`, '-t', String(posterDur), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
           const finalMp4 = path.join(OUT_DIR, `${p.id}-recap-poster.mp4`);
-          await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex', '[0:v]setsar=1[v0];[1:v]setsar=1[v1];[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', finalMp4]);
-          outMp4 = finalMp4; posterApplied = true;
+          // Fast poster join: stream-copy concat when poster and main share
+          // every stream parameter (codec, size, fps, SAR, audio params).
+          // A copy join takes milliseconds instead of a full re-encode.
+          // Any mismatch or copy failure falls back to the re-encode below,
+          // so the copy path can never produce a mistimed or mis-displayed join.
+          let joined = false;
+          try {
+            const pm = await probe(posterMp4);
+            const mm = await probe(outMp4);
+            const fpsEq = pm.fps && mm.fps && Math.abs(pm.fps - mm.fps) < 0.01;
+            const sarEq = pm.sar && mm.sar && pm.sar === mm.sar;
+            const audioEq = pm.audioCodec && mm.audioCodec && pm.audioCodec === mm.audioCodec && pm.audioRate && pm.audioRate === mm.audioRate && pm.audioChannels && pm.audioChannels === mm.audioChannels;
+            const videoEq = pm.videoCodec && pm.videoCodec === mm.videoCodec && pm.width === mm.width && pm.height === mm.height && fpsEq && sarEq;
+            if (videoEq && audioEq) {
+              const listFile = path.join(OUT_DIR, `${p.id}-concat.txt`);
+              fs.writeFileSync(listFile, `file '${posterMp4.replace(/'/g, "'\\''")}'\nfile '${outMp4.replace(/'/g, "'\\''")}'\n`);
+              const copyOut = path.join(OUT_DIR, `${p.id}-recap-poster-copy.mp4`);
+              await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', copyOut], { timeout: 120000 });
+              const cm = await probe(copyOut);
+              if (cm.size > 0 && Math.abs(cm.duration - (posterDur + (mm.duration || 0))) <= 1.0) {
+                outMp4 = copyOut; posterApplied = true; joined = true;
+                posterNote = 'Poster stream-copy join (no re-encode)';
+              } else { try { fs.unlinkSync(copyOut); } catch {} }
+            }
+          } catch (ce) { posterNote = 'Poster stream-copy join unavailable, re-encode used: ' + ce.message; }
+          if (!joined) {
+            await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex', '[0:v]setsar=1[v0];[1:v]setsar=1[v1];[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', finalMp4]);
+            outMp4 = finalMp4; posterApplied = true;
+          }
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
       const meta = await probe(outMp4);
