@@ -4976,10 +4976,12 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const start = parseFloat(o.trimStart || 0); const end = parseFloat(o.trimEnd || p.metadata?.duration || 0);
   const aspect = o.aspect || (dubbing ? '9:16' : '16:9'); const quality = o.quality || '720p';
   const bitrateArgs = (['2.5M','4.0M','6.5M'].includes(o.qualityBitrate) ? ['-b:v', o.qualityBitrate] : []);
-  // v145: CRF mode (no target bitrate) uses superfast: same CRF quality target,
-  // ~27% faster encode on real clips, ~43% larger file (net win after download).
-  // Target-bitrate mode keeps veryfast: a faster preset at fixed bits loses visible quality.
-  const renderPreset = bitrateArgs.length ? 'veryfast' : 'superfast';
+  // v146: CRF mode (no target bitrate) uses ultrafast, the fastest libx264 preset:
+  // same CRF quality target, ~42% faster encode than veryfast on real clips, but
+  // ~3x larger file, so extra mobile download eats most of the render saving (net
+  // gain over superfast is small). Target-bitrate mode keeps veryfast: a faster
+  // preset at fixed bits loses visible quality. No faster preset exists after ultrafast.
+  const renderPreset = bitrateArgs.length ? 'veryfast' : 'ultrafast';
   const fpsVal = (['30','25','24'].includes(String(o.exportFps)) ? String(o.exportFps) : null);
   const sub = o.subtitles || {}; const narrVol = parseFloat(o.narrationVolume ?? 1); const origVol = (o.narrationExpected === true) ? 0 : parseFloat(o.originalVolume ?? (dubbing ? 0 : 0.5));
   const subtitlesOn = o.subtitlesOn !== false;
