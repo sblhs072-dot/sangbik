@@ -4294,6 +4294,37 @@ app.get('/sw.js', (req, res) => { res.type('js').send(SW_JS); });
 
 app.get('/api/health', (req, res) => res.json({ ok: true, app: 'Sangbik', name: 'Sangbik', ttsVoices: TTS_VOICES, ttsDefaultProvider: defaultTtsProvider(), transcriptionProvider: 'whisper-offline-tiny', whisperModel: WHISPER_MODEL_NAME, whisperOfflineConfigured: whisperInstalled(), translationProvider: 'google-translate', ttsProviderDefault: 'edge-tts', edgeTtsConfigured: edgeTtsInstalled(), localConfigured: localTtsConfigured(), aiConfigured: !!(process.env.AI_PROVIDER && (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)), transcriptionConfigured: whisperInstalled(), azureConfigured: !!(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION), openaiTtsConfigured: !!process.env.OPENAI_API_KEY, geminiConfigured: !!process.env.GEMINI_API_KEY, groqConfigured: !!process.env.GROQ_API_KEY, geminiVoice: process.env.GEMINI_VOICE || 'Kore', geminiTtsModel: process.env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts', ttsProviders: ['edge-tts', 'local', 'azure', 'openai', 'gemini'], maxFileMb: MAX_MB }));
 
+// v142 REPAIR endpoint (stateless, for Sangbik Native v1.32): exposes the
+// existing v141 repairBurmeseLine + label sweep to native runs. Input lines
+// in, output lines out, nothing read or written (no projects, TM, uploads,
+// or any stored data). Order per line: (1) repairBurmeseLine(chinese,
+// burmese), then (2) the v141 label sweep: non-empty Burmese with no
+// Myanmar-script char (U+1000-U+109F) becomes empty with flagged=true.
+// Correct lines, empty lines and Myanmar-script lines (including
+// Myanmar+Latin mix) pass through unchanged with flagged=false.
+// flagged=true ONLY when the sweep itself empties the line.
+function repairLinesStateless(lines) {
+  const input = Array.isArray(lines) ? lines : [];
+  return input.map((entry) => {
+    if (!entry || typeof entry !== 'object') return entry;
+    const chinese = typeof entry.chinese === 'string' ? entry.chinese : (entry.chinese == null ? '' : String(entry.chinese));
+    const burmeseIn = typeof entry.burmese === 'string' ? entry.burmese : (entry.burmese == null ? '' : String(entry.burmese));
+    let burmese = burmeseIn;
+    try { burmese = repairBurmeseLine(chinese, burmese); } catch (e) { burmese = burmeseIn; }
+    let flagged = false;
+    if (burmese && !hasMyanmarScript(burmese)) { burmese = ''; flagged = true; }
+    return { chinese: chinese, burmese: burmese, flagged: flagged };
+  });
+}
+app.post('/api/repair-lines', (req, res) => {
+  try {
+    const lines = req && req.body && Array.isArray(req.body.lines) ? req.body.lines : [];
+    res.json({ lines: repairLinesStateless(lines) });
+  } catch (e) {
+    res.json({ lines: [] });
+  }
+});
+
 app.post('/api/projects', (req, res) => {
   const id = newId();
   projects[id] = { id, title: req.body.title || 'Untitled Recap', mode: ['recap', 'dubbing'].includes(req.body.mode) ? req.body.mode : 'recap', createdAt: new Date().toISOString(), status: 'created', metadata: null, file: null, scenes: [], analysis: null, script: '', scriptEstimate: null, translationLines: [], transcript: null, tts: null, export: null, urlNote: null, music: null, sceneOrder: null };
