@@ -210,10 +210,10 @@ print(json.dumps([tr(t) for t in json.load(sys.stdin)], ensure_ascii=False))`;
 // Batched LLM translation: ALL lines in ONE call (fastest path). The model must
 // return one numbered translation per input line, in order. A count mismatch
 // throws so the caller falls through -- lines are never misaligned or invented.
-function buildBatchPrompt(texts, sourceLang) {
+function buildBatchPrompt(texts, sourceLang, hint) {
   const numbered = texts.map((t, i) => (i + 1) + '. ' + t).join('\n');
   const fromPart = (sourceLang && sourceLang !== 'auto') ? ('from ' + (SOURCE_LANG_NAMES[sourceLang] || sourceLang) + ' ') : '';
-  return 'Translate each numbered line ' + fromPart + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Negative and emphatic constructions must sound like spoken Burmese, never like a textbook. In particular, 难 + 不 or 没 + verb means the speaker CANNOT HELP doing it: when the tone is exclamatory or joking, prefer a Burmese rhetorical question. Example: 很难听不见啊, said of a loud obvious sound, becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, never the flat literal မကြားဘဲ နေဖို့ ခက်တယ်. In a plain non-rhetorical case, မနေနိုင်ဘူး or မရဘူး works. Likewise 不得不 becomes မဖြစ်မနေ, and a rhetorical negative keeps its punch instead of turning into a flat statement. If a rendering sounds like word-for-word Burmese, rewrite it the way people actually speak in a drama. Burmese dubbing style: write the way actors speak in a drama, not the way textbooks write. Match the particle to the tone: a soft exclamation ends with လေ, an obvious fact with ပေါ့, a plain statement with တယ်, a question with လား, a rhetorical boast with …ဘဲ နေပါ့မလား. Keep pronouns consistent with the relationship (elders and superiors get respectful forms, friends get plain forms) and keep the same form for the same person throughout. Burmese is verb-final: never mirror Chinese word order. Never translate character by character: 难 is not always ခက်တယ်, 不 is not always မ, and a Chinese question is not always a Burmese question — render the INTENTION and the TONE. If a line read aloud sounds like a textbook, rewrite it until it sounds like someone talking in the scene. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout. COVERAGE: translate EVERY numbered line and EVERY word in it — never drop a leading order, exclamation or interjection (住手 becomes ရပ်စမ်း, never nothing; 快 stays in the line). A line that is only punctuation gets an empty translation, never the punctuation copied as the translation. CLAUSE COVERAGE: if a line has two or more sentences, questions or clauses, the Burmese must have ALL of them — a trailing second sentence or question must never be dropped (做梦了吧？ must appear, never vanish). NO INVENTED DETAILS: never add a direction, person, place, time or reason that the Chinese does not state — 哪 means WHICH, never left and never right (哪只脚 becomes ဘယ်ခြေထောက်, never ဘယ်ဘက်ခြေထောက် or ညာဘက်ခြေထောက်). PRECISE NOUNS: a specific term stays specific, never generalized (蹄 is hoof, ခွာ, never the generic leg ခြေထောက်; 脚 is foot; 手 is hand). NAMES: transliterate person names from their Chinese pronunciation and keep the same form for the same person throughout — never substitute a different Burmese name (老高 becomes လောင်ကောင်). QUESTION TONE: when the Chinese ends with ？ and asks something, even in surprise, the Burmese must also ask (end with လား) — never flatten it into a statement (这歌你都能听见？ becomes ဒီသီချင်းကိုတောင် မင်း ကြားရတယ်လား, never ဒီသီချင်းတောင် ကြားရတယ်ပေါ့). CLAUSE COUNT: count the parts of the Chinese line split by ， ！ ？ 。 and ； — the Burmese must have the SAME number of parts, no fewer and no more. A 3-part line must come out as 3 parts in Burmese, never a 1-part summary (for example 好你个不知死活的畜生， 小的都跑了， 你还搁这儿赖着！ has 3 parts and must give 3 Burmese parts). NOUN GUARD: for each line, check every content noun in the Chinese (people, animals, foods, objects, places) and make sure it appears in the Burmese with its correct meaning. NEVER drop a noun and NEVER replace a noun with a different noun. 米 means rice and must become ဆန်, never vanish and never become family; 家里 means in this house, never families; 粮食 means food provisions, never field. WAR-DRAMA WORDS: 西边 means the west side and must become အနောက်ဘက်, never Spain (Spain is 西班牙, a different word); 鬼 and 鬼子 in a war drama mean Japanese soldiers and must become ဂျပန်စစ်သား, never ghost, never demon, never a vulgar slur; 赶紧 means hurry and must become မြန်မြန်, never be careful; 瞎说 means talking nonsense and 别瞎说 must become လျှောက်မပြောနဲ့. 不对 means not correct and must become မမှန်ဘူး, never impossible မဖြစ်နိုင်ဘူး. Never write a Chinese word as Burmese sounds (米 is ဆန်, never မီ). Never add a trailing လို့ unless the Chinese quotes speech.\n' + numbered;
+  return 'Translate each numbered line ' + fromPart + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Negative and emphatic constructions must sound like spoken Burmese, never like a textbook. In particular, 难 + 不 or 没 + verb means the speaker CANNOT HELP doing it: when the tone is exclamatory or joking, prefer a Burmese rhetorical question. Example: 很难听不见啊, said of a loud obvious sound, becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, never the flat literal မကြားဘဲ နေဖို့ ခက်တယ်. In a plain non-rhetorical case, မနေနိုင်ဘူး or မရဘူး works. Likewise 不得不 becomes မဖြစ်မနေ, and a rhetorical negative keeps its punch instead of turning into a flat statement. If a rendering sounds like word-for-word Burmese, rewrite it the way people actually speak in a drama. Burmese dubbing style: write the way actors speak in a drama, not the way textbooks write. Match the particle to the tone: a soft exclamation ends with လေ, an obvious fact with ပေါ့, a plain statement with တယ်, a question with လား, a rhetorical boast with …ဘဲ နေပါ့မလား. Keep pronouns consistent with the relationship (elders and superiors get respectful forms, friends get plain forms) and keep the same form for the same person throughout. Burmese is verb-final: never mirror Chinese word order. Never translate character by character: 难 is not always ခက်တယ်, 不 is not always မ, and a Chinese question is not always a Burmese question — render the INTENTION and the TONE. If a line read aloud sounds like a textbook, rewrite it until it sounds like someone talking in the scene. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout. COVERAGE: translate EVERY numbered line and EVERY word in it — never drop a leading order, exclamation or interjection (住手 becomes ရပ်စမ်း, never nothing; 快 stays in the line). A line that is only punctuation gets an empty translation, never the punctuation copied as the translation. CLAUSE COVERAGE: if a line has two or more sentences, questions or clauses, the Burmese must have ALL of them — a trailing second sentence or question must never be dropped (做梦了吧？ must appear, never vanish). NO INVENTED DETAILS: never add a direction, person, place, time or reason that the Chinese does not state — 哪 means WHICH, never left and never right (哪只脚 becomes ဘယ်ခြေထောက်, never ဘယ်ဘက်ခြေထောက် or ညာဘက်ခြေထောက်). PRECISE NOUNS: a specific term stays specific, never generalized (蹄 is hoof, ခွာ, never the generic leg ခြေထောက်; 脚 is foot; 手 is hand). NAMES: transliterate person names from their Chinese pronunciation and keep the same form for the same person throughout — never substitute a different Burmese name (老高 becomes လောင်ကောင်). QUESTION TONE: when the Chinese ends with ？ and asks something, even in surprise, the Burmese must also ask (end with လား) — never flatten it into a statement (这歌你都能听见？ becomes ဒီသီချင်းကိုတောင် မင်း ကြားရတယ်လား, never ဒီသီချင်းတောင် ကြားရတယ်ပေါ့). CLAUSE COUNT: count the parts of the Chinese line split by ， ！ ？ 。 and ； — the Burmese must have the SAME number of parts, no fewer and no more. A 3-part line must come out as 3 parts in Burmese, never a 1-part summary (for example 好你个不知死活的畜生， 小的都跑了， 你还搁这儿赖着！ has 3 parts and must give 3 Burmese parts). NOUN GUARD: for each line, check every content noun in the Chinese (people, animals, foods, objects, places) and make sure it appears in the Burmese with its correct meaning. NEVER drop a noun and NEVER replace a noun with a different noun. 米 means rice and must become ဆန်, never vanish and never become family; 家里 means in this house, never families; 粮食 means food provisions, never field. WAR-DRAMA WORDS: 西边 means the west side and must become အနောက်ဘက်, never Spain (Spain is 西班牙, a different word); 鬼 and 鬼子 in a war drama mean Japanese soldiers and must become ဂျပန်စစ်သား, never ghost, never demon, never a vulgar slur; 赶紧 means hurry and must become မြန်မြန်, never be careful; 瞎说 means talking nonsense and 别瞎说 must become လျှောက်မပြောနဲ့. 不对 means not correct and must become မမှန်ဘူး, never impossible မဖြစ်နိုင်ဘူး. Never write a Chinese word as Burmese sounds (米 is ဆန်, never မီ). Never add a trailing လို့ unless the Chinese quotes speech.\n' + (hint ? ' GUARD-NOUN RETRY: ' + hint : '') + numbered;
 }
 function parseBatchResponse(text, count) {
   if (!text || !text.trim()) throw new Error('Empty batch translation response.');
@@ -232,21 +232,21 @@ function parseBatchResponse(text, count) {
   if (lines.length === count) return lines;
   throw new Error('Batch translation returned the wrong number of lines.');
 }
-async function groqTranslateBatch(texts, sourceLang) {
+async function groqTranslateBatch(texts, sourceLang, hint) {
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new Error('GROQ_API_KEY not configured.');
   // Default model: cheapest self-serve Groq chat model (Llama 3.3/3.1 are
   // Enterprise-only since Aug 2026 and error on free keys). Override with
   // GROQ_TRANSLATE_MODEL if Groq changes its lineup again.
   const model = process.env.GROQ_TRANSLATE_MODEL || 'openai/gpt-oss-20b';
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify({ model, temperature: 0.2, max_completion_tokens: 16384, messages: [{ role: 'user', content: buildBatchPrompt(texts, sourceLang) }] }) });
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: JSON.stringify({ model, temperature: 0.2, max_completion_tokens: 16384, messages: [{ role: 'user', content: buildBatchPrompt(texts, sourceLang, hint) }] }) });
   const body = await res.text();
   if (!res.ok) throw new Error(`Groq HTTP ${res.status}: ${body.slice(0, 300)}`);
   let j; try { j = JSON.parse(body); } catch { throw new Error('Groq returned unparseable output.'); }
   const content = (j.choices?.[0]?.message?.content || '').trim();
   return parseBatchResponse(content, texts.length);
 }
-async function geminiTranslateBatch(texts, sourceLang, summary) {
+async function geminiTranslateBatch(texts, sourceLang, summary, hint) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
   const models = [];
@@ -254,7 +254,7 @@ async function geminiTranslateBatch(texts, sourceLang, summary) {
   let lastErr = null;
   for (const model of models) {
     try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: (summary ? 'Video context (from watching the video first): ' + summary + ' Translate the lines to fit this story and tone. ' : '') + buildBatchPrompt(texts, sourceLang) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, { method: 'POST', signal: AbortSignal.timeout(180000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: (summary ? 'Video context (from watching the video first): ' + summary + ' Translate the lines to fit this story and tone. ' : '') + buildBatchPrompt(texts, sourceLang, hint) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
       const body = await res.text();
       if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 300)}`);
       let j; try { j = JSON.parse(body); } catch { throw new Error('Gemini returned unparseable output.'); }
@@ -271,7 +271,7 @@ async function geminiTranslateBatch(texts, sourceLang, summary) {
 async function withRetry(fn) { let last; for (let a = 0; a < 2; a++) { try { return await fn(); } catch (e) { last = e; if (a === 0) await new Promise(r => setTimeout(r, 5000)); } } throw last; }
 async function withRetrySlow(fn) { let last; const waits = [10000, 20000, 40000]; for (let a = 0; a < 4; a++) { try { return await fn(); } catch (e) { last = e; if (a < 3) await new Promise(r => setTimeout(r, waits[a])); } } throw last; }
 function withTimeout(promise, ms, label) { let timer; const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error((label || 'Call') + ' timed out after ' + Math.round(ms / 1000) + 's')), ms); }); return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)); }
-async function translateLinesWithGoogleOrFallback(lines, sourceLang, summary, skipEngines) {
+async function translateLinesWithGoogleOrFallback(lines, sourceLang, summary, skipEngines, hint) {
   // lines: [{original}] -> {translations, path, error}
   // ACCURACY-FIX: Order: Gemini batched first (accuracy first) -> Groq
   // batched (both with slow retries so transient 429/503 never falls
@@ -287,13 +287,13 @@ async function translateLinesWithGoogleOrFallback(lines, sourceLang, summary, sk
   const isSkipped = name => !!(skipSet && (typeof skipSet.has === 'function' ? skipSet.has(name) : skipSet.indexOf(name) >= 0));
   if (process.env.GEMINI_API_KEY && !isSkipped('gemini-batch')) {
     try {
-      const translations = await withRetrySlow(() => geminiTranslateBatch(originals, sourceLang, summary));
+      const translations = await withRetrySlow(() => geminiTranslateBatch(originals, sourceLang, summary, hint));
       return { translations, path: 'gemini-batch', googleLog: 'Translated in one Gemini batch call.', error: null };
     } catch (me) { attempts.push(`Gemini batch: ${me.message}`); }
   }
   if (!process.env.GROQ_API_KEY) { attempts.push('Groq key မရှိ — Groq ကျော်သွားပြီ'); }
   else if (isSkipped('groq-batch')) { /* echoing engine skipped for this retry pass */ } else try {
-    const translations = await withRetrySlow(() => groqTranslateBatch(originals, sourceLang));
+    const translations = await withRetrySlow(() => groqTranslateBatch(originals, sourceLang, hint));
     return { translations, path: 'groq-batch', googleLog: 'Translated in one Groq batch call.', error: null };
   } catch (ge) { attempts.push(`Groq batch: ${ge.message}`); }
   if (!isSkipped('google')) try {
@@ -331,6 +331,18 @@ function isEchoTranslation(original, burmese) {
   if (!o || !hasCJKText(o)) return false; // digits/punctuation-only originals: identical text is fine
   return b === o;
 }
+// GUARD-NOUN MAP (v1.28): Chinese word -> Burmese substring that MUST
+// appear when the Chinese line contains the word. Longer forms first
+// (鬼子 before 鬼). 家里 is loose: any Burmese containing အိမ် passes,
+// since "in this house" renders variously. This check is a retry trigger
+// only: it never rewrites Burmese text itself.
+const GUARD_NOUN_MAP = [['粮食', 'ရိက္ခာ'], ['鬼子', 'ဂျပန်စစ်သား'], ['西边', 'အနောက်ဘက်'], ['赶紧', 'မြန်မြန်'], ['瞎说', 'လျှောက်'], ['哪只脚', 'ဘယ်ခြေထောက်'], ['蹄', 'ခွာ'], ['老高', 'လောင်ကောင်'], ['不对', 'မမှန်ဘူး'], ['米', 'ဆန်'], ['家里', 'အိမ်'], ['鬼', 'ဂျပန်စစ်သား']];
+function guardNounMissing(original, burmese) {
+  const o = original || '', b = burmese || '';
+  if (!b || isEchoTranslation(o, b)) return null;
+  for (const [cn, my] of GUARD_NOUN_MAP) if (o.indexOf(cn) >= 0 && b.indexOf(my) < 0) return { cn, my };
+  return null;
+}
 async function translateLinesValidated(lines, sourceLang, summary) {
   const originals = lines.map(l => l.original);
   const first = await translateLinesWithGoogleOrFallback(lines, sourceLang, summary);
@@ -349,6 +361,23 @@ async function translateLinesValidated(lines, sourceLang, summary) {
     bad.forEach((origIdx, k) => { translations[origIdx] = retry.translations[k]; });
     path = path + '+' + retry.path + '-retry';
     if (retry.path) skipped.add(retry.path);
+  }
+  // GUARD-NOUN VERIFICATION LOOP (v1.28): prompt hope is not enforcement.
+  // A line whose Chinese contains a guard noun but whose Burmese lacks the
+  // required mapping gets EXACTLY ONE retry carrying an explicit hint that
+  // names the mapping. The retry result is accepted as-is: no second check,
+  // no loop, no forced replacement (a forced replace would corrupt good
+  // lines on false positives). This runs alongside the CJK-echo check, and
+  // the final echo sweep below still empties any echo the retry produced.
+  // Note: the hint reaches Gemini/Groq legs of the chain; MT legs (Google /
+  // MyMemory / offline) take no prompt, so on those legs the retry is still
+  // one fresh translation attempt, accepted as-is.
+  const guardBad = [];
+  for (let i = 0; i < translations.length; i++) { const m = guardNounMissing(originals[i], translations[i]); if (m) guardBad.push({ i, cn: m.cn, my: m.my }); }
+  if (guardBad.length) {
+    const hint = 'GUARD-NOUN CORRECTIONS — these exact words were mistranslated before, fix ONLY these words and keep the rest of each line: ' + guardBad.map(g => g.cn + ' must become ' + g.my).join('; ') + '.';
+    const gretry = await translateLinesWithGoogleOrFallback(guardBad.map(g => lines[g.i]), sourceLang, summary, skipped, hint);
+    if (gretry.translations) guardBad.forEach((g, k) => { translations[g.i] = gretry.translations[k]; });
   }
   for (let i = 0; i < translations.length; i++) if (isEchoTranslation(originals[i], translations[i])) translations[i] = '';
   return { translations, path, googleLog: first.googleLog, error: first.error };
@@ -557,7 +586,7 @@ function writeVtt(project, segments, suffix = '') {
 }
 function normaliseLines(lines) {
   if (!Array.isArray(lines)) return [];
-  return lines.map(l => ({ start: parseFloat(l.start || 0), end: parseFloat(l.end || 0), original: String(l.original || ''), burmese: String(l.burmese || ''), manual: !!l.manual, speaker: String(l.speaker || ''), outro: !!l.outro })).filter(l => l.end > l.start && l.burmese);
+  return lines.map(l => ({ start: parseFloat(l.start || 0), end: parseFloat(l.end || 0), original: String(l.original || ''), burmese: String(l.burmese || ''), manual: !!l.manual, speaker: String(l.speaker || ''), outro: !!l.outro, ...(l.dualDisagree ? { dualDisagree: true } : {}) })).filter(l => l.end > l.start && l.burmese);
 }
 function ttsLinesFingerprint(lines) { let h = 0; const s = (lines || []).map(l => (l.start || 0) + '|' + (l.end || 0) + '|' + (l.burmese || '')).join('\n'); for (let i = 0; i < s.length; i++) { h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0; } return String(h); }
 function getSceneSegments(scenes, start, end) {
@@ -711,7 +740,7 @@ function splitTranscriptToMax(pieces, maxSec) {
     const built = chunks.map(([text, cs, ce], j) => ({
       start: j === 0 ? piece.start : +(piece.start + span * cs / total).toFixed(2),
       end: j === chunks.length - 1 ? piece.end : +(piece.start + span * ce / total).toFixed(2),
-      original: text, burmese: piece.burmese || '', speaker: piece.speaker || ''
+      original: text, burmese: piece.burmese || '', speaker: piece.speaker || '', ...(piece.dualDisagree ? { dualDisagree: true } : {})
     }));
     for (let j = 1; j < built.length; j++) built[j].start = built[j - 1].end;
     built[built.length - 1].end = piece.end;
@@ -955,7 +984,7 @@ async function geminiTranscribeSegment(wavPath, segDur, lang, frames, summary) {
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) throw new Error('Gemini key missing');
   const b64 = fs.readFileSync(wavPath).toString('base64');
-  const prompt = (summary ? 'Video context (from watching the whole video first): ' + summary + ' Use this story context to choose homophones and names that fit; never invent dialogue. ' : '') + (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Listen carefully: one speaker turn is ONE line, even if it has many words. Do not split a turn into word lines. Within a turn, hear every word, in order. Do not skip a word. Do not replace a word with a different word that sounds similar. Segment by SPEAKER, not by fixed seconds: start a NEW line whenever the speaker changes, and never merge two speakers into one line; one speaker\'s continuous speech stays one line even if it is long. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] (Speaker X) spoken words, where X is a short consistent tag for that voice (A, B, C, ...; the same voice keeps the same tag throughout the clip; use the scene images to tell speakers apart by who is visibly speaking). Timestamps are relative to the start of this clip (0 seconds). Do not add explanations or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. Keep person names and repeated terms consistent across lines. When two characters sound the same, choose the one that fits the story context (for example, the guidance of a Buddha, a dragon scale, a proverb about lazy hands). Never invent words that were not spoken. If a part is unclear, inaudible, music, background noise, or a short grunt, DO NOT guess and DO NOT turn it into words — leave that part out entirely (no line for it). Never add a noun (food, animal, person, object) you did not clearly hear, no matter how well it would fit the story or the image. Context and images may only choose between words you actually heard — they never create a word.';
+  const prompt = (summary ? 'Video context (from watching the whole video first): ' + summary + ' Use this story context to choose homophones and names that fit; never invent dialogue. ' : '') + (lang && lang !== 'auto' ? 'The speech is in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. ' : '') + 'Transcribe the speech in this audio clip VERBATIM, in the language spoken. Listen carefully: one speaker turn is ONE line, even if it has many words. Do not split a turn into word lines. Within a turn, hear every word, in order. Do not skip a word. Do not replace a word with a different word that sounds similar. Segment by SPEAKER, not by fixed seconds: start a NEW line whenever the speaker changes, and never merge two speakers into one line; one speaker\'s continuous speech stays one line even if it is long. Output ONLY subtitle lines, one per line, each in exactly this format: [MM:SS.s - MM:SS.s] (Speaker X) spoken words, where X is a short consistent tag for that voice (A, B, C, ...; the same voice keeps the same tag throughout the clip; use the scene images to tell speakers apart by who is visibly speaking). Timestamps are relative to the start of this clip (0 seconds). Do not add explanations or extra text. Use standard, idiomatic wording: prefer well-known set phrases and colloquial expressions over phonetically similar but meaningless character combinations. TRANSCRIPTION ACCURACY: prefer real, common Chinese words and set phrases over rare or nonsense character combinations — winter provisions are 过冬粮食, never write the nonsense 谷动粮食. When a speaker addresses an old man, the word is 爷 (grandpa), never the interjection 耶. Keep person names consistent across lines. Never invent syllables for an unclear stretch: an unclear stretch is left out, never written as nonsense characters. Keep person names and repeated terms consistent across lines. When two characters sound the same, choose the one that fits the story context (for example, the guidance of a Buddha, a dragon scale, a proverb about lazy hands). Never invent words that were not spoken. If a part is unclear, inaudible, music, background noise, or a short grunt, DO NOT guess and DO NOT turn it into words — leave that part out entirely (no line for it). Never add a noun (food, animal, person, object) you did not clearly hear, no matter how well it would fit the story or the image. Context and images may only choose between words you actually heard — they never create a word.';
   const geminiParts = [{ text: prompt }, { inlineData: { mimeType: 'audio/wav', data: b64 } }];
   const segFrames = [];
   for (const fr of (frames || [])) { try { const fb = fs.readFileSync(fr.file).toString('base64'); if (fb) segFrames.push(fb); } catch {} }
@@ -1030,7 +1059,7 @@ async function groqTranscribeSegment(wavPath, segDur, lang) {
   // Hint tuned for the user's Chinese content: biases Whisper toward natural
   // colloquial Simplified Chinese and correct set phrases (not phonetic lookalikes).
   if (lang && lang !== 'auto' && lang !== 'zh') fd.append('prompt', 'Transcribe the speech verbatim in ' + (SOURCE_LANG_NAMES[lang] || lang) + '. Use natural conversational language.');
-  else fd.append('prompt', '这是一段中文日常对话,请使用自然标准的简体中文口语进行转录。注意使用正确的惯用语和同音字,例如一瘸一拐、马蹄、队伍,不要写成发音相近的错字。遇到同音字时,根据上下文和故事逻辑选择正确的写法,例如点化不是电话,鳞不是林,手懒不是手揽,石化不是实化,至诚不是至成。人名要保持一致。不要编造没有说过的内容。');
+  else fd.append('prompt', '这是一段中文日常对话,请使用自然标准的简体中文口语进行转录。注意使用正确的惯用语和同音字,例如一瘸一拐、马蹄、队伍,不要写成发音相近的错字。注意真实常用词和惯用语,不要写出无意义的字组合,例如过冬粮食不是谷动粮食。称呼老人时用爷,不是耶。人名和反复出现的词要保持一致。听不清的部分宁可漏掉,也不要编造成无意义的字。遇到同音字时,根据上下文和故事逻辑选择正确的写法,例如点化不是电话,鳞不是林,手懒不是手揽,石化不是实化,至诚不是至成。人名要保持一致。不要编造没有说过的内容。');
   if (lang && lang !== 'auto') fd.append('language', lang);
   fd.append('response_format', 'verbose_json');
   const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + key }, body: fd, signal: AbortSignal.timeout(300000) });
@@ -1161,7 +1190,7 @@ async function geminiPolishLines(items, mode, sourceLangName) {
       }).join('\n');
       const prompt = mode === 'translation'
         ? 'Check the Burmese translations against their ' + (sourceLangName || 'Chinese') + ' originals. Input lines are "N. <Chinese> ||| <Burmese>". For each line, return the corrected Burmese. Rules: (1) ONLY fix what is CLEARLY wrong — wrong numbers, wrong person names, wrong meaning, non-Burmese characters (Thai, Chinese, or other scripts leaked into the Burmese), garbled words, reversed word order (noun must come BEFORE number+classifier: fix နှစ်ကောင်မြင်း to မြင်းနှစ်ကောင်). Stiff literal negatives also count as wrong: 难 + 不 or 没 must read as natural Burmese (example: an exclamatory 很难听不见 becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, not မကြားဘဲ နေဖို့ ခက်တယ်). Burmese style also counts: a textbook-sounding line must be rewritten spoken-style, with the particle matching the tone (လေ, ပေါ့, လား). Dropped words also count as wrong: if the Burmese leaves out a leading order or exclamation from the Chinese (for example 住手 missing entirely), restore it. Dropped trailing clauses, invented details, generalized nouns, wrong names and flattened questions also count as wrong: restore a missing second sentence or question, remove a direction or detail the Chinese does not state, restore a specific part name (hoof, not leg), fix a name to its Chinese pronunciation form, and rewrite a flattened statement back into a question. Clause-count mismatches also count as wrong: if the Burmese has fewer parts than the Chinese line, restore the missing parts; never let a multi-part line stay as a 1-part summary. (2) Names must be transliterated consistently into Burmese script, never left in Chinese characters. (3) If a translation is already correct, return it EXACTLY unchanged. (4) Do NOT guess at unclear parts, do NOT add or remove sentences. (5) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, each line containing ONLY the corrected Burmese, nothing else.\n\n' + numbered
-        : 'Correct Chinese speech-recognition errors in the numbered lines below. These lines come from automatic transcription of Chinese dialogue and contain homophone mistakes, broken idioms, and inconsistent names. For each line, return the corrected Chinese. Rules: (1) ONLY fix what is CLEARLY wrong in context — wrong homophones (for example horse hoof must be 蹄 not 提, a squad must be 队 not 对), broken set phrases (for example limping must be 一瘸一拐 not 一拳一拐), story-context same-sound errors (the guidance of a Buddha is 点化 not 电话; a dragon scale is 鳞 not 林; the lazy-hands proverb is 手懒 not 手揽; petrified is 石化 not 实化; utmost sincerity is 至诚 not 至成), inconsistent person names, obvious wrong characters. (2) If a line is not clearly wrong, return it EXACTLY unchanged. (3) Do NOT guess at unclear parts, do NOT add or remove sentences, do NOT change the meaning. (4) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, nothing else.\n\n' + numbered;
+        : 'Correct Chinese speech-recognition errors in the numbered lines below. These lines come from automatic transcription of Chinese dialogue and contain homophone mistakes, broken idioms, and inconsistent names. For each line, return the corrected Chinese. Rules: (1) ONLY fix what is CLEARLY wrong in context — wrong homophones (for example horse hoof must be 蹄 not 提, a squad must be 队 not 对), broken set phrases (for example limping must be 一瘸一拐 not 一拳一拐), story-context same-sound errors (the guidance of a Buddha is 点化 not 电话; a dragon scale is 鳞 not 林; the lazy-hands proverb is 手懒 not 手揽; petrified is 石化 not 实化; utmost sincerity is 至诚 not 至成), inconsistent person names, obvious wrong characters. Also fix nonsense combinations into real set phrases (winter provisions are 过冬粮食, never 谷动粮食) and old-man address into 爷, never the interjection 耶. Never write nonsense characters for an unclear stretch — leave unclear audio out. (2) If a line is not clearly wrong, return it EXACTLY unchanged. (3) Do NOT guess at unclear parts, do NOT add or remove sentences, do NOT change the meaning. (4) Return exactly ' + chunk.length + ' lines, numbered exactly like the input, nothing else.\n\n' + numbered;
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_POLISH_MODEL || GEMINI_TRANSCRIBE_MODEL}:generateContent?key=${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 16384 } }) });
       if (!res.ok) { let detail = ''; try { const j = await res.json(); detail = j.error?.message || j.error?.status || ''; } catch {} throw new Error('Gemini polish failed (HTTP ' + res.status + (detail ? ': ' + detail : '') + ')'); }
       const j = await res.json();
@@ -1256,6 +1285,92 @@ async function geminiSceneCorrect(lines, frames, sourceLangName) {
   });
   return { lines: out, changed };
 }
+
+// ---- Dual-listener transcription (v129): Gemini + Groq on the same audio ----
+// Agreement rule (strict by design): two cues agree ONLY when their texts are
+// identical after dualNormalizeText (punctuation + whitespace stripped, Latin
+// lowercased). Any character difference — including a one-character homophone
+// swap such as 爷 vs 耶 — is a disagreement, because in this content the
+// dangerous errors ARE single-character swaps. Similarity is used only to
+// CHOOSE which Groq cue pairs with a Gemini cue, never to declare agreement.
+// Pairing rule: a Groq cue pairs with a Gemini cue when their windows overlap
+// by at least max(0.3s, 50% of the shorter window); among eligible cues the
+// highest text similarity wins. Unpaired cues (heard by only one listener)
+// are kept and flagged. On disagreement the Gemini text AND Gemini window
+// are kept (Gemini is the preferred listener); the Groq text is never mixed
+// into the kept line. The flag is a boolean property only — it never enters
+// the Burmese translation text or exported subtitles.
+function dualNormalizeText(t) {
+  return String(t || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+}
+function dualTextSimilarity(a, b) {
+  a = dualNormalizeText(a); b = dualNormalizeText(b);
+  if (a === b) return 1;
+  if (!a.length || !b.length) return 0;
+  let prev = [], cur = [];
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    const tmp = prev; prev = cur; cur = tmp;
+  }
+  return 1 - prev[b.length] / Math.max(a.length, b.length);
+}
+function dualMergeSegmentCues(geminiCues, groqCues) {
+  const g = (geminiCues || []).slice().sort((a, b) => a.start - b.start);
+  const q = (groqCues || []).slice().sort((a, b) => a.start - b.start);
+  const used = new Array(q.length).fill(false);
+  const out = [];
+  for (const gc of g) {
+    const gDur = Math.max(0, gc.end - gc.start);
+    let best = -1, bestSim = -1, bestOverlap = -1;
+    for (let i = 0; i < q.length; i++) {
+      if (used[i]) continue;
+      const qc = q[i];
+      const overlap = Math.max(0, Math.min(gc.end, qc.end) - Math.max(gc.start, qc.start));
+      const minDur = Math.min(gDur, Math.max(0, qc.end - qc.start));
+      if (overlap < Math.max(0.3, 0.5 * minDur)) continue;
+      const sim = dualTextSimilarity(gc.text, qc.text);
+      if (sim > bestSim || (sim === bestSim && overlap > bestOverlap)) { best = i; bestSim = sim; bestOverlap = overlap; }
+    }
+    if (best >= 0) {
+      used[best] = true;
+      const agree = dualNormalizeText(gc.text) === dualNormalizeText(q[best].text);
+      out.push({ start: gc.start, end: gc.end, text: gc.text, speaker: gc.speaker || '', ...(agree ? {} : { dualDisagree: true }) });
+    } else {
+      out.push({ start: gc.start, end: gc.end, text: gc.text, speaker: gc.speaker || '', dualDisagree: true });
+    }
+  }
+  for (let i = 0; i < q.length; i++) {
+    if (used[i]) continue;
+    const qc = q[i];
+    out.push({ start: qc.start, end: qc.end, text: qc.text, speaker: '', dualDisagree: true });
+  }
+  out.sort((a, b) => a.start - b.start);
+  return out;
+}
+function mergeDualTranscripts(geminiResults, groqResults) {
+  const n = Math.max(geminiResults.length, groqResults.length);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const gSegs = (geminiResults[i] && geminiResults[i].segments) || [];
+    const qSegs = (groqResults[i] && groqResults[i].segments) || [];
+    out.push({ segments: dualMergeSegmentCues(gSegs, qSegs) });
+  }
+  return out;
+}
+// Runs both listeners on the SAME segment grid and merges. Rejects on ANY leg
+// failure so the caller falls back to the unchanged single-listener chain
+// (never a half-dual, half-single mix). fns injects stub legs for tests;
+// production calls pass nothing and use the real transcribers.
+async function runDualTranscription(segWavs, jobs, sourceLang, frames, summary, onLegProgress, fns) {
+  const geminiFn = (fns && fns.gemini) || transcribeSegmentsWithGemini;
+  const groqFn = (fns && fns.groq) || transcribeSegmentsWithGroq;
+  const gRes = await geminiFn(segWavs, jobs, (done) => { if (onLegProgress) onLegProgress(done, 'Gemini (dual)'); }, sourceLang, frames || [], summary);
+  const qRes = await groqFn(segWavs, jobs, (done) => { if (onLegProgress) onLegProgress(done, 'Groq (dual)'); }, sourceLang);
+  return mergeDualTranscripts(gRes, qRes);
+}
+
 // ---- Auto transcript+translation job (background, never blocks upload) ----
 async function runAutoJob(projectId, opts) {
   const skipTranslate = !!(opts && opts.skipTranslate);
@@ -1307,7 +1422,7 @@ async function runAutoJob(projectId, opts) {
     let transcriptNote = '';
     let whisperResults = null;
     const engineProgress = function(engineLabel, done) { p.autoJob.completedSegments = done; p.autoJob.percent = Math.round(20 + 50 * done / totalSegments); p.autoJob.message = engineLabel + ' စာသားပြောင်းနေပါတယ် — အပိုင်း ' + done + '/' + totalSegments + ' ပြီးပါပြီ။'; saveProjects(projects); };
-    const engineDisplay = { groq: 'Groq Turbo', gemini: 'Gemini', whisper: 'Whisper offline tiny' };
+    const engineDisplay = { groq: 'Groq Turbo', gemini: 'Gemini', whisper: 'Whisper offline tiny', dual: 'Dual (Gemini + Groq)' };
     const fallbackNotes = [];
     let sceneSummary = '';
     if (p.frames && p.frames.length && process.env.GEMINI_API_KEY) {
@@ -1317,7 +1432,17 @@ async function runAutoJob(projectId, opts) {
         if (sceneSummary) { p.sceneSummary = sceneSummary; saveProjects(projects); }
       } catch (e) { sceneSummary = ''; }
     }
-    for (const engine of transcriptCandidates) {
+    // DUAL-LISTEN (v129): 'auto' choice + both keys -> run Gemini AND Groq on the
+    // same 60s grid and merge. Any leg failure discards the partial dual and
+    // falls through to the unchanged single-listener candidate loop below.
+    if (transcriptChoice === 'auto' && process.env.GEMINI_API_KEY && process.env.GROQ_API_KEY) {
+      try {
+        p.autoJob.stage = 'transcribing-dual'; p.autoJob.message = 'Gemini + Groq နှစ်ခုလုံး နားထောင်နေပါတယ်…'; saveProjects(projects);
+        const dualRes = await runDualTranscription(segWavs, jobs, sourceLang, p.frames || [], sceneSummary, (done, leg) => engineProgress(leg, done));
+        if (dualRes) { whisperResults = dualRes; transcriptProvider = 'dual'; }
+      } catch (dualErr) { whisperResults = null; }
+    }
+    for (const engine of (whisperResults ? [] : transcriptCandidates)) {
       try {
         if (engine === 'groq') {
           if (!process.env.GROQ_API_KEY) { if (transcriptChoice === 'groq') fallbackNotes.push('Groq key မရှိ'); continue; }
@@ -1351,10 +1476,10 @@ async function runAutoJob(projectId, opts) {
     let allPieces = [];
     whisperResults.forEach((res, idx) => {
       const job = jobs[idx];
-      for (const sg of (res.segments || [])) allPieces.push({ start: +(job.start + sg.start).toFixed(2), end: +(job.start + sg.end).toFixed(2), original: sg.text.trim(), speaker: sg.speaker || '' });
+      for (const sg of (res.segments || [])) allPieces.push({ start: +(job.start + sg.start).toFixed(2), end: +(job.start + sg.end).toFixed(2), original: sg.text.trim(), speaker: sg.speaker || '', ...(sg.dualDisagree ? { dualDisagree: true } : {}) });
     });
     allPieces.forEach(l => { l.original = fixTranscriptDeterministic(l.original); });
-    allPieces = splitTranscriptToMax(allPieces, transcriptProvider === 'gemini' ? 20 : 5);
+    allPieces = splitTranscriptToMax(allPieces, (transcriptProvider === 'gemini' || transcriptProvider === 'dual') ? 20 : 5);
     let polishNote = '';
     // Transcript polish runs for ALL engines when a Gemini key exists (accuracy
     // build) — the old speed-build skip was removed; this comment replaces it.
@@ -1440,8 +1565,9 @@ async function runAutoJob(projectId, opts) {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     const weakPath = ['mymemory', 'nllb-offline', 'argos-offline'].includes(p.autoJob.translationPath);
     const fallbackWarning = weakPath ? ' ⚠️ ဘာသာပြန်က အရန်လမ်း (' + p.autoJob.translationPath + ') က ရတာ — လိုင်းတွေ သေချာစစ်ပြီးမှ အသံထုတ်ပါ။' : '';
+    const dualFlagged = (p.autoJob.lines || []).filter(l => l.dualDisagree).length;
     p.autoJob.transcriptionProvider = transcriptProvider;
-    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${polishNote ? ' ' + polishNote : ''}${checkNote ? ' ' + checkNote : ''}${sceneNote ? ' ' + sceneNote : ''}${repairedCount ? ' Line repair: ' + repairedCount + ' line(s) re-translated.' : ''}${repairWarnCount ? ' ' + repairWarnCount + ' line(s) still need a human look.' : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}${sceneSummary ? ' Video read (Gemini): ' + sceneSummary : ''}${fallbackWarning}`, finishedAt: new Date().toISOString() };
+    p.autoJob = { ...p.autoJob, status: 'done', stage: 'done', percent: 100, message: `Auto transcript + translation finished (${engineDisplay[transcriptProvider] || transcriptProvider}, translation via ${p.autoJob.translationPath || 'google'}).${transcriptNote ? ' ' + transcriptNote : ''}${polishNote ? ' ' + polishNote : ''}${checkNote ? ' ' + checkNote : ''}${sceneNote ? ' ' + sceneNote : ''}${repairedCount ? ' Line repair: ' + repairedCount + ' line(s) re-translated.' : ''}${repairWarnCount ? ' ' + repairWarnCount + ' line(s) still need a human look.' : ''}${p.autoJob.translationError ? ' Note: ' + p.autoJob.translationError : ''}${sceneSummary ? ' Video read (Gemini): ' + sceneSummary : ''}${fallbackWarning}${dualFlagged ? ' Dual listen: ' + dualFlagged + ' line(s) flagged where the two listeners disagreed — review those lines.' : ''}`, finishedAt: new Date().toISOString() };
     saveProjects(projects);
   } catch (e) {
     p.autoJob = { ...p.autoJob, status: 'failed', stage: 'failed', message: `Auto transcript job failed: ${e.message}`, error: e.message, finishedAt: new Date().toISOString() };
@@ -2023,6 +2149,13 @@ function phoneIsEcho(orig, bur){
   var o = (orig || '').trim(); if(!o || !phoneHasCJK(o)) return false;
   return b === o;
 }
+var PHONE_GUARD_NOUN_MAP = [['粮食', 'ရိက္ခာ'], ['鬼子', 'ဂျပန်စစ်သား'], ['西边', 'အနောက်ဘက်'], ['赶紧', 'မြန်မြန်'], ['瞎说', 'လျှောက်'], ['哪只脚', 'ဘယ်ခြေထောက်'], ['蹄', 'ခွာ'], ['老高', 'လောင်ကောင်'], ['不对', 'မမှန်ဘူး'], ['米', 'ဆန်'], ['家里', 'အိမ်'], ['鬼', 'ဂျပန်စစ်သား']];
+function phoneGuardNounMissing(orig, bur){
+  var o = orig || '', b = bur || '';
+  if(!b || phoneIsEcho(orig, bur)) return null;
+  for(var k = 0; k < PHONE_GUARD_NOUN_MAP.length; k++){ var cn = PHONE_GUARD_NOUN_MAP[k][0], my = PHONE_GUARD_NOUN_MAP[k][1]; if(o.indexOf(cn) >= 0 && b.indexOf(my) < 0) return {cn: cn, my: my}; }
+  return null;
+}
 async function phoneTranslateBatchValidated(origs, sourceLang, spks, eng){
   var first = (eng === 'groq') ? await groqPhoneTranslateBatch(origs, sourceLang, spks) : await geminiPhoneTranslateBatch(origs, sourceLang, spks);
   var out = first.slice();
@@ -2036,7 +2169,31 @@ async function phoneTranslateBatchValidated(origs, sourceLang, spks, eng){
     } catch(e){}
     for(var j = 0; j < out.length; j++) if(phoneIsEcho(origs[j], out[j])) out[j] = '';
   }
+  var guardBad = [];
+  for(var i = 0; i < out.length; i++){ var gm = phoneGuardNounMissing(origs[i], out[i]); if(gm) guardBad.push({i: i, cn: gm.cn, my: gm.my}); }
+  if(guardBad.length){
+    try {
+      var hint = 'GUARD-NOUN CORRECTIONS — these exact words were mistranslated before, fix ONLY these words and keep the rest of each line: ' + guardBad.map(function(g){ return g.cn + ' must become ' + g.my; }).join('; ') + '.';
+      var gretryOrigs = guardBad.map(function(g){ return origs[g.i]; });
+      var gretrySpks = guardBad.map(function(g){ return (spks && spks[g.i]) ? spks[g.i] : ''; });
+      var gretry = (eng === 'groq') ? await groqPhoneTranslateBatch(gretryOrigs, sourceLang, gretrySpks, hint) : await geminiPhoneTranslateBatch(gretryOrigs, sourceLang, gretrySpks, hint);
+      guardBad.forEach(function(g, k){ out[g.i] = gretry[k]; });
+    } catch(e){}
+  }
   return out;
+}
+async function phoneGuardFixOnePassLines(lines, sourceLang){
+  var bad = [];
+  for(var i = 0; i < lines.length; i++){ var gm = phoneGuardNounMissing(lines[i].original || '', lines[i].burmese || ''); if(gm) bad.push({i: i, cn: gm.cn, my: gm.my}); }
+  if(!bad.length) return lines;
+  try {
+    var origs = bad.map(function(g){ return lines[g.i].original || ''; });
+    var spks = bad.map(function(g){ return lines[g.i].speaker || ''; });
+    var eng = phoneTranslateEngine() || 'gemini';
+    var fixed = await phoneTranslateBatchValidated(origs, sourceLang, spks, eng);
+    bad.forEach(function(g, k){ if(fixed[k]) lines[g.i].burmese = fixed[k]; });
+  } catch(e){}
+  return lines;
 }
 function isValidBurmeseCheck(c, orig){
   if(!c) return false;
@@ -2060,11 +2217,11 @@ function isPunctOnly(str){
   }
   return true;
 }
-function phoneBatchPrompt(texts, sourceLang, spks, sceneDesc){
+function phoneBatchPrompt(texts, sourceLang, spks, sceneDesc, hint){
   var numbered = texts.map(function(t, i){ var sp = (spks && spks[i]) ? ' (Speaker ' + spks[i] + ')' : ''; return (i + 1) + '.' + sp + ' ' + t; }).join('\\n');
   var hasSpk = false; if(spks) for(var si = 0; si < spks.length; si++) if(spks[si]) hasSpk = true;
   var fromPart = (sourceLang && sourceLang !== 'auto') ? ('from ' + (sourceLang === 'zh' ? 'Chinese' : sourceLang) + ' ') : '';
-  return (sceneDesc ? 'VIDEO SCENE — read this first. This is a careful description of what happens in the video (who is present, what they do in order, where it takes place). Use it to judge tone, who is speaking, and what is happening, so each translation fits the video: a boast stays a boast, a joke stays a joke, an action verb matches the visible action. If a Chinese word seems to contradict the visible action, still translate what the Chinese SAYS — do not replace it with what you see — but keep the tone consistent with the scene. Never invent a detail the Chinese does not state. SCENE: ' + sceneDesc + ' ' : '') + 'Translate each numbered line ' + fromPart + (hasSpk ? 'A (Speaker X) tag before a line tells you who is speaking — keep pronouns and forms of address consistent with that speaker across lines. ' : '') + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Negative and emphatic constructions must sound like spoken Burmese, never like a textbook. In particular, 难 + 不 or 没 + verb means the speaker CANNOT HELP doing it: when the tone is exclamatory or joking, prefer a Burmese rhetorical question. Example: 很难听不见啊, said of a loud obvious sound, becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, never the flat literal မကြားဘဲ နေဖို့ ခက်တယ်. In a plain non-rhetorical case, မနေနိုင်ဘူး or မရဘူး works. Likewise 不得不 becomes မဖြစ်မနေ, and a rhetorical negative keeps its punch instead of turning into a flat statement. If a rendering sounds like word-for-word Burmese, rewrite it the way people actually speak in a drama. Burmese dubbing style: write the way actors speak in a drama, not the way textbooks write. Match the particle to the tone: a soft exclamation ends with လေ, an obvious fact with ပေါ့, a plain statement with တယ်, a question with လား, a rhetorical boast with …ဘဲ နေပါ့မလား. Keep pronouns consistent with the relationship (elders and superiors get respectful forms, friends get plain forms) and keep the same form for the same person throughout. Burmese is verb-final: never mirror Chinese word order. Never translate character by character: 难 is not always ခက်တယ်, 不 is not always မ, and a Chinese question is not always a Burmese question — render the INTENTION and the TONE. If a line read aloud sounds like a textbook, rewrite it until it sounds like someone talking in the scene. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout. COVERAGE: translate EVERY numbered line and EVERY word in it — never drop a leading order, exclamation or interjection (住手 becomes ရပ်စမ်း, never nothing; 快 stays in the line). A line that is only punctuation gets an empty translation, never the punctuation copied as the translation. CLAUSE COVERAGE: if a line has two or more sentences, questions or clauses, the Burmese must have ALL of them — a trailing second sentence or question must never be dropped (做梦了吧？ must appear, never vanish). NO INVENTED DETAILS: never add a direction, person, place, time or reason that the Chinese does not state — 哪 means WHICH, never left and never right (哪只脚 becomes ဘယ်ခြေထောက်, never ဘယ်ဘက်ခြေထောက် or ညာဘက်ခြေထောက်). PRECISE NOUNS: a specific term stays specific, never generalized (蹄 is hoof, ခွာ, never the generic leg ခြေထောက်; 脚 is foot; 手 is hand). NAMES: transliterate person names from their Chinese pronunciation and keep the same form for the same person throughout — never substitute a different Burmese name (老高 becomes လောင်ကောင်). QUESTION TONE: when the Chinese ends with ？ and asks something, even in surprise, the Burmese must also ask (end with လား) — never flatten it into a statement (这歌你都能听见？ becomes ဒီသီချင်းကိုတောင် မင်း ကြားရတယ်လား, never ဒီသီချင်းတောင် ကြားရတယ်ပေါ့). CLAUSE COUNT: count the parts of the Chinese line split by ， ！ ？ 。 and ； — the Burmese must have the SAME number of parts, no fewer and no more. A 3-part line must come out as 3 parts in Burmese, never a 1-part summary (for example 好你个不知死活的畜生， 小的都跑了， 你还搁这儿赖着！ has 3 parts and must give 3 Burmese parts). NOUN GUARD: for each line, check every content noun in the Chinese (people, animals, foods, objects, places) and make sure it appears in the Burmese with its correct meaning. NEVER drop a noun and NEVER replace a noun with a different noun. 米 means rice and must become ဆန်, never vanish and never become family; 家里 means in this house, never families; 粮食 means food provisions, never field. WAR-DRAMA WORDS: 西边 means the west side and must become အနောက်ဘက်, never Spain (Spain is 西班牙, a different word); 鬼 and 鬼子 in a war drama mean Japanese soldiers and must become ဂျပန်စစ်သား, never ghost, never demon, never a vulgar slur; 赶紧 means hurry and must become မြန်မြန်, never be careful; 瞎说 means talking nonsense and 别瞎说 must become လျှောက်မပြောနဲ့. 不对 means not correct and must become မမှန်ဘူး, never impossible မဖြစ်နိုင်ဘူး. Never write a Chinese word as Burmese sounds (米 is ဆန်, never မီ). Never add a trailing လို့ unless the Chinese quotes speech.\\n' + numbered;
+  return (sceneDesc ? 'VIDEO SCENE — read this first. This is a careful description of what happens in the video (who is present, what they do in order, where it takes place). Use it to judge tone, who is speaking, and what is happening, so each translation fits the video: a boast stays a boast, a joke stays a joke, an action verb matches the visible action. If a Chinese word seems to contradict the visible action, still translate what the Chinese SAYS — do not replace it with what you see — but keep the tone consistent with the scene. Never invent a detail the Chinese does not state. SCENE: ' + sceneDesc + ' ' : '') + 'Translate each numbered line ' + fromPart + (hasSpk ? 'A (Speaker X) tag before a line tells you who is speaking — keep pronouns and forms of address consistent with that speaker across lines. ' : '') + 'into natural, conversational Burmese (Myanmar script) suitable for subtitles/dubbing. Burmese word order: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, NEVER the Chinese order နှစ်ကောင်မြင်း or ဆယ့်နှစ်ဦးလူ. Return ONLY the translations, one per line, in the same order, each prefixed with its number and a period (e.g. "1. ..."). Do not add explanations, do not merge or drop lines, do not renumber. Translate meaning, not word-by-word; render idioms and set phrases by their meaning. Negative and emphatic constructions must sound like spoken Burmese, never like a textbook. In particular, 难 + 不 or 没 + verb means the speaker CANNOT HELP doing it: when the tone is exclamatory or joking, prefer a Burmese rhetorical question. Example: 很难听不见啊, said of a loud obvious sound, becomes ဒီလောက်အသံကျယ်တာကို မကြားဘဲ နေပါ့မလား, never the flat literal မကြားဘဲ နေဖို့ ခက်တယ်. In a plain non-rhetorical case, မနေနိုင်ဘူး or မရဘူး works. Likewise 不得不 becomes မဖြစ်မနေ, and a rhetorical negative keeps its punch instead of turning into a flat statement. If a rendering sounds like word-for-word Burmese, rewrite it the way people actually speak in a drama. Burmese dubbing style: write the way actors speak in a drama, not the way textbooks write. Match the particle to the tone: a soft exclamation ends with လေ, an obvious fact with ပေါ့, a plain statement with တယ်, a question with လား, a rhetorical boast with …ဘဲ နေပါ့မလား. Keep pronouns consistent with the relationship (elders and superiors get respectful forms, friends get plain forms) and keep the same form for the same person throughout. Burmese is verb-final: never mirror Chinese word order. Never translate character by character: 难 is not always ခက်တယ်, 不 is not always မ, and a Chinese question is not always a Burmese question — render the INTENTION and the TONE. If a line read aloud sounds like a textbook, rewrite it until it sounds like someone talking in the scene. Write ONLY in Myanmar Unicode script (plus digits and punctuation) — never Latin letters, never Chinese characters, never broken or replacement characters. Keep every person and creature name in the same Burmese form throughout. COVERAGE: translate EVERY numbered line and EVERY word in it — never drop a leading order, exclamation or interjection (住手 becomes ရပ်စမ်း, never nothing; 快 stays in the line). A line that is only punctuation gets an empty translation, never the punctuation copied as the translation. CLAUSE COVERAGE: if a line has two or more sentences, questions or clauses, the Burmese must have ALL of them — a trailing second sentence or question must never be dropped (做梦了吧？ must appear, never vanish). NO INVENTED DETAILS: never add a direction, person, place, time or reason that the Chinese does not state — 哪 means WHICH, never left and never right (哪只脚 becomes ဘယ်ခြေထောက်, never ဘယ်ဘက်ခြေထောက် or ညာဘက်ခြေထောက်). PRECISE NOUNS: a specific term stays specific, never generalized (蹄 is hoof, ခွာ, never the generic leg ခြေထောက်; 脚 is foot; 手 is hand). NAMES: transliterate person names from their Chinese pronunciation and keep the same form for the same person throughout — never substitute a different Burmese name (老高 becomes လောင်ကောင်). QUESTION TONE: when the Chinese ends with ？ and asks something, even in surprise, the Burmese must also ask (end with လား) — never flatten it into a statement (这歌你都能听见？ becomes ဒီသီချင်းကိုတောင် မင်း ကြားရတယ်လား, never ဒီသီချင်းတောင် ကြားရတယ်ပေါ့). CLAUSE COUNT: count the parts of the Chinese line split by ， ！ ？ 。 and ； — the Burmese must have the SAME number of parts, no fewer and no more. A 3-part line must come out as 3 parts in Burmese, never a 1-part summary (for example 好你个不知死活的畜生， 小的都跑了， 你还搁这儿赖着！ has 3 parts and must give 3 Burmese parts). NOUN GUARD: for each line, check every content noun in the Chinese (people, animals, foods, objects, places) and make sure it appears in the Burmese with its correct meaning. NEVER drop a noun and NEVER replace a noun with a different noun. 米 means rice and must become ဆန်, never vanish and never become family; 家里 means in this house, never families; 粮食 means food provisions, never field. WAR-DRAMA WORDS: 西边 means the west side and must become အနောက်ဘက်, never Spain (Spain is 西班牙, a different word); 鬼 and 鬼子 in a war drama mean Japanese soldiers and must become ဂျပန်စစ်သား, never ghost, never demon, never a vulgar slur; 赶紧 means hurry and must become မြန်မြန်, never be careful; 瞎说 means talking nonsense and 别瞎说 must become လျှောက်မပြောနဲ့. 不对 means not correct and must become မမှန်ဘူး, never impossible မဖြစ်နိုင်ဘူး. Never write a Chinese word as Burmese sounds (米 is ဆန်, never မီ). Never add a trailing လို့ unless the Chinese quotes speech.\\n' + (hint ? ' GUARD-NOUN RETRY: ' + hint : '') + numbered;
 }
 function phoneParseBatch(text, count){
   if(!text || !text.trim()) throw new Error('Empty batch translation response.');
@@ -2090,10 +2247,10 @@ function quotaSwitchNote(){
   var n = window.__sangbikQuotaSwitches || 0;
   return n ? ' (🔁 quota ကြောင့် ' + n + ' ကြိမ် ပြောင်း)' : '';
 }
-async function geminiPhoneTranslateBatch(texts, sourceLang, spks){
+async function geminiPhoneTranslateBatch(texts, sourceLang, spks, hint){
   var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ — Profile မှာ Gemini key ထည့်ပါ။');
   var sceneDesc = ''; try { sceneDesc = window.__sangbikSceneDesc || ''; } catch(e){}
-  var prompt = phoneBatchPrompt(texts, sourceLang, spks, sceneDesc);
+  var prompt = phoneBatchPrompt(texts, sourceLang, spks, sceneDesc, hint);
   var frames = [];
   try {
     var sf = window.__sangbikSceneFrames || [];
@@ -2334,9 +2491,9 @@ function phoneTranslateEngine(){
   if(groqKeys().length) return 'groq';
   return null;
 }
-async function groqPhoneTranslateBatch(texts, sourceLang, spks){
+async function groqPhoneTranslateBatch(texts, sourceLang, spks, hint){
   var keys = groqKeys(); if(!keys.length) throw new Error('Groq phone key မရှိပါ — Profile မှာ Groq key ထည့်ပါ။');
-  var prompt = phoneBatchPrompt(texts, sourceLang, spks);
+  var prompt = phoneBatchPrompt(texts, sourceLang, spks, '', hint);
   var lastErr = null;
   for(var i = 0; i < keys.length; i++){
     try {
@@ -2480,7 +2637,7 @@ async function phoneDirectOnePass(aac, sceneFrames, sourceLang){
   var keys = phoneKeys(); if(!keys.length) throw new Error('Phone key မရှိပါ');
   var b64 = await blobToBase64(aac);
   var langName = (sourceLang === 'zh' || sourceLang === 'auto' || !sourceLang) ? 'Chinese' : sourceLang;
-  var prompt = 'Listen to this audio CAREFULLY and write Burmese dubbing lines directly from what you hear, in time order. The speech is in ' + langName + '. Rules: output one line per speaker turn, never merge different speakers into one line. Each line must start with [MM:SS.s - MM:SS.s] then a space, then (Speaker A) or (Speaker B) or a short role name, then a space, then the Burmese dubbing line, then a space, then ||, then a space, then the Chinese words you heard for reference. Write the Burmese FIRST, from the audio meaning directly — never translate from the Chinese text you write after it. Listen carefully: one speaker turn is ONE Burmese line, even if it has many words. Do not split a turn into word lines. Within a turn, hear every word, in order, and write the Burmese for each word you hear. Do not skip a word. Do not replace a word with a different word that sounds similar. Never write a Chinese word as Burmese sounds (米 is ဆန်, never မီ). Never add a trailing လို့ unless the Chinese quotes speech. Burmese style: natural spoken Burmese for dubbing, short, verb-final, tone particles matching the tone, pronouns consistent with the relationship, cover every clause you hear, never drop a leading order or exclamation. NOUN GUARD: every noun you hear (people, animals, foods, objects, places) must appear in the Burmese with its correct meaning. NEVER drop a noun and NEVER replace a noun with a different noun. WAR-DRAMA WORDS: 西边 means the west side, အနောက်ဘက်, never Spain (Spain is 西班牙, a different word); 鬼 and 鬼子 in a war drama mean Japanese soldiers, ဂျပန်စစ်သား, never ghost, never demon, never a vulgar slur; 赶紧 means hurry, မြန်မြန်, never be careful; 瞎说 means talking nonsense and 别瞎说 becomes လျှောက်မပြောနဲ့. MORE WORDS: 家里 means in this house; 粮食 means food provisions; 不对 means not correct, မမှန်ဘူး, never impossible မဖြစ်နိုင်ဘူး; 哪只脚 means which foot, ဘယ်ခြေထောက်, never left; 蹄 means hoof, ခွာ, never generic leg; 老高 is pronounced လောင်ကောင်. WORD ORDER: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, never the Chinese order. QUESTIONS AND CLAUSES: a Chinese question must stay a Burmese လား question, never a ပေါ့ statement; never drop a trailing clause or question. If a part is unclear, inaudible, music, background noise, or a short grunt, DO NOT guess and DO NOT turn it into words — leave that part out entirely (no line for it). Never add a noun (food, animal, person, object) you did not clearly hear, no matter how well it would fit the story or the image. If scene images are attached, use them only to choose names and homophones you actually heard that fit what is visible. Do not add any explanation, only the lines.';
+  var prompt = 'Listen to this audio CAREFULLY and write Burmese dubbing lines directly from what you hear, in time order. The speech is in ' + langName + '. Rules: output one line per speaker turn, never merge different speakers into one line. Each line must start with [MM:SS.s - MM:SS.s] then a space, then (Speaker A) or (Speaker B) or a short role name, then a space, then the Burmese dubbing line, then a space, then ||, then a space, then the Chinese words you heard for reference. Write the Burmese FIRST, from the audio meaning directly — never translate from the Chinese text you write after it. TRANSCRIPTION ACCURACY: prefer real, common Chinese words and set phrases over rare or nonsense combinations — winter provisions are 过冬粮食, never write the nonsense 谷动粮食; when a speaker addresses an old man, the word is 爷, never the interjection 耶; keep person names consistent across lines; never invent syllables for an unclear stretch — leave unclear audio out, never write nonsense characters. Listen carefully: one speaker turn is ONE Burmese line, even if it has many words. Do not split a turn into word lines. Within a turn, hear every word, in order, and write the Burmese for each word you hear. Do not skip a word. Do not replace a word with a different word that sounds similar. Never write a Chinese word as Burmese sounds (米 is ဆန်, never မီ). Never add a trailing လို့ unless the Chinese quotes speech. Burmese style: natural spoken Burmese for dubbing, short, verb-final, tone particles matching the tone, pronouns consistent with the relationship, cover every clause you hear, never drop a leading order or exclamation. NOUN GUARD: every noun you hear (people, animals, foods, objects, places) must appear in the Burmese with its correct meaning. NEVER drop a noun and NEVER replace a noun with a different noun. WAR-DRAMA WORDS: 西边 means the west side, အနောက်ဘက်, never Spain (Spain is 西班牙, a different word); 鬼 and 鬼子 in a war drama mean Japanese soldiers, ဂျပန်စစ်သား, never ghost, never demon, never a vulgar slur; 赶紧 means hurry, မြန်မြန်, never be careful; 瞎说 means talking nonsense and 别瞎说 becomes လျှောက်မပြောနဲ့. MORE WORDS: 家里 means in this house; 粮食 means food provisions; 不对 means not correct, မမှန်ဘူး, never impossible မဖြစ်နိုင်ဘူး; 哪只脚 means which foot, ဘယ်ခြေထောက်, never left; 蹄 means hoof, ခွာ, never generic leg; 老高 is pronounced လောင်ကောင်. WORD ORDER: the noun comes BEFORE the number+classifier — write မြင်းနှစ်ကောင် and လူဆယ့်နှစ်ဦး, never the Chinese order. QUESTIONS AND CLAUSES: a Chinese question must stay a Burmese လား question, never a ပေါ့ statement; never drop a trailing clause or question. If a part is unclear, inaudible, music, background noise, or a short grunt, DO NOT guess and DO NOT turn it into words — leave that part out entirely (no line for it). Never add a noun (food, animal, person, object) you did not clearly hear, no matter how well it would fit the story or the image. If scene images are attached, use them only to choose names and homophones you actually heard that fit what is visible. Do not add any explanation, only the lines.';
   var parts = [{text: prompt}, {inlineData: {mimeType: 'audio/aac', data: b64}}];
   var frameB64s = [];
   try {
@@ -2580,7 +2737,7 @@ async function phoneDirectTranscribe(aac, sceneFrames, sourceLang){
   try { window.__sangbikSceneDesc = ''; phoneSceneRead(sceneFrames).then(function(d){ window.__sangbikSceneDesc = d || ''; }).catch(function(){ window.__sangbikSceneDesc = ''; }); } catch(e){}
   var b64 = await blobToBase64(aac);
   var langName = (sourceLang === 'zh' || sourceLang === 'auto' || !sourceLang) ? 'Chinese' : sourceLang;
-  var prompt = 'Transcribe the speech in this audio into timed lines. The speech is in ' + langName + '. Rules: output one line per speaker turn, never merge different speakers into one line. Each line must start with [MM:SS.s - MM:SS.s] then a space, then (Speaker A) or (Speaker B) or a short role name, then a space, then the exact spoken words, listening carefully: one speaker turn is ONE line, even if it has many words. Do not split a turn into word lines. Within a turn, hear every word, in order. Do not skip a word. Do not replace a word with a different word that sounds similar. Use consistent speaker tags for the same person. Never invent dialogue that is not spoken. If a part is unclear, inaudible, music, background noise, or a short grunt, DO NOT guess and DO NOT turn it into words — leave that part out entirely (no line for it). Never add a noun (food, animal, person, object) you did not clearly hear, no matter how well it would fit the story or the image. If scene images are attached, use them only to choose names and homophones you actually heard that fit what is visible. Do not add any explanation, only the lines.';
+  var prompt = 'Transcribe the speech in this audio into timed lines. The speech is in ' + langName + '. Rules: output one line per speaker turn, never merge different speakers into one line. Each line must start with [MM:SS.s - MM:SS.s] then a space, then (Speaker A) or (Speaker B) or a short role name, then a space, then the exact spoken words, listening carefully: one speaker turn is ONE line, even if it has many words. Do not split a turn into word lines. Within a turn, hear every word, in order. Do not skip a word. Do not replace a word with a different word that sounds similar. Use consistent speaker tags for the same person. TRANSCRIPTION ACCURACY: prefer real, common Chinese words and set phrases over rare or nonsense character combinations — winter provisions are 过冬粮食, never write the nonsense 谷动粮食. When a speaker addresses an old man, the word is 爷 (grandpa), never the interjection 耶. Keep person names consistent across lines. Never invent syllables for an unclear stretch: an unclear stretch is left out, never written as nonsense characters. Never invent dialogue that is not spoken. If a part is unclear, inaudible, music, background noise, or a short grunt, DO NOT guess and DO NOT turn it into words — leave that part out entirely (no line for it). Never add a noun (food, animal, person, object) you did not clearly hear, no matter how well it would fit the story or the image. If scene images are attached, use them only to choose names and homophones you actually heard that fit what is visible. Do not add any explanation, only the lines.';
   var parts = [{text: prompt}, {inlineData: {mimeType: 'audio/aac', data: b64}}];
   var frameB64s = [];
   try {
@@ -2651,6 +2808,7 @@ el('phoneAudioBtn').onclick = async function(){
               var refined = await phoneRefineLines(oneLines, pipeStory);
               if(refined && refined.length === oneLines.length) pipeLines = refined;
             } catch(pe){}
+            try { pipeLines = await phoneGuardFixOnePassLines(pipeLines, sourceLangChoice()); } catch(e){}
             phonePublishDirectLines(pipeLines);
             msg('One-pass + story + ပြန်စစ် ပြီးပါပြီ: ' + pipeLines.length + ' လိုင်း' + quotaSwitchNote() + ' — လိုင်းတွေ ကြည့်ပြီး 💾 သိမ်းပါ။');
             return;
@@ -2850,7 +3008,7 @@ function renderLines(){
   var h = '';
   lines.forEach(function(l, idx){
   var origPart = '<input type="text" data-oidx="' + idx + '" value="' + esc(l.original) + '" placeholder="မူရင်း စာသား">';
-    h += '<div class="line"><div class="t"><input type="text" class="tm" data-tidx="' + idx + '" data-kind="start" value="' + fmtMmSs(l.start) + '"> – <input type="text" class="tm" data-tidx="' + idx + '" data-kind="end" value="' + fmtMmSs(l.end) + '"></div>' + (l.speaker ? '<span class="small">🗣 ' + esc(l.speaker) + '</span> ' : '') + origPart + '<input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"> <button data-del="' + idx + '">✕</button></div>';
+    h += '<div class="line"><div class="t"><input type="text" class="tm" data-tidx="' + idx + '" data-kind="start" value="' + fmtMmSs(l.start) + '"> – <input type="text" class="tm" data-tidx="' + idx + '" data-kind="end" value="' + fmtMmSs(l.end) + '"></div>' + (l.dualDisagree ? '<span class="small" title="Gemini နဲ့ Groq နားထောင်တာ မတူဘူး — ဒီလိုင်း ပြန်စစ်ပါ">⚠</span> ' : '') + (l.speaker ? '<span class="small">🗣 ' + esc(l.speaker) + '</span> ' : '') + origPart + '<input type="text" data-idx="' + idx + '" value="' + esc(l.burmese) + '"> <button data-del="' + idx + '">✕</button></div>';
   });
   el('linesBox').innerHTML = h || '(လိုင်းမရှိသေးပါ — “လိုင်းထည့်ပါ” နဲ့ ကိုယ်တိုင် ထည့်နိုင်တယ်)';
   el('linesBox').querySelectorAll('button[data-del]').forEach(function(b){ b.onclick = function(){ var idx = parseInt(b.getAttribute('data-del'), 10); if(isNaN(idx) || !lines[idx]) return; lines.splice(idx, 1); linesDirty = true; renderLines(); renderTimeline(); scheduleCacheSave(); window.__sangbikVoiceClips = null; msg('လိုင်း ဖျက်ပါပြီ — သိမ်းမှ အတည်ဖြစ်မယ်။'); }; });
