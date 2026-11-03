@@ -338,6 +338,60 @@ fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
 function loadProjects() { try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return {}; } }
 function saveProjects(p) { fs.writeFileSync(DATA_FILE, JSON.stringify(p, null, 2)); }
 let projects = loadProjects();
+// v1.22 SYSTEM FIX: export progress heartbeat + stuck detection. A silent
+// processing-forever job must become impossible:
+//  * touchExportProgress stamps lastProgressAt whenever pct or stage
+//    actually changes (progress never moves backwards across phases).
+//  * The watchdog fails any job silent for >20 min. 20 min is deliberately
+//    generous: ffmpeg prints a progress line at least every few seconds
+//    while it encodes (even on throttled Render Free CPU a completed frame
+//    updates time=), so 20 min of absolute silence can only mean a
+//    deadlocked/killed/orphaned worker — never a merely slow encode. A
+//    shorter window would kill legit slow jobs (a NEW bug).
+//  * The startup sweep fails every reloaded processing job at once: no
+//    worker survives a restart, so a reloaded processing job is orphaned
+//    by definition (deploy / idle restart / OOM kill of node).
+function touchExportProgress(p, pct, stage) {
+  try {
+    if (!p.export || p.export.status !== 'processing') return;
+    const cur = (typeof p.export.progressPct === 'number' && isFinite(p.export.progressPct)) ? p.export.progressPct : 0;
+    let np = (typeof pct === 'number' && isFinite(pct)) ? Math.max(0, Math.min(99, Math.floor(pct))) : cur;
+    if (np < cur) np = cur;
+    if (np !== cur || (stage && stage !== p.export.progressStage)) {
+      p.export.progressPct = np;
+      if (stage) p.export.progressStage = stage;
+      p.export.lastProgressAt = Date.now();
+    }
+  } catch {}
+}
+const EXPORT_STUCK_MS = 20 * 60 * 1000;
+function failStuckExports() {
+  try {
+    let changed = false;
+    for (const p of Object.values(projects)) {
+      if (p && p.export && p.export.status === 'processing') {
+        const last = p.export.lastProgressAt || p.export.startedAt || 0;
+        if (last && Date.now() - last > EXPORT_STUCK_MS) {
+          p.export = { ...p.export, status: 'failed', error: 'Export ရပ်နေလို့ ရပ်လိုက်ပါပြီ (' + (p.export.progressStage || 'ပြင်ဆင်နေပါတယ်') + ' မှာ 20 မိနစ် progress မရှိပါ) — Export ကို ပြန်နှိပ်ပြီး ပြန်စပါ။' };
+          changed = true;
+        }
+      }
+    }
+    if (changed) saveProjects(projects);
+  } catch {}
+}
+const _exportWatchdog = setInterval(failStuckExports, 60 * 1000);
+if (_exportWatchdog && _exportWatchdog.unref) _exportWatchdog.unref();
+try {
+  let swept = false;
+  for (const p of Object.values(projects)) {
+    if (p && p.export && p.export.status === 'processing') {
+      p.export = { ...p.export, status: 'failed', error: 'Server ပြန်စလိုက်လို့ အရင် Export ရပ်သွားပါပြီ — Export ကို ပြန်နှိပ်ပြီး ပြန်စပါ။' };
+      swept = true;
+    }
+  }
+  if (swept) saveProjects(projects);
+} catch {}
 function newId() { return crypto.randomBytes(8).toString('hex'); }
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -4353,7 +4407,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
   if (splitActive) overlaySegs = rebaseSegmentsForSplit(overlaySegs, keepRanges);
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', progressPct: 0, progressStage: 'ပြင်ဆင်နေပါတယ်', aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, narrationFitCount: 0, narrationFitOverflow: [], narrationFitNote: null };
+  p.export = { status: 'processing', progress: 'started', progressPct: 0, progressStage: 'ပြင်ဆင်နေပါတယ်', startedAt: Date.now(), lastProgressAt: Date.now(), aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, narrationFitCount: 0, narrationFitOverflow: [], narrationFitNote: null };
   saveProjects(projects);
   (async () => {
     try {
@@ -4398,7 +4452,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
           const kr = keepRanges[i]; const segFile = path.join(splitDir, `keep${i}.mp4`);
           const argsSeg = ['-y', '-ss', String(kr.start), '-t', String(kr.end - kr.start), '-i', p.file.path, '-c:v', 'libx264', '-preset', 'veryfast'];
           if (hasAudioS) argsSeg.push('-c:a', 'aac'); else argsSeg.push('-an');
-          argsSeg.push(segFile); await run('ffmpeg', argsSeg); segFiles.push(segFile); segDurs.push(kr.end - kr.start);
+          argsSeg.push(segFile); await run('ffmpeg', argsSeg); segFiles.push(segFile); segDurs.push(kr.end - kr.start); touchExportProgress(p, p.export.progressPct, 'video ခွဲနေပါတယ် (' + segFiles.length + '/' + keepRanges.length + ')');
         }
         const splitOut = path.join(OUT_DIR, `${p.id}-split.mp4`);
         await concatOrXfade(segFiles, segDurs, splitOut, hasAudioS);
@@ -4414,28 +4468,25 @@ app.post('/api/projects/:id/export', async (req, res) => {
           const seg = sceneSegs[idx]; const segFile = path.join(reorderDir, `seg${idx}.mp4`);
           const argsSeg = ['-y', '-ss', String(seg.start), '-t', String(seg.duration), '-i', p.file.path, '-c:v', 'libx264', '-preset', 'veryfast'];
           if (hasAudioR) argsSeg.push('-c:a', 'aac'); else argsSeg.push('-an');
-          argsSeg.push(segFile); await run('ffmpeg', argsSeg); segFiles.push(segFile); segDurs.push(seg.duration);
+          argsSeg.push(segFile); await run('ffmpeg', argsSeg); segFiles.push(segFile); segDurs.push(seg.duration); touchExportProgress(p, p.export.progressPct, 'video ပြန်စီနေပါတယ် (' + segFiles.length + '/' + rawOrder.length + ')');
         }
         const reorderOut = path.join(OUT_DIR, `${p.id}-reordered.mp4`);
         await concatOrXfade(segFiles, segDurs, reorderOut, hasAudioR);
         try { fs.rmSync(reorderDir, { recursive: true, force: true }); } catch {}
         inputPath = reorderOut; effStart = 0; effEnd = segDurs.reduce((a, b) => a + b, 0);
       }
+      // v1.22 SPEED (pass-combining, quality-neutral): the old zoom
+      // pre-pass was a FULL extra encode (video+audio) before the main
+      // encode — same pixels, one more lossy generation, ~half the render
+      // time wasted. The zoom overlay is now the FIRST filter of the main
+      // graph (same order: zoom -> crop/scale -> blur -> subtitles ->
+      // logo -> Smart Sync stretch), so the video is encoded ONCE, at
+      // equal-or-better quality (no intermediate lossy pass, and audio
+      // comes from the original, not an intermediate AAC). Crossfade /
+      // missing-metadata keep the segment path below.
+      let combinedZoom = false;
       if (zoomPulse && transition !== 'crossfade' && p.metadata?.width && p.metadata?.height) {
-        // Single-pass overlay zoom (phonekey52, fast path): one encode for
-        // the whole range instead of 24+ segment encodes + concat. Framing
-        // proven identical to segments (bench 60s: PSNR inf/52.1/48.4 at
-        // t=1/4/6, control 10.2dB). t resets after input -ss, so the 3s/2s
-        // pattern starts at the trimmed start, exactly like segments.
-        // Crossfade keeps the segment path below (it needs segments).
-        const totalDurP = Math.max(effEnd - effStart, 0.1);
-        const zoomOutP = path.join(OUT_DIR, `${p.id}-zoomp.mp4`);
-        const fcP = `[0:v]split[a][b];[a]crop=iw/${zoomMax}:ih/${zoomMax},scale=${p.metadata.width}:${p.metadata.height}[zm];[b]null[nm];[nm][zm]overlay=0:0:enable='lt(mod(t,5),3)'[vout]`;
-        const argsP = ['-y', '-ss', String(effStart), '-to', String(effEnd), '-i', inputPath, '-filter_complex', fcP, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast'];
-        if (p.metadata?.audioCodec) argsP.push('-map', '0:a', '-c:a', 'aac'); else argsP.push('-an');
-        argsP.push(zoomOutP);
-        await run('ffmpeg', argsP);
-        inputPath = zoomOutP; effStart = 0; effEnd = totalDurP;
+        combinedZoom = true;
       } else if (zoomPulse) {
         // Auto Zoom pulse 3s zoomed / 2s normal, repeating (user request):
         // cycle = 5s: 3s at zoomMax, 2s at 1.0x, centred crop+scale, concat.
@@ -4458,7 +4509,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
           if (hasAudioP) argsSegP.push('-c:a', 'aac'); else argsSegP.push('-an');
           argsSegP.push(segFileP);
           await run('ffmpeg', argsSegP);
-          segFilesP.push(segFileP); segDursP.push(segDurP);
+          segFilesP.push(segFileP); segDursP.push(segDurP); touchExportProgress(p, p.export.progressPct, 'Zoom ခွဲနေပါတယ် (' + (siP + 1) + ' ပိုင်း)');
           tP += segDurP; zoomedP = !zoomedP; siP++;
         }
         if (segFilesP.length) {
@@ -4489,7 +4540,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
           if (hasAudio) argsSeg.push('-c:a', 'aac'); else argsSeg.push('-an');
           argsSeg.push(segFile);
           await run('ffmpeg', argsSeg);
-          segFiles.push(segFile);
+          segFiles.push(segFile); touchExportProgress(p, p.export.progressPct, 'Zoom ခွဲနေပါတယ် (' + segFiles.length + '/' + segCount + ')');
         }
         const zoomOut = path.join(OUT_DIR, `${p.id}-zoom.mp4`);
         const zoomSegDurs = [];
@@ -4580,6 +4631,19 @@ app.post('/api/projects/:id/export', async (req, res) => {
         filter = `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma2}${blurEq2},crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}'[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else {
         filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+      }
+      // v1.22 SPEED: prepend the combined zoom head to the main video
+      // filter. Labels za/zb/zzm/znm/zv are unique in this graph (the
+      // main chain's own splits use a/b). Background-blur consumes [0:v]
+      // twice, so it gets a split pair (zvb/zvf) instead of one label.
+      if (combinedZoom) {
+        const zoomHead = `[0:v]split[za][zb];[za]crop=iw/${zoomMax}:ih/${zoomMax},scale=${p.metadata.width}:${p.metadata.height}[zzm];[zb]null[znm];[znm][zzm]overlay=0:0:enable='lt(mod(t,5),3)'[zv]`;
+        if (blurMode === 'background') {
+          filter = filter.replace('[0:v]', '[zvb]').replace('[0:v]', '[zvf]');
+          filter = zoomHead + ';[zv]split[zvb][zvf];' + filter;
+        } else {
+          filter = zoomHead + ';' + filter.replace('[0:v]', '[zv]');
+        }
       }
       // Logo watermark: server/logo.png, requested by the user. Applied last
       // so it sits above blur/subtitles; skipped if the file is absent.
@@ -4770,7 +4834,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       else args.push('-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', 'veryfast', ...bitrateArgs, '-an', outMp4);
       let outDur = 0;
       try { outDur = Math.max(0, (end || 0) - (start || 0)); } catch {}
-      try { p.export = { ...p.export, progressPct: 5, progressStage: 'video ရိုက်နေပါတယ်' }; } catch {}
+      try { touchExportProgress(p, 5, 'video ရိုက်နေပါတယ်'); } catch {}
       let lastMuxPct = 5;
       const onMuxProgress = (chunk) => {
         try {
@@ -4784,12 +4848,13 @@ app.post('/api/projects/:id/export', async (req, res) => {
           }
           if (t < 0) return;
           const pct = Math.min(99, Math.max(lastMuxPct, Math.floor(5 + (t / outDur) * 94)));
-          if (pct !== lastMuxPct) { lastMuxPct = pct; p.export = { ...p.export, progressPct: pct, progressStage: 'video ရိုက်နေပါတယ်' }; }
+          if (pct !== lastMuxPct) { lastMuxPct = pct; touchExportProgress(p, pct, 'video ရိုက်နေပါတယ်'); }
         } catch {}
       };
       await run('ffmpeg', args, { onStderr: onMuxProgress });
       let posterApplied = false; let posterNote = null;
       if (posterSec > 0 || posterTitleProvided) {
+        try { touchExportProgress(p, 99, 'Poster ပြင်နေပါတယ်'); } catch {}
         try {
           let posterImg = path.join(OUT_DIR, `${p.id}-poster.jpg`);
           await run('ffmpeg', ['-y', '-ss', '1', '-i', outMp4, '-vframes', '1', posterImg]);
@@ -4814,7 +4879,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
           }
           await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', 'anullsrc', '-vf', `scale=trunc(iw/2)*2:trunc(ih/2)*2${draw}`, '-t', String(posterDur), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
           const finalMp4 = path.join(OUT_DIR, `${p.id}-recap-poster.mp4`);
-          await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex', '[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', finalMp4]);
+          await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex', '[0:v]setsar=1[v0];[1:v]setsar=1[v1];[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac', finalMp4]);
           outMp4 = finalMp4; posterApplied = true;
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
