@@ -5057,7 +5057,9 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const transitionDuration = Math.min(2, Math.max(0, Number.isFinite(transitionDurationRaw) ? transitionDurationRaw : 0.5));
   const panMode = ['none', 'left-right', 'right-left'].includes(o.panMode) ? o.panMode : 'none';
   const subFont = resolveSubtitleFont(o.subtitles && o.subtitles.font); const _fontDir = resolveFontDir(); const effFont = (subFont === 'Pyidaungsu' && !_fontDir) ? 'Noto Sans Myanmar' : (subFont === 'Noto Sans Myanmar' && !notoInstalled() && _fontDir) ? 'Pyidaungsu' : subFont;
-  if (!FONT_WHITELIST.includes(subFont)) return res.status(400).json({ error: `Subtitle font not available on this server: ${subFont}. Available fonts: ${FONT_WHITELIST.join(', ')} (for Burmese text use Noto Sans Myanmar).` });
+  // v143: Pyidaungsu is available when its embedded file exists (resolveFontDir), even though it is not an fc-list system font; check the post-fallback effective font so the fallback can rescue a missing file instead of 400ing.
+  const allowedFonts = _fontDir ? [...FONT_WHITELIST, 'Pyidaungsu'] : FONT_WHITELIST;
+  if (!allowedFonts.includes(effFont)) return res.status(400).json({ error: `Subtitle font not available on this server: ${effFont}. Available fonts: ${allowedFonts.join(', ')} (for Burmese text use Noto Sans Myanmar).` });
   const enhanceClarity = !!o.enhanceClarity;
   const clarityStrength = ['light', 'medium', 'strong'].includes(o.clarityStrength) ? o.clarityStrength : 'medium';
   const clarityUnsharp = CLARITY_UNSHARP[clarityStrength];
