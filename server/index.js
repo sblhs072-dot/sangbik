@@ -426,8 +426,9 @@ function isGarbageCueText(text, isChineseVideo) {
 }
 const REPAIR_RULES = [
   ["西边", "အနောက်ဘက်", ["စပိန်ဘက်", "စီဘက်", "စပိန်"], null],
-  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်", "စောက်ပတ်"], null],
+  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်", "စောက်ပတ်", "တစ္ဆေ"], null],
   ["赶紧", "မြန်မြန်", ["သတိထား"], null],
+  ["赶快", "မြန်မြန်", ["သတိထား"], null],
   ["粮食", "ရိက္ခာ", ["ဆန်"], "米"],
   ["哪只脚", "ဘယ်ခြေထောက်", ["ဘယ်ဘက်ခြေထောက်", "ဘယ်ဘက်"], null],
   ["蹄", "ခွာ", ["ခြေထောက်"], "脚"],
@@ -455,6 +456,28 @@ function repairBurmeseLine(original, burmese) {
   // already contains လာ, or when the Chinese has no 来了.
   if (o.indexOf('来了') >= 0 && b.indexOf('လာ') < 0 && b.indexOf('မရှိတော့ဘူး') >= 0) b = b.split('မရှိတော့ဘူး').join('လာနေပြီ');
   return b;
+}
+function hasMyanmarScript(s) {
+  const t = s || '';
+  for (const ch of t) { const cp = ch.codePointAt(0); if (cp >= 0x1000 && cp <= 0x109F) return true; }
+  return false;
+}
+// v141 LABEL SWEEP: a "translation" containing no Myanmar script at all
+// (e.g. original "Chinese" -> Burmese "Burmese", a language label) is 100%
+// wrong. Empty it and flag it for review instead of shipping it. Runs AFTER
+// repair, on translation outputs only — never on user edits, TM restores,
+// or lines that contain any Myanmar script (a Myanmar+Latin mix is safe).
+function sweepLabelTranslations(translations) {
+  const flagged = [];
+  for (let i = 0; i < translations.length; i++) {
+    const t = translations[i];
+    if (t && !hasMyanmarScript(t)) { translations[i] = ''; flagged.push(i); }
+  }
+  return flagged;
+}
+function sweepLabelLine(line) {
+  if (line && line.burmese && !hasMyanmarScript(line.burmese)) { line.burmese = ''; line.dualDisagree = true; }
+  return line;
 }
 async function translateLinesValidated(lines, sourceLang, summary) {
   const originals = lines.map(l => l.original);
@@ -494,7 +517,8 @@ async function translateLinesValidated(lines, sourceLang, summary) {
   }
   for (let i = 0; i < translations.length; i++) if (isEchoTranslation(originals[i], translations[i])) translations[i] = '';
   for (let i = 0; i < translations.length; i++) translations[i] = repairBurmeseLine(originals[i], translations[i]);
-  return { translations, path, googleLog: first.googleLog, error: first.error };
+  const labelFlagged = sweepLabelTranslations(translations);
+  return { translations, path, googleLog: first.googleLog, error: first.error, labelFlagged };
 }
 
 const PORT = process.env.PORT || 4000;
@@ -1809,13 +1833,14 @@ async function runAutoJob(projectId, opts) {
         } catch (e) { repairWarnCount += flagged.length; }
       }
     }
+    const labelFlaggedSet = new Set([...(gt.labelFlagged || []), ...(gt.translations ? sweepLabelTranslations(gt.translations) : [])]);
     // CHECKFIX: publish lines FIRST, then run the check. A hung or slow check
     // must never block lines again: lines are saved before the check runs, and
     // the job finishes even if the check times out (120s) or fails.
     for (let i = 0; i < allPieces.length; i++) {
       const piece = allPieces[i];
       const burmese = skipTranslate ? '' : (gt.translations ? (gt.translations[i] || '') : '');
-      const line = { ...piece, burmese: skipTranslate ? '' : sanitizeBurmese(burmese), translationPending: !burmese, translationPendingReason: skipTranslate ? 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' : (burmese ? null : 'Translation failed — see job message.') };
+      const line = { ...piece, ...(labelFlaggedSet.has(i) ? { dualDisagree: true } : {}), burmese: skipTranslate ? '' : sanitizeBurmese(burmese), translationPending: !burmese, translationPendingReason: skipTranslate ? 'Auto ဘာသာပြန် ပိတ်ထားပါတယ် — Step 3 မှာ ဘာသာပြန် ခလုတ် နှိပ်ပါ။' : (burmese ? null : 'Translation failed — see job message.') };
       p.autoJob.lines.push(line);
       if (!p.translationLines.some(l => l.start === line.start && l.original === line.original)) p.translationLines.push(line);
     }
@@ -1830,8 +1855,8 @@ async function runAutoJob(projectId, opts) {
       try {
         const cr = await withTimeout(geminiPolishLines(allPieces.map((l, i) => ({ original: l.original, burmese: gt.translations[i] || '' })), 'translation', SOURCE_LANG_NAMES[sourceLang] || 'Chinese'), 180000, 'Translation auto-check');
         if (cr && !cr.fallback && Array.isArray(cr.lines) && cr.lines.length === p.autoJob.lines.length) {
-          p.autoJob.lines.forEach((l, i) => { if (cr.lines[i]) l.burmese = repairBurmeseLine(l.original, sanitizeBurmese(cr.lines[i])); });
-          p.translationLines.forEach((l) => { const m = p.autoJob.lines.find(x => x.start === l.start && x.original === l.original); if (m) l.burmese = m.burmese; });
+          p.autoJob.lines.forEach((l, i) => { if (cr.lines[i]) { l.burmese = repairBurmeseLine(l.original, sanitizeBurmese(cr.lines[i])); sweepLabelLine(l); } });
+          p.translationLines.forEach((l) => { const m = p.autoJob.lines.find(x => x.start === l.start && x.original === l.original); if (m) { l.burmese = m.burmese; if (m.dualDisagree) l.dualDisagree = true; } });
           checkResult = cr;
         } else { checkResult = { fallback: true }; }
         saveProjects(projects);
@@ -2462,8 +2487,9 @@ function phoneIsGarbageOriginal(o){
 }
 var PHONE_REPAIR_RULES = [
   ["西边", "အနောက်ဘက်", ["စပိန်ဘက်", "စီဘက်", "စပိန်"], null],
-  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်", "စောက်ပတ်"], null],
+  ["鬼", "ဂျပန်စစ်သား", ["သရဲ", "စောက်ပတ်ကောင်", "စောက်ပတ်", "တစ္ဆေ"], null],
   ["赶紧", "မြန်မြန်", ["သတိထား"], null],
+  ["赶快", "မြန်မြန်", ["သတိထား"], null],
   ["粮食", "ရိက္ခာ", ["ဆန်"], "米"],
   ["哪只脚", "ဘယ်ခြေထောက်", ["ဘယ်ဘက်ခြေထောက်", "ဘယ်ဘက်"], null],
   ["蹄", "ခွာ", ["ခြေထောက်"], "脚"],
@@ -2487,6 +2513,15 @@ function phoneRepairLine(orig, bur){
   }
   if(o.indexOf('来了') >= 0 && b.indexOf('လာ') < 0 && b.indexOf('မရှိတော့ဘူး') >= 0) b = b.split('မရှိတော့ဘူး').join('လာနေပြီ');
   return b;
+}
+function phoneHasMyanmarScript(s){
+  var t = s || '';
+  for(var i = 0; i < t.length; i++){ var cp = t.codePointAt(i); if(cp >= 0x1000 && cp <= 0x109f) return true; }
+  return false;
+}
+function phoneSweepLabelLine(line){
+  if(line && line.burmese && !phoneHasMyanmarScript(line.burmese)){ line.burmese = ''; line.dualDisagree = true; }
+  return line;
 }
 async function phoneTranslateBatchValidated(origs, sourceLang, spks, eng){
   var first = (eng === 'groq') ? await groqPhoneTranslateBatch(origs, sourceLang, spks) : await geminiPhoneTranslateBatch(origs, sourceLang, spks);
@@ -2513,12 +2548,15 @@ async function phoneTranslateBatchValidated(origs, sourceLang, spks, eng){
     } catch(e){}
   }
   for(var i = 0; i < out.length; i++) out[i] = phoneRepairLine(origs[i], out[i]);
+  var labelFlagged = [];
+  for(var i = 0; i < out.length; i++){ if(out[i] && !phoneHasMyanmarScript(out[i])){ out[i] = ''; labelFlagged.push(i); } }
+  out.labelFlagged = labelFlagged;
   return out;
 }
 async function phoneGuardFixOnePassLines(lines, sourceLang){
   var bad = [];
   for(var i = 0; i < lines.length; i++){ var gm = phoneGuardNounMissing(lines[i].original || '', lines[i].burmese || ''); if(gm) bad.push({i: i, cn: gm.cn, my: gm.my}); }
-  if(!bad.length){ for(var i = 0; i < lines.length; i++) lines[i].burmese = phoneRepairLine(lines[i].original || '', lines[i].burmese || ''); return lines; }
+  if(!bad.length){ for(var i = 0; i < lines.length; i++){ lines[i].burmese = phoneRepairLine(lines[i].original || '', lines[i].burmese || ''); phoneSweepLabelLine(lines[i]); } return lines; }
   try {
     var origs = bad.map(function(g){ return lines[g.i].original || ''; });
     var spks = bad.map(function(g){ return lines[g.i].speaker || ''; });
@@ -2526,7 +2564,7 @@ async function phoneGuardFixOnePassLines(lines, sourceLang){
     var fixed = await phoneTranslateBatchValidated(origs, sourceLang, spks, eng);
     bad.forEach(function(g, k){ if(fixed[k]) lines[g.i].burmese = fixed[k]; });
   } catch(e){}
-  for(var i = 0; i < lines.length; i++) lines[i].burmese = phoneRepairLine(lines[i].original || '', lines[i].burmese || '');
+  for(var i = 0; i < lines.length; i++){ lines[i].burmese = phoneRepairLine(lines[i].original || '', lines[i].burmese || ''); phoneSweepLabelLine(lines[i]); }
   return lines;
 }
 function isValidBurmeseCheck(c, orig){
@@ -2699,7 +2737,7 @@ async function phoneTranslateEmptyLines(){
       var anyOk = false;
       for(var ri = 0; ri < results.length; ri++){
         var rr = results[ri];
-        if(rr.ok){ rr.part.forEach(function(li, k){ lines[li].burmese = rr.trs[k]; }); done += rr.part.length; anyOk = true; }
+        if(rr.ok){ rr.part.forEach(function(li, k){ lines[li].burmese = rr.trs[k]; if(rr.trs.labelFlagged && rr.trs.labelFlagged.indexOf(k) >= 0) lines[li].dualDisagree = true; }); done += rr.part.length; anyOk = true; }
         else if(!failErr){ failErr = (rr.err && rr.err.name === 'TimeoutError') ? new Error('အချိန်ကုန်သွားတယ် (network နှေးနေတုန်း)') : rr.err; }
       }
       if(anyOk) linesDirty = true;
@@ -3112,6 +3150,7 @@ async function phoneDirectTranscribe(aac, sceneFrames, sourceLang){
   throw lastErr || new Error('Phone transcription failed.');
 }
 function phonePublishDirectLines(parsedLines){
+  for(var i = 0; i < parsedLines.length; i++) phoneSweepLabelLine(parsedLines[i]);
   lines = parsedLines; renderLines();
   api('/projects/' + pid + '/translation', 'PUT', {lines: lines}, 120000).then(function(j){
     linesDirty = false;
@@ -4555,7 +4594,7 @@ app.post('/api/projects/:id/translate-google', async (req, res) => {
   if (!segs.length) return res.status(400).json({ error: 'No transcript segments to translate — run Transcribe first.' });
   const gt = await translateLinesValidated(segs, p.autoJob?.sourceLang || 'auto');
   if (!gt.translations) return res.status(502).json({ error: gt.error });
-  const lines = segs.map((sg, i) => ({ start: sg.start, end: sg.end, original: sg.original, burmese: sanitizeBurmese(gt.translations[i] || '') }));
+  const lines = segs.map((sg, i) => ({ start: sg.start, end: sg.end, original: sg.original, burmese: sanitizeBurmese(gt.translations[i] || ''), ...(gt.labelFlagged && gt.labelFlagged.includes(i) ? { dualDisagree: true } : {}) }));
   p.translationLines = lines; p.translationPath = gt.path; p.translationGoogleLog = gt.googleLog || null;
   saveProjects(projects);
   res.json({ project: p, lines, path: gt.path, googleLog: gt.googleLog || null, note: gt.error || null });
@@ -4581,14 +4620,14 @@ app.post('/api/projects/:id/translate-lines', async (req, res) => {
     try {
       const translations = await googleTranslateBatch(toTranslate.map(l => l.original), 'my', 'auto');
       const out = input.slice();
-      idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: repairBurmeseLine(input[origIdx].original, sanitizeBurmese(translations[k] || '')) }); });
+      idxMap.forEach((origIdx, k) => { const gb = repairBurmeseLine(input[origIdx].original, sanitizeBurmese(translations[k] || '')); const gswept = gb && !hasMyanmarScript(gb); out[origIdx] = Object.assign({}, input[origIdx], { burmese: gswept ? '' : gb, ...(gswept ? { dualDisagree: true } : {}) }); });
       return res.json({ lines: out, path: 'google', note: null });
     } catch (ge) { return res.status(502).json({ error: 'Google translation failed: ' + ge.message }); }
   }
   const gt = await translateLinesValidated(toTranslate);
   if (!gt.translations) return res.status(502).json({ error: gt.error });
   const out = input.slice();
-  idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: sanitizeBurmese(gt.translations[k] || '') }); });
+  idxMap.forEach((origIdx, k) => { out[origIdx] = Object.assign({}, input[origIdx], { burmese: sanitizeBurmese(gt.translations[k] || ''), ...(gt.labelFlagged && gt.labelFlagged.includes(k) ? { dualDisagree: true } : {}) }); });
   res.json({ lines: out, path: gt.path, note: gt.error || null });
 });
 // PHONE-TTS: browser Edge TTS bundle, vendored as one string so the deploy stays
