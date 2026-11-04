@@ -2001,7 +2001,7 @@ body{padding-bottom:76px}
 <label><input type="checkbox" id="clarityChk"> ကြည်လင်မှု မြှင့် (Clarity)</label>
 <label>Poster: <select id="posterSel"><option value="0" selected>မရှိ</option><option value="3">3 စက္ကန့်</option><option value="5">5 စက္ကန့်</option></select></label>
 <label><input type="checkbox" id="logoChk" checked> Logo ထည့်</label><br></div>
-<div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br><label><input type="checkbox" id="smartSyncChk" checked> 🎯 Video ကို voiceover နဲ့ ထပ်တူကျ (voiceover ရှည်ရင် video နှေး)</label><br>
+<div id="grp-audio" class="toolpanel"><label><input type="checkbox" id="narrSyncChk" checked> အသံကို စာတန်းအချိန်နဲ့ ညှိ</label><br><label><input type="checkbox" id="smartSyncChk" checked> 🎯 Video ကို voiceover နဲ့ ထပ်တူကျ (voiceover ရှည်ရင် အသံ မြန်မယ်)</label><br>
 <label>အသံ ရွှေ့ (စက္ကန့်): <input id="narrDelayInp" type="number" min="-30" max="30" step="0.5" value="0" style="width:70px"> <span class="small">(+ = နောက်ကျ, − = စော)</span></label><br>
 <label>နောက်ခံအသံ (Music): <input id="musicFileInp" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg"></label> <button id="musicUpBtn">🎵 Music တင်ပါ</button> <span id="musicText" class="small"></span><br>
 <label>Music အသံ: <input id="musicVolInp" type="number" min="0" max="1.5" step="0.1" value="0.3" style="width:60px"></label><br>
@@ -5264,7 +5264,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       const align = hasSubPos ? 7 : (sub.position === 'top' ? 8 : sub.position === 'middle' ? 5 : 2);
       const color = (sub.color || '#FFFFFF').replace('#', '');
       const bgr = color.length === 6 ? color.slice(4, 6) + color.slice(2, 4) + color.slice(0, 2) : 'FFFFFF';
-      const style = `FontName=${effFont},FontSize=${sub.size || 24},PrimaryColour=&H${bgr}&,Alignment=${align}` + (hasSubPos ? `,MarginL=${Math.round(Math.max(0, Math.min(1, subX)) * W)},MarginV=${Math.round(Math.max(0, Math.min(1, subY)) * H)}` + (hasSubW ? `,MarginR=${Math.round(Math.max(0, 1 - (Math.max(0, Math.min(1, subX)) + Math.max(0, Math.min(1, subW)))) * W)}` : '') : '');
+      const style = `FontName=${effFont},FontSize=${sub.size || 24},PrimaryColour=&H${bgr}&,Alignment=${align},Outline=2,Shadow=1,BorderStyle=1,OutlineColour=&H00000000&,BackColour=&H00000000&` + (hasSubPos ? `,MarginL=${Math.round(Math.max(0, Math.min(1, subX)) * W)},MarginV=${Math.round(Math.max(0, Math.min(1, subY)) * H)}` + (hasSubW ? `,MarginR=${Math.round(Math.max(0, 1 - (Math.max(0, Math.min(1, subX)) + Math.max(0, Math.min(1, subW)))) * W)}` : '') : '');
       const scaleFlags = (enhanceClarity && quality === '1080p') ? ':flags=lanczos' : '';
       const baseVf = `crop='if(gt(iw/ih,${ar}),ih*${ar},iw)':'if(gt(iw/ih,${ar}),ih,iw/(${ar}))',scale=${W}:${H}${scaleFlags}`;
       // FILTER ORDER (documented): aspect crop/scale -> blur (if any) -> clarity sharpen+denoise -> subtitles burn-in.
@@ -5423,16 +5423,15 @@ app.post('/api/projects/:id/export', async (req, res) => {
         if (narrationFitOverflow.length) narrationFitNote = 'Voiceover fitting: ' + narrationFitCount + ' line(s) sped up to fit their set times; line(s) ' + narrationFitOverflow.join(', ') + ' were so long that even at 100x they were cut at their window ends (tail lost — shorten the text or lengthen the line).';
         else if (narrationFitCount) narrationFitNote = 'Voiceover fitting: ' + narrationFitCount + ' line(s) sped up to fit their set times.';
       }
-      // Smart Sync (phonekey35): video slows to match the voiceover.
-      // Decided here (after timedClips exist, before any audio filter is
-      // built): only when timed narration is on, the client did not opt out,
-      // the video timeline was not reordered (scene order changes which
-      // content sits at each time), and at least one line actually needs
-      // stretching. The video filter must still end with [vout] so the
-      // stretch can be inserted after the audio chain; otherwise fall back
-      // to the old hard-fit (never ship a half-stretched export).
+      // v147: voice-fit always (user order 2026-11-04: when a character
+      // speaks, the voiceover must land within 1s of that line, speeding
+      // the audio up if needed — the video is NEVER slowed for narration).
+      // The old Smart Sync video-stretch path below is disabled (the
+      // if (false) gate); timed clips always use direct placement
+      // (outStart) + atempo fit + trim to window, so audio can never spill
+      // into the next speaker's turn and the video stays at natural speed.
       let smartSync = false, ssPlan = null, smartSyncNote = null;
-      if (narrationSync === 'timed' && o.smartSync !== false && !sceneOrderApplied && timedClips.length && filter.endsWith('[vout]')) {
+      if (false) {
         const plan = smartSyncPlan(timedClips.map(tc => ({ start: tc.winStart, end: tc.winStart + tc.windowSec, duration: tc.duration })), effDuration, narrationDelaySec);
         if (plan.stretchedCount > 0) {
           smartSync = true; ssPlan = plan;
@@ -5553,6 +5552,44 @@ app.post('/api/projects/:id/export', async (req, res) => {
       };
       await run('ffmpeg', args, { onStderr: onMuxProgress });
       let posterApplied = false; let posterNote = null;
+      // v147: poster title wrap (user report 2026-11-04: a long title in a
+      // single drawtext overflows the frame and clips at both edges, so it
+      // reaches the sides and is unreadable). Split into centred lines that
+      // fit within 90% of the frame width; every line is its own drawtext
+      // with x=(w-text_w)/2, so the block is exactly centred and never
+      // touches the sides. Width factor measured with real ffmpeg +
+      // Pyidaungsu (2026-11-04): 0.423 px per code point per fontsize;
+      // 0.45 is the conservative Myanmar factor, 0.60 for DejaVu Latin bold.
+      function wrapPosterTitle(title, maxChars) {
+        const words = String(title).split(/\s+/).filter(Boolean);
+        const lines = [];
+        let cur = '';
+        for (const w of words) {
+          if (w.length > maxChars) {
+            if (cur) { lines.push(cur); cur = ''; }
+            for (let i = 0; i < w.length; i += maxChars) lines.push(w.slice(i, i + maxChars));
+          } else if (!cur) cur = w;
+          else if (cur.length + 1 + w.length <= maxChars) cur += ' ' + w;
+          else { lines.push(cur); cur = w; }
+        }
+        if (cur) lines.push(cur);
+        return lines.length ? lines : [String(title)];
+      }
+      function posterTitleDrawtexts(fontfile, title, fontsize, W, H, yMode, useBox) {
+        const factor = /DejaVu/.test(fontfile) ? 0.60 : 0.45;
+        const maxChars = Math.max(1, Math.floor(0.90 * W / (fontsize * factor)));
+        const lines = wrapPosterTitle(title, maxChars);
+        const lh = Math.round(fontsize * 1.35);
+        const boxPart = useBox ? ':box=1:boxcolor=black@0.55:boxborderw=24' : '';
+        const bw = useBox ? 3 : 2;
+        const parts = [];
+        for (let i = 0; i < lines.length; i++) {
+          const lt = lines[i].replace(/'/g, '').replace(/:/g, '');
+          const y = (yMode === 'middle') ? Math.round((H - lines.length * lh) / 2 + i * lh) : Math.round(H - 80 - (lines.length - 1 - i) * lh);
+          parts.push(`drawtext=fontfile=${fontfile}:text='${lt}':fontsize=${fontsize}:fontcolor=white:borderw=${bw}:bordercolor=black${boxPart}:x=(w-text_w)/2:y=${y}`);
+        }
+        return parts.join(',');
+      }
       if (posterSec > 0 || posterTitleProvided) {
         try { touchExportProgress(p, 99, 'Poster ပြင်နေပါတယ်'); } catch {}
         try {
@@ -5571,14 +5608,21 @@ app.post('/api/projects/:id/export', async (req, res) => {
           let notoPath = null;
           const embFont = embeddedPyidaungsuPath();
           try { const fl = await run('fc-list', ['Noto Sans Myanmar', 'file'], { timeout: 15000 }); const line = (fl.out || '').split('\n').find(x => x.toLowerCase().indexOf('.ttf') >= 0); if (line) notoPath = line.split(':')[0].trim(); } catch {}
-          if (embFont) { const safeTitle = posterTitle.replace(/'/g, "").replace(/:/g, ""); draw = `,drawtext=fontfile=${embFont}:text='${safeTitle}':fontsize=48:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-80`; }
-          else if (notoPath) { const safeTitle = posterTitle.replace(/'/g, "").replace(/:/g, ""); draw = `,drawtext=fontfile=${notoPath}:text='${safeTitle}':fontsize=48:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-80`; }
-          else { const fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const asciiTitle = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fontPath) && asciiTitle) draw = `,drawtext=fontfile=${fontPath}:text='${asciiTitle}':fontsize=48:fontcolor=white:borderw=2:bordercolor=black:x=(w-text_w)/2:y=h-80`; }
+          if (embFont) { draw = ',' + posterTitleDrawtexts(embFont, posterTitle, 48, W, H, 'bottom', false); }
+          else if (notoPath) { draw = ',' + posterTitleDrawtexts(notoPath, posterTitle, 48, W, H, 'bottom', false); }
+          else { const fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const asciiTitle = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fontPath) && asciiTitle) draw = ',' + posterTitleDrawtexts(fontPath, asciiTitle, 48, W, H, 'bottom', false); }
           if (useCollage) {
-            const bigFs = Math.max(48, Math.round(H / 10));
-            if (embFont) { const st = posterTitle.replace(/'/g, '').replace(/:/g, ''); draw = `,drawtext=fontfile=${embFont}:text='${st}':fontsize=${bigFs}:fontcolor=white:borderw=3:bordercolor=black:box=1:boxcolor=black@0.55:boxborderw=24:x=(w-text_w)/2:y=(h-text_h)/2`; }
-            else if (notoPath) { const st = posterTitle.replace(/'/g, '').replace(/:/g, ''); draw = `,drawtext=fontfile=${notoPath}:text='${st}':fontsize=${bigFs}:fontcolor=white:borderw=3:bordercolor=black:box=1:boxcolor=black@0.55:boxborderw=24:x=(w-text_w)/2:y=(h-text_h)/2`; }
-            else { const fp2 = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const at2 = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fp2) && at2) draw = `,drawtext=fontfile=${fp2}:text='${at2}':fontsize=${bigFs}:fontcolor=white:borderw=3:bordercolor=black:box=1:boxcolor=black@0.55:boxborderw=24:x=(w-text_w)/2:y=(h-text_h)/2`; }
+            let bigFs = Math.max(48, Math.round(H / 10));
+            // v147: shrink + wrap so a long title never overflows the frame.
+            {
+              const mc = fs => Math.max(1, Math.floor(0.90 * W / (fs * 0.45)));
+              const nl = fs => wrapPosterTitle(posterTitle, mc(fs)).length;
+              if (nl(bigFs) > 2) bigFs = 64;
+              if (nl(bigFs) > 3) bigFs = 48;
+            }
+            if (embFont) { draw = ',' + posterTitleDrawtexts(embFont, posterTitle, bigFs, W, H, 'middle', true); }
+            else if (notoPath) { draw = ',' + posterTitleDrawtexts(notoPath, posterTitle, bigFs, W, H, 'middle', true); }
+            else { const fp2 = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const at2 = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fp2) && at2) draw = ',' + posterTitleDrawtexts(fp2, at2, bigFs, W, H, 'middle', true); }
           }
           let aRate = 44100, aLayout = 'stereo', mSar = '1:1';
           try { const mm0 = await probe(outMp4); if (mm0.audioRate) aRate = mm0.audioRate; if (mm0.audioChannels === 1) aLayout = 'mono'; else if (mm0.audioChannels) aLayout = 'stereo'; if (mm0.sar && /^\d+:\d+$/.test(mm0.sar)) mSar = mm0.sar; } catch {}
