@@ -4951,7 +4951,11 @@ app.post('/api/projects/:id/tts', async (req, res) => {
   } catch (e) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} res.status(500).json({ error: `TTS failed: ${e.message}` }); }
 });
 
-async function buildPosterCollage(outMp4, W, H, pid) {
+// v150: 2-frame poster (user order 2026-11-04: 3 panels slice scenes
+  // awkwardly, faces/bodies cut across panels). Same sampling approach as
+  // the old 3-frame rule minus the middle element: keyframes -> first+last;
+  // else 25%/75% of duration; else pad times. Panels are equal width (W/2).
+  async function buildPosterCollage(outMp4, W, H, pid) {
   const meta = await probe(outMp4);
   const dur = parseFloat(meta?.duration || 0) || 0;
   let times = [];
@@ -4966,27 +4970,27 @@ async function buildPosterCollage(outMp4, W, H, pid) {
       }
     }
     const uniq = [...new Set(kfs.map(t => Math.round(t * 100) / 100))].sort((a, b) => a - b);
-    if (uniq.length >= 3) times = [uniq[0], uniq[Math.floor(uniq.length / 2)], uniq[uniq.length - 1]];
+    if (uniq.length >= 2) times = [uniq[0], uniq[uniq.length - 1]];
     else times = uniq.slice();
   } catch (e) { times = []; }
   if (dur > 0) {
-    for (const f of [0.25, 0.5, 0.75]) {
+    for (const f of [0.25, 0.75]) {
       const t = dur * f;
-      if (times.length < 3 && !times.some(x => Math.abs(x - t) < 1.0)) times.push(t);
+      if (times.length < 2 && !times.some(x => Math.abs(x - t) < 1.0)) times.push(t);
     }
   }
-  while (times.length < 3) times.push(times.length ? times[times.length - 1] + 0.5 : 0.5);
-  times = times.slice(0, 3).sort((a, b) => a - b);
+  while (times.length < 2) times.push(times.length ? times[times.length - 1] + 0.5 : 0.5);
+  times = times.slice(0, 2).sort((a, b) => a - b);
   const frames = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     const fp = path.join(OUT_DIR, `${pid}-collage${i}.jpg`);
     await run('ffmpeg', ['-y', '-ss', String(times[i]), '-i', outMp4, '-frames:v', '1', '-q:v', '2', fp], { timeout: 60000 });
     frames.push(fp);
   }
-  const panelW = Math.max(2, Math.floor(W / 3 / 2) * 2);
+  const panelW = Math.max(2, Math.floor(W / 2 / 2) * 2);
   const collage = path.join(OUT_DIR, `${pid}-collage.jpg`);
-  const fc = `[0:v]scale=${panelW}:${H}:force_original_aspect_ratio=increase,crop=${panelW}:${H}[p0];[1:v]scale=${panelW}:${H}:force_original_aspect_ratio=increase,crop=${panelW}:${H}[p1];[2:v]scale=${panelW}:${H}:force_original_aspect_ratio=increase,crop=${panelW}:${H}[p2];[p0][p1][p2]hstack=inputs=3,scale=${W}:${H}[vout]`;
-  await run('ffmpeg', ['-y', '-i', frames[0], '-i', frames[1], '-i', frames[2], '-filter_complex', fc, '-map', '[vout]', '-frames:v', '1', '-q:v', '2', collage], { timeout: 60000 });
+  const fc = `[0:v]scale=${panelW}:${H}:force_original_aspect_ratio=increase,crop=${panelW}:${H}[p0];[1:v]scale=${panelW}:${H}:force_original_aspect_ratio=increase,crop=${panelW}:${H}[p1];[p0][p1]hstack=inputs=2,scale=${W}:${H}[vout]`;
+  await run('ffmpeg', ['-y', '-i', frames[0], '-i', frames[1], '-filter_complex', fc, '-map', '[vout]', '-frames:v', '1', '-q:v', '2', collage], { timeout: 60000 });
   for (const f of frames) { try { fs.unlinkSync(f); } catch {} }
   return collage;
 }
