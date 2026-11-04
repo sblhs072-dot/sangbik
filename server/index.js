@@ -840,6 +840,56 @@ function smartSyncPlan(windows, effDuration, delaySec) {
   }
   return { segments: clean, newDuration, totalExtra: newDuration - effDuration, stretchedCount, skippedOverlap, mapTime };
 }
+// v148 voice cap: the user's own approved fast rate (character table,
+// angry/action row). Voice is never sped up beyond this; lines whose
+// voice factor (clipDuration/window) exceeds it get local video stretch
+// instead (see cappedVoiceStretchPlan).
+const VOICE_CAP = 1.15;
+// v148: local video stretch for overlong timed lines ONLY (user order
+// 2026-11-04: Burmese clips longer than their line window are sped up
+// without limit today (e.g. 2x) and sound rushed — cap the voice at
+// 1.15x and slow the video locally at those lines so viewers can listen
+// comfortably). For each timed line: factor = clipDuration/window.
+// factor <= 1.15x -> no video change (voice sped to fit, as in v147).
+// factor > 1.15x -> video segment factor = (clipDuration/1.15)/window,
+// so the stretched window is exactly clipDuration/1.15 and the voice at
+// 1.15x fills it exactly. Short lines stay natural and end early (voice
+// is never slowed down to fill). This is NOT the old Smart Sync model
+// (whole-video stretch to natural voice): the stretch here is local,
+// capped, and only for overlong lines. Overlapping windows (bad
+// transcript) are skipped for stretching and counted, exactly like
+// smartSyncPlan. Returns the same shape as smartSyncPlan ({segments,
+// newDuration, totalExtra, stretchedCount, skippedOverlap, mapTime}),
+// so the existing stretch machinery (video split/trim/setpts/concat,
+// original-audio stretch, music duration) is reused unchanged. The old
+// Smart Sync path stays disabled (if (false) gate in the export block).
+function cappedVoiceStretchPlan(windows, effDuration) {
+  const wins = (windows || []).map(w => ({ start: parseFloat(w.start) || 0, end: parseFloat(w.end) || 0, duration: parseFloat(w.duration) || 0 })).filter(w => w.end > w.start).sort((a, b) => a.start - b.start);
+  const kept = []; let lastEnd = -Infinity, skippedOverlap = 0;
+  for (const w of wins) { if (w.start < lastEnd - 1e-6) { skippedOverlap++; continue; } kept.push(w); lastEnd = w.end; }
+  const segments = []; let cursor = 0, stretchedCount = 0;
+  for (const w of kept) {
+    const W = w.end - w.start;
+    const stretchedWindow = w.duration / VOICE_CAP;
+    if (w.start > cursor + 1e-6) segments.push({ start: cursor, end: w.start, factor: 1 });
+    const factor = (stretchedWindow - W > 1e-6) ? stretchedWindow / W : 1;
+    if (factor > 1) stretchedCount++;
+    segments.push({ start: w.start, end: w.end, factor });
+    cursor = w.end;
+  }
+  if (effDuration > cursor + 1e-6) segments.push({ start: cursor, end: effDuration, factor: 1 });
+  const clean = segments.filter(sg => sg.end - sg.start > 1e-6);
+  let mappedCursor = 0;
+  for (const sg of clean) { sg.mappedStart = mappedCursor; mappedCursor += (sg.end - sg.start) * sg.factor; }
+  const newDuration = mappedCursor;
+  function mapTime(t) {
+    if (!(t > 0)) return 0;
+    if (t >= effDuration) return newDuration;
+    for (const sg of clean) { if (t >= sg.start - 1e-9 && t < sg.end) return sg.mappedStart + (t - sg.start) * sg.factor; }
+    return newDuration;
+  }
+  return { segments: clean, newDuration, totalExtra: newDuration - effDuration, stretchedCount, skippedOverlap, mapTime };
+}
 // atempo chain for slowing audio by factor a (0 < a <= 1): each atempo must
 // be >= 0.5, so split smaller factors (0.25 -> 0.5,0.5; 0.4 -> 0.5,0.8).
 function atempoChainForFactor(a) {
@@ -5440,12 +5490,55 @@ app.post('/api/projects/:id/export', async (req, res) => {
           narrationFitNote = smartSyncNote;
         }
       }
+      // v148: voice-cap stretch plan (see cappedVoiceStretchPlan). The
+      // old Smart Sync path above stays disabled (if (false)); this plan
+      // is separate and applies automatically to every timed export
+      // (system-wide, no per-video toggle): whenever any timed line is
+      // overlong past the 1.15x cap, the video stretches locally at
+      // those lines only. ALL timed clips below are placed via
+      // capPlan.mapTime, so lines after a stretched segment land at
+      // their shifted time — a stretch that only moved its own segment
+      // would desync everything downstream. The fit/overflow note is
+      // replaced by the cap note here: stretched lines are no longer
+      // cut at their window ends, so the old "tail lost" overflow note
+      // does not apply to them (every overflow line is over the cap,
+      // hence stretched).
+      let capStretch = false, capPlan = null;
       if (timedClips.length) {
-        p.export.narrationFitCount = narrationFitCount; p.export.narrationFitOverflow = narrationFitOverflow; p.export.narrationFitNote = narrationFitNote; if (smartSync) p.export.smartSync = { stretched: ssPlan.stretchedCount, totalExtra: Math.round(ssPlan.totalExtra * 100) / 100, newDuration: Math.round(ssPlan.newDuration * 100) / 100 }; saveProjects(projects);
+        const plan = cappedVoiceStretchPlan(timedClips.map(tc => ({ start: tc.winStart, end: tc.winStart + tc.windowSec, duration: tc.duration })), effDuration);
+        if (plan.stretchedCount > 0) {
+          capStretch = true; capPlan = plan;
+          narrationFitNote = 'Voiceover capped at 1.15x; video slowed locally at ' + plan.stretchedCount + ' overlong line(s) so the voice fits comfortably (output ' + plan.newDuration.toFixed(1) + 's, was ' + effDuration.toFixed(1) + 's).' + (plan.skippedOverlap ? ' ' + plan.skippedOverlap + ' overlapping line(s) were not stretched (check the transcript).' : '');
+        }
+      }
+      if (timedClips.length) {
+        p.export.narrationFitCount = narrationFitCount; p.export.narrationFitOverflow = narrationFitOverflow; p.export.narrationFitNote = narrationFitNote; if (smartSync) p.export.smartSync = { stretched: ssPlan.stretchedCount, totalExtra: Math.round(ssPlan.totalExtra * 100) / 100, newDuration: Math.round(ssPlan.newDuration * 100) / 100 }; if (capStretch) p.export.voiceCapStretch = { stretched: capPlan.stretchedCount, totalExtra: Math.round(capPlan.totalExtra * 100) / 100, newDuration: Math.round(capPlan.newDuration * 100) / 100, cap: VOICE_CAP }; saveProjects(projects);
         for (const tc of timedClips) {
           args.push('-i', tc.file); inputs.push(tc.file);
           let ms, clipFilter;
           if (smartSync) { ms = Math.round(Math.max(0, ssPlan.mapTime(tc.winStart) + narrationDelaySec) * 1000); clipFilter = ''; }
+          else if (capStretch) {
+            // v148: every timed clip is placed on the STRETCHED timeline
+            // (mapTime shifts lines after a stretched segment by the
+            // cumulative stretch). A line whose own window the plan
+            // stretched gets voice capped at exactly 1.15x and trimmed
+            // at its stretched window, so it fills that window exactly
+            // and never spills into the next turn. Any other line
+            // (factor <= 1.15x, or a skipped overlap the plan could not
+            // stretch) keeps v147 filters — sped to fit if overlong,
+            // natural if short — except its tempo is also capped at
+            // 1.15x, so no voice on a capped export is ever rushed; a
+            // skipped overlong line is trimmed at its original window
+            // (tail cut, flagged in the note — fix the overlapping
+            // transcript). The stretched check reads the plan's own
+            // segments (not the factor formula), so clip treatment
+            // always matches video treatment exactly.
+            const seg = capPlan.segments.find(sg => Math.abs(sg.start - tc.winStart) < 1e-6 && Math.abs(sg.end - (tc.winStart + tc.windowSec)) < 1e-6);
+            const isStretched = !!(seg && seg.factor > 1);
+            ms = Math.round(Math.max(0, capPlan.mapTime(tc.winStart) + narrationDelaySec) * 1000);
+            if (isStretched) { const stretchedWindow = (seg.end - seg.start) * seg.factor; clipFilter = `atempo=${VOICE_CAP},atrim=0:${Math.round(stretchedWindow * 1000) / 1000},`; }
+            else { const cappedTempo = tc.tempo > 1 ? Math.min(tc.tempo, VOICE_CAP) : 0; const tempoFilter = cappedTempo ? `atempo=${cappedTempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; }
+          }
           else { ms = Math.round(tc.outStart * 1000); const tempoFilter = tc.tempo > 1 ? `atempo=${tc.tempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; }
           filter += `;[${nextInputIdx}:a]${clipFilter}adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
         }
@@ -5463,9 +5556,12 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // Original audio: plain when Smart Sync is off, stretched with the
       // same segment map when it is on (so it stays in sync with the slowed
       // video). [a0] was pushed first (amix duration=first = new length).
+      // v148: the same stretch applies for the voice-cap plan (capStretch)
+      // — without it, amix duration=first would cut the mix at the
+      // unstretched length and truncate the tail.
       if (hasAudioTrack) {
-        if (smartSync) {
-          const segs = ssPlan.segments;
+        if (smartSync || capStretch) {
+          const segs = (smartSync ? ssPlan : capPlan).segments;
           const aLabels = [];
           let aFilter = `[0:a]asplit=${segs.length}`;
           for (let i = 0; i < segs.length; i++) aFilter += `[as${i}]`;
@@ -5481,12 +5577,12 @@ app.post('/api/projects/:id/export', async (req, res) => {
         } else {
           filter += `;[0:a]volume=${origVol}[a0]`;
         }
-      } else if (smartSync && audioInputs.length) {
+      } else if ((smartSync || capStretch) && audioInputs.length) {
         // No original audio track: a silent pad keeps amix at the new length
         // (otherwise duration=first would cut the mix at the first clip).
-        filter += ';anullsrc=channel_layout=stereo:sample_rate=48000:duration=' + ssPlan.newDuration.toFixed(3) + '[asil]'; audioInputs.unshift('[asil]');
+        filter += ';anullsrc=channel_layout=stereo:sample_rate=48000:duration=' + (smartSync ? ssPlan : capPlan).newDuration.toFixed(3) + '[asil]'; audioInputs.unshift('[asil]');
       }
-      const musicDur = smartSync ? ssPlan.newDuration : effDuration;
+      const musicDur = smartSync ? ssPlan.newDuration : (capStretch ? capPlan.newDuration : effDuration);
       if (hasMusic) {
         // -stream_loop -1 must precede -i so the music loops until amix cuts it off.
         args.push('-stream_loop', '-1', '-i', p.music.path); inputs.push(p.music.path);
@@ -5513,8 +5609,10 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // and overlays burned before the stretch move with their frames).
       // If the insert point is missing (should not happen — validated
       // earlier), abort rather than ship a half-synced export.
-      if (smartSync) {
-        const segs = ssPlan.segments;
+      // v148: the same insert serves the voice-cap stretch (capStretch +
+      // capPlan); the old Smart Sync path above stays disabled.
+      if (smartSync || capStretch) {
+        const segs = (smartSync ? ssPlan : capPlan).segments;
         const vLabels = [];
         let vFilter = `[vstretch]split=${segs.length}`;
         for (let i = 0; i < segs.length; i++) vFilter += `[vs${i}]`;
