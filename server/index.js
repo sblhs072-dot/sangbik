@@ -845,6 +845,37 @@ function smartSyncPlan(windows, effDuration, delaySec) {
 // voice factor (clipDuration/window) exceeds it get local video stretch
 // instead (see cappedVoiceStretchPlan).
 const VOICE_CAP = 1.15;
+// v149: narration peak normalization (user order 2026-11-04: voiceover
+// too soft even at max phone volume; unity gain 1.0 leaves quiet Edge
+// clips buried). Principled, no invented gain number: each narration
+// clip is measured (ffmpeg volumedetect) and boosted so its peak
+// reaches -1 dB (10^(-1/20) = 0.8913 linear), combined with the user's
+// narrVol. A clip already at/above -1 dB is NEVER attenuated below
+// the user's narrVol (loud lines stay exactly as the user set them);
+// the effective gain is always clamped so the output peak stays <=
+// 1.0 (no clipping). Any measurement failure fails OPEN to narrVol
+// alone — normalization must never fail an export. Original audio,
+// music, SmartSync/cap/stretch, poster and subtitle logic untouched.
+const NARR_PEAK_TARGET_DB = -1;
+const NARR_PEAK_TARGET_LIN = Math.pow(10, NARR_PEAK_TARGET_DB / 20);
+async function narrationPeakLinear(file) {
+  try {
+    const { err } = await run('ffmpeg', ['-i', file, '-af', 'volumedetect', '-f', 'null', '-'], { timeout: 60000 });
+    const m = /max_volume:\s*(-?[\d.]+)\s*dB/.exec(err || '');
+    if (!m) return null;
+    const db = parseFloat(m[1]);
+    if (!Number.isFinite(db)) return null;
+    const lin = Math.pow(10, db / 20);
+    return (lin > 0 && lin <= 1.5) ? lin : null;
+  } catch { return null; }
+}
+function narrationNormGain(peakLin, narrVol) {
+  const nv = Number.isFinite(narrVol) ? Math.max(0, narrVol) : 1;
+  if (!(peakLin > 0)) return nv;
+  const boost = NARR_PEAK_TARGET_LIN / peakLin;
+  const eff = Math.max(boost, 1) * nv;
+  return Math.min(eff, 1 / peakLin);
+}
 // v148: local video stretch for overlong timed lines ONLY (user order
 // 2026-11-04: Burmese clips longer than their line window are sped up
 // without limit today (e.g. 2x) and sound rushed — cap the voice at
@@ -5003,8 +5034,12 @@ app.post('/api/projects/:id/export', async (req, res) => {
         if (fNarr) args.push('-i', fNarr);
         let srtIdx = -1;
         if (fSrt) { args.push('-i', fSrt); srtIdx = fNarr ? 2 : 1; }
-        if (fNarr && fHasAudio) args.push('-filter_complex', `[0:a]volume=${fOrigVol}[a0];[1:a]volume=${fNarrVol}[a1];[a0][a1]amix=inputs=2:normalize=0,apad=whole_dur=${fDur}[aout]`, '-map', '0:v', '-map', '[aout]');
-        else if (fNarr) args.push('-filter_complex', `[1:a]volume=${fNarrVol},apad=whole_dur=${fDur}[aout]`, '-map', '0:v', '-map', '[aout]');
+        // v149: peak-normalize the FastMux narration file (same rule as
+        // the full export; measured here so the fast started-response
+        // above is not delayed).
+        const fNarrGain = fNarr ? narrationNormGain(await narrationPeakLinear(fNarr), fNarrVol) : fNarrVol;
+        if (fNarr && fHasAudio) args.push('-filter_complex', `[0:a]volume=${fOrigVol}[a0];[1:a]volume=${fNarrGain}[a1];[a0][a1]amix=inputs=2:normalize=0,apad=whole_dur=${fDur}[aout]`, '-map', '0:v', '-map', '[aout]');
+        else if (fNarr) args.push('-filter_complex', `[1:a]volume=${fNarrGain},apad=whole_dur=${fDur}[aout]`, '-map', '0:v', '-map', '[aout]');
         else if (fHasAudio) args.push('-map', '0:v', '-map', '0:a');
         else args.push('-map', '0:v');
         args.push('-c:v', 'copy');
@@ -5513,6 +5548,10 @@ app.post('/api/projects/:id/export', async (req, res) => {
       }
       if (timedClips.length) {
         p.export.narrationFitCount = narrationFitCount; p.export.narrationFitOverflow = narrationFitOverflow; p.export.narrationFitNote = narrationFitNote; if (smartSync) p.export.smartSync = { stretched: ssPlan.stretchedCount, totalExtra: Math.round(ssPlan.totalExtra * 100) / 100, newDuration: Math.round(ssPlan.newDuration * 100) / 100 }; if (capStretch) p.export.voiceCapStretch = { stretched: capPlan.stretchedCount, totalExtra: Math.round(capPlan.totalExtra * 100) / 100, newDuration: Math.round(capPlan.newDuration * 100) / 100, cap: VOICE_CAP }; saveProjects(projects);
+        // v149: measure each timed clip's peak (sequential — short
+        // voice clips, and Render Free has little CPU to spare) so its
+        // filter below uses the peak-normalized gain, not raw narrVol.
+        for (const tc of timedClips) tc.normGain = narrationNormGain(await narrationPeakLinear(tc.file), narrVol);
         for (const tc of timedClips) {
           args.push('-i', tc.file); inputs.push(tc.file);
           let ms, clipFilter;
@@ -5540,16 +5579,19 @@ app.post('/api/projects/:id/export', async (req, res) => {
             else { const cappedTempo = tc.tempo > 1 ? Math.min(tc.tempo, VOICE_CAP) : 0; const tempoFilter = cappedTempo ? `atempo=${cappedTempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; }
           }
           else { ms = Math.round(tc.outStart * 1000); const tempoFilter = tc.tempo > 1 ? `atempo=${tc.tempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; }
-          filter += `;[${nextInputIdx}:a]${clipFilter}adelay=${ms}:all=1,volume=${narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
+          filter += `;[${nextInputIdx}:a]${clipFilter}adelay=${ms}:all=1,volume=${tc.normGain ?? narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
         }
       } else {
         if (narrationSync === 'timed') narrationSyncNote = timedClipsStale ? 'လိုင်းတွေ အသံထုတ်ပြီးမှ ပြင်ထားလို့ timed narration မကိုက်တော့ပါ — continuous အသံ သုံးထားတယ်။ Timed ပြန်ရဖို့ အသံ ပြန်ထုတ်ပါ။' : (p.tts?.file ? 'Timed narration requested but no usable per-line clips were found — used the continuous narration track instead. Re-run voiceover (TTS) after this deploy to generate per-line clips.' : 'Timed narration requested but no narration audio exists — generate voiceover first.');
         if (p.tts?.file && fs.existsSync(p.tts.file)) {
           args.push('-i', p.tts.file); inputs.push(p.tts.file);
+          // v149: peak-normalize the continuous narration track (same
+          // rule as timed clips); fail-open to narrVol on any error.
+          const contGain = narrationNormGain(await narrationPeakLinear(p.tts.file), narrVol);
           // Manual voiceover shift: positive delay = adelay, negative = trim the head.
-          if (narrationDelaySec > 0) filter += `;[${nextInputIdx}:a]adelay=${Math.round(narrationDelaySec * 1000)}:all=1,volume=${narrVol}[a1]`;
-          else if (narrationDelaySec < 0) filter += `;[${nextInputIdx}:a]atrim=start=${-narrationDelaySec},asetpts=PTS-STARTPTS,volume=${narrVol}[a1]`;
-          else filter += `;[${nextInputIdx}:a]volume=${narrVol}[a1]`;
+          if (narrationDelaySec > 0) filter += `;[${nextInputIdx}:a]adelay=${Math.round(narrationDelaySec * 1000)}:all=1,volume=${contGain}[a1]`;
+          else if (narrationDelaySec < 0) filter += `;[${nextInputIdx}:a]atrim=start=${-narrationDelaySec},asetpts=PTS-STARTPTS,volume=${contGain}[a1]`;
+          else filter += `;[${nextInputIdx}:a]volume=${contGain}[a1]`;
           audioInputs.push('[a1]'); nextInputIdx++;
         }
       }
