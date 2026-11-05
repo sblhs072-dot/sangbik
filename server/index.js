@@ -1,8 +1,9 @@
 /* Sangbik — server. No secrets are hard-coded; keys come from .env only.
-   Server v154 (2026-11-05): poster clip is scaled+padded to the main
-   video's exact W×H before the concat join (fixes the concat size-mismatch
-   failure for portrait/square custom posters); v153 main-export amix
-   normalize=0 kept intact.
+   Server v155 (2026-11-05): when a subtitle box is set, the burn uses a
+   per-line ASS file (writeBurnAss) so SHORT subtitle lines are centred in
+   the box ({\an8} top-center override); long lines keep Alignment=7. The
+   SRT file is unchanged (still written for download + the no-box burn
+   path). v154 poster scale+pad and v153 amix normalize=0 kept intact.
    Honest behaviour: AI script generation runs ONLY if an AI key is configured.
    TTS runs ONLY if a provider is actually available. Local (no-key) TTS uses
    espeak-ng with its Burmese voice ("my") when that binary is installed;
@@ -719,6 +720,46 @@ function writeSrt(project, segments) {
   const p = path.join(OUT_DIR, `${project.id}.srt`);
   const body = segments.map((s, i) => `${i + 1}\n${fmtSrt(s.start)} --> ${fmtSrt(s.end)}\n${escapeSrt(s.text)}\n`).join('\n');
   fs.writeFileSync(p, body); return p;
+}
+function isShortBurnSub(text, fontSize, boxW) {
+  // v155: a subtitle is SHORT when its estimated rendered width is smaller
+  // than the subtitle box. Estimated width = code-point count x fontSize
+  // x 0.6 (Burmese glyphs average ~0.6em wide). Code points, not UTF-16
+  // units ([...text].length). An empty line has width 0, so it is short.
+  if (!text) return true;
+  return [...text].length * (fontSize || 24) * 0.6 < boxW;
+}
+function writeBurnAss(project, segments, W, H, effFont, sub, bgr) {
+  // v155: burn-only ASS for the hasSubPos case (the SRT is untouched —
+  // it is still written by writeSrt for download and for the no-box burn
+  // path). Mirrors writeOverlayAss: [Script Info] with PlayResX/Y,
+  // [V4+ Styles] with one style carrying the same font/size/colour/
+  // outline/shadow/margins as the force_style, [Events] with Dialogue
+  // lines. SHORT lines get a {\an8} (top-center) prefix so they sit in
+  // the middle of the box; long lines get no prefix and keep the global
+  // Alignment=7 (top-left). {\an8}, NOT {\an2}: with MarginV measured
+  // from the top, a bottom-center override would throw the line to the
+  // top of the frame (verified with ffmpeg/libass: {\an2} + MarginV=612
+  // on 720p renders at y≈88; {\an8} renders at y≈616, the box, centred
+  // at the box centre). Text is escaped the same way as the SRT
+  // (escapeSrt: newlines become spaces); commas need no escaping — the
+  // Text field is the last ASS field.
+  const size = sub.size || 24;
+  const subX = parseFloat(sub.subX); const subY = parseFloat(sub.subY); const subW = parseFloat(sub.subW);
+  const hasSubW = Number.isFinite(subW);
+  const mL = Math.round(Math.max(0, Math.min(1, subX)) * W);
+  const mV = Math.round(Math.max(0, Math.min(1, subY)) * H);
+  const mR = hasSubW ? Math.round(Math.max(0, 1 - (Math.max(0, Math.min(1, subX)) + Math.max(0, Math.min(1, subW)))) * W) : 10;
+  const boxW = (hasSubW ? Math.max(0, Math.min(1, subW)) : 1) * W;
+  const style = `Style: Sub,${effFont},${size},&H${bgr}&,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,7,${mL},${mR},${mV},1`;
+  const events = segments.map(s => {
+    const text = escapeSrt(s.text);
+    const short = isShortBurnSub(text, size, boxW);
+    return `Dialogue: 0,${fmtAss(s.start)},${fmtAss(s.end)},Sub,,0,0,0,,${short ? '{\\an8}' : ''}${text}`;
+  }).join('\n');
+  const body = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${H}\nWrapStyle: 0\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${style}\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events}\n`;
+  const f = path.join(OUT_DIR, `${project.id}-burn.ass`);
+  fs.writeFileSync(f, body); return f;
 }
 function fmtVtt(t) { return fmtSrt(t).replace(',', '.'); }
 function writeVtt(project, segments, suffix = '') {
@@ -5421,7 +5462,27 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // Crop x/y expressions are evaluated per frame (t = time in seconds), so this is a real slow pan.
       const panExpr = panMode === 'left-right' ? `min(t/${effDuration},1)` : `1-min(t/${effDuration},1)`;
       const panVf = panMode === 'none' ? null : `scale=${Math.round(W * 1.2)}:${Math.round(H * 1.2)}${scaleFlags},crop=${W}:${H}:x='(iw-ow)*${panExpr}':y='(ih-oh)/2'`;
-      const subFilter = subtitlesOn ? `,subtitles='${srtPath.replace(/'/g, "\\'")}':force_style='${style}'${fontsDirArg()}` : '';
+      // v155: when a subtitle box is set, burn from the per-line ASS file
+      // so short lines are centred in the box; without a box the SRT path
+      // is unchanged (Alignment=2 already centres). Fail-open: if the ASS
+      // write fails, fall back to the SRT (the old behaviour) rather than
+      // failing the export. The ASS path omits force_style: the ASS style
+      // already carries every force_style value, and force_style flips
+      // wrapped long lines to right-aligned (verified with ffmpeg/libass:
+      // same ASS, same text — with force_style the wrapped lines end at
+      // the right margin, without it they start at MarginL=230). The SRT
+      // path keeps force_style (the SRT has no style of its own).
+      let burnSubPath = srtPath;
+      let burnIsAss = false;
+      if (subtitlesOn && hasSubPos) {
+        try { burnSubPath = writeBurnAss(p, segments, W, H, effFont, sub, bgr); burnIsAss = true; }
+        catch (e) { burnSubPath = srtPath; burnIsAss = false; }
+      }
+      const subFilter = subtitlesOn
+        ? (burnIsAss
+            ? `,subtitles='${burnSubPath.replace(/'/g, "\\'")}'${fontsDirArg()}`
+            : `,subtitles='${burnSubPath.replace(/'/g, "\\'")}':force_style='${style}'${fontsDirArg()}`)
+        : '';
       let overlayFilter = '';
       let overlayNote = null;
       if (overlaySegs.length) {
