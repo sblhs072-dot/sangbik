@@ -5124,21 +5124,28 @@ app.post('/api/projects/:id/export', async (req, res) => {
   // export body carries posterImage:true. The stage uses the uploaded
   // file full-frame INSTEAD of the collage + title overlay (as-is, no
   // overlay — the Gemini-made poster already carries its title).
-  // A missing file (upload failed, server restart) falls back to the
-  // collage rules with a note — never a failed export.
+  // v152 OPT-IN (user order 2026-11-05 11:13 +08): a poster segment
+  // exists ONLY when a custom poster image is set. A missing file
+  // (upload failed, server restart) means NO poster stage, with a
+  // note — never a failed export, never an automatic collage.
+  // Website exports carry no flag, so they get NO poster stage.
   const posterImageFlag = o.posterImage === true;
   let customPosterPath = null;
   if (posterImageFlag && p.posterImage && p.posterImage.path
       && fs.existsSync(p.posterImage.path)) {
     customPosterPath = p.posterImage.path;
   }
-  // v151: pure poster plan (also exercised by the standalone test).
-  // A set custom poster counts as "has poster" (3s default, like a
-  // title) for the apply + duration rules.
+  // v152 OPT-IN poster plan (also exercised by the standalone test).
+  // A poster segment exists ONLY when a custom poster image is set:
+  // sec and titleProvided are ignored for the apply decision (sec
+  // still sets the DURATION of a custom poster; titleProvided is
+  // kept in the signature for call compatibility). Duration: sec
+  // when > 0, else 3s. mode is 'custom' when a poster applies,
+  // else 'none'.
   function resolvePosterPlan(sec, titleProvided, custom) {
-    const apply = sec > 0 || titleProvided || custom;
-    const duration = sec > 0 ? sec : ((titleProvided || custom) ? 3 : 2);
-    const mode = custom ? 'custom' : (titleProvided ? 'collage' : 'frame');
+    const apply = !!custom;
+    const duration = sec > 0 ? sec : 3;
+    const mode = custom ? 'custom' : 'none';
     return { apply, duration, mode };
   }
   const blurStrength = ['light', 'medium', 'strong', 'xstrong'].includes(o.blurStrength) ? o.blurStrength : 'medium';
@@ -5780,6 +5787,9 @@ app.post('/api/projects/:id/export', async (req, res) => {
         return parts.join(',');
       }
       const posterPlan = resolvePosterPlan(posterSec, posterTitleProvided, !!customPosterPath);
+      // v152: flag set but file gone (upload failed / restart wipe)
+      // means NO poster stage — recorded so the skip is never silent.
+      if (posterImageFlag && !customPosterPath) posterNote = 'Custom poster image not found on server, no poster stage';
       if (posterPlan.apply) {
         try { touchExportProgress(p, 99, 'Poster ပြင်နေပါတယ်'); } catch {}
         try {
