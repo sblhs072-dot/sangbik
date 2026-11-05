@@ -5701,7 +5701,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
       }
       let audioMap;
       if (audioInputs.length === 1) { filter += `;${audioInputs[0]}anull[aout]`; audioMap = '[aout]'; }
-      else if (audioInputs.length > 1) { filter += `;${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=first:dropout_transition=0[aout]`; audioMap = '[aout]'; }
+      else if (audioInputs.length > 1) { filter += `;${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=first:dropout_transition=0:normalize=0[aout]`; audioMap = '[aout]'; }
       // Smart Sync video stretch (inserted after the audio chain, so it
       // rides on the finished [vout] incl. subtitles/logo/fade — subtitles
       // and overlays burned before the stretch move with their frames).
