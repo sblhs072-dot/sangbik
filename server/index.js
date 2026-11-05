@@ -1,4 +1,8 @@
 /* Sangbik — server. No secrets are hard-coded; keys come from .env only.
+   Server v154 (2026-11-05): poster clip is scaled+padded to the main
+   video's exact W×H before the concat join (fixes the concat size-mismatch
+   failure for portrait/square custom posters); v153 main-export amix
+   normalize=0 kept intact.
    Honest behaviour: AI script generation runs ONLY if an AI key is configured.
    TTS runs ONLY if a provider is actually available. Local (no-key) TTS uses
    espeak-ng with its Burmese voice ("my") when that binary is installed;
@@ -5836,7 +5840,14 @@ app.post('/api/projects/:id/export', async (req, res) => {
           }
           let aRate = 44100, aLayout = 'stereo', mSar = '1:1';
           try { const mm0 = await probe(outMp4); if (mm0.audioRate) aRate = mm0.audioRate; if (mm0.audioChannels === 1) aLayout = 'mono'; else if (mm0.audioChannels) aLayout = 'stereo'; if (mm0.sar && /^\d+:\d+$/.test(mm0.sar)) mSar = mm0.sar; } catch {}
-          await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', `anullsrc=channel_layout=${aLayout}:sample_rate=${aRate}`, '-vf', `scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=${mSar.replace(':', '/')}${draw}`, '-t', String(posterDur), '-c:v', 'libx264', '-preset', renderPreset, '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
+          // v154: scale+pad the poster image to the MAIN video's exact W×H
+          // (W/H are forced even, so yuv420p stays valid). The old filter
+          // kept the poster's native aspect (even dims only), so a portrait
+          // custom poster (e.g. 896x1198) never matched a landscape main
+          // video (e.g. 960x720) and the concat join failed with a size
+          // mismatch. For a collage / single-frame poster (already W×H)
+          // this is a no-op. Title drawtext (draw) is unchanged.
+          await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', `anullsrc=channel_layout=${aLayout}:sample_rate=${aRate}`, '-vf', `scale=${W}:${H}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=${mSar.replace(':', '/')}${draw}`, '-t', String(posterDur), '-c:v', 'libx264', '-preset', renderPreset, '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
           const finalMp4 = path.join(OUT_DIR, `${p.id}-recap-poster.mp4`);
           // Fast poster join: stream-copy concat when poster and main share
           // every stream parameter (codec, size, fps, SAR, audio params).
