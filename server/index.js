@@ -4612,6 +4612,29 @@ app.post('/api/logo', logoUpload.single('logo'), (req, res) => {
     res.json({ ok: true, bytes: b.length });
   } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
 });
+// v151: per-project custom poster image (user-made, e.g. in Gemini;
+// native v1.59 uploads it here, same multer pattern as logo/music).
+// Stored under OUT_DIR as <pid>-poster-custom.png|jpg (extension by
+// magic byte, not original name); recorded on the project so the
+// export handler can find it. Project-not-found -> 404.
+const posterUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+app.post('/api/projects/:id/poster-image', posterUpload.single('poster'), (req, res) => {
+  try {
+    const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
+    if (!req.file || !req.file.buffer || req.file.buffer.length < 8) return res.status(400).json({ error: 'poster image missing' });
+    const b = req.file.buffer;
+    const isPng = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47;
+    const isJpg = b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
+    if (!isPng && !isJpg) return res.status(400).json({ error: 'only PNG or JPG poster images' });
+    const ext = isPng ? 'png' : 'jpg';
+    const dest = path.join(OUT_DIR, `${req.params.id}-poster-custom.${ext}`);
+    fs.mkdirSync(OUT_DIR, { recursive: true });
+    fs.writeFileSync(dest, b);
+    p.posterImage = { path: dest, bytes: b.length };
+    saveProjects(projects);
+    res.json({ ok: true, bytes: b.length });
+  } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+});
 app.post('/api/projects/:id/url', async (req, res) => {
   const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found' });
   const { url, confirmed } = req.body || {};
@@ -5096,6 +5119,28 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const posterSec = [3, 5].includes(posterSecRaw) ? posterSecRaw : 0;
   const posterTitleProvided = (typeof o.posterTitle === 'string' && o.posterTitle.trim().length > 0);
   const posterTitle = String(o.posterTitle || 'Sangbik').replace(/[^\u1000-\u109FA-Za-z0-9 _-]/g, '').trim() || 'Sangbik';
+  // v151: custom poster image (user-made, e.g. in Gemini). The native
+  // client uploads the image to /api/projects/:id/poster-image; the
+  // export body carries posterImage:true. The stage uses the uploaded
+  // file full-frame INSTEAD of the collage + title overlay (as-is, no
+  // overlay — the Gemini-made poster already carries its title).
+  // A missing file (upload failed, server restart) falls back to the
+  // collage rules with a note — never a failed export.
+  const posterImageFlag = o.posterImage === true;
+  let customPosterPath = null;
+  if (posterImageFlag && p.posterImage && p.posterImage.path
+      && fs.existsSync(p.posterImage.path)) {
+    customPosterPath = p.posterImage.path;
+  }
+  // v151: pure poster plan (also exercised by the standalone test).
+  // A set custom poster counts as "has poster" (3s default, like a
+  // title) for the apply + duration rules.
+  function resolvePosterPlan(sec, titleProvided, custom) {
+    const apply = sec > 0 || titleProvided || custom;
+    const duration = sec > 0 ? sec : ((titleProvided || custom) ? 3 : 2);
+    const mode = custom ? 'custom' : (titleProvided ? 'collage' : 'frame');
+    return { apply, duration, mode };
+  }
   const blurStrength = ['light', 'medium', 'strong', 'xstrong'].includes(o.blurStrength) ? o.blurStrength : 'medium';
   const blurSigma = BLUR_SIGMA[blurStrength];
   const blurStrength2 = ['light', 'medium', 'strong', 'xstrong'].includes(o.blurStrength2) ? o.blurStrength2 : blurStrength;
@@ -5734,14 +5779,20 @@ app.post('/api/projects/:id/export', async (req, res) => {
         }
         return parts.join(',');
       }
-      if (posterSec > 0 || posterTitleProvided) {
+      const posterPlan = resolvePosterPlan(posterSec, posterTitleProvided, !!customPosterPath);
+      if (posterPlan.apply) {
         try { touchExportProgress(p, 99, 'Poster ပြင်နေပါတယ်'); } catch {}
         try {
           let posterImg = path.join(OUT_DIR, `${p.id}-poster.jpg`);
-          await run('ffmpeg', ['-y', '-ss', '1', '-i', outMp4, '-vframes', '1', posterImg]);
-          let posterDur = posterSec > 0 ? posterSec : (posterTitleProvided ? 3 : 2);
+          if (posterPlan.mode !== 'custom') {
+            await run('ffmpeg', ['-y', '-ss', '1', '-i', outMp4, '-vframes', '1', posterImg]);
+          }
+          let posterDur = posterPlan.duration;
           let useCollage = false;
-          if (posterTitleProvided) {
+          if (posterPlan.mode === 'custom') {
+            posterImg = customPosterPath;
+            posterNote = 'Custom poster image used';
+          } else if (posterTitleProvided) {
             try {
               const collageImg = await buildPosterCollage(outMp4, W, H, p.id);
               posterImg = collageImg; posterDur = posterSec > 0 ? posterSec : 3; useCollage = true;
@@ -5752,9 +5803,14 @@ app.post('/api/projects/:id/export', async (req, res) => {
           let notoPath = null;
           const embFont = embeddedPyidaungsuPath();
           try { const fl = await run('fc-list', ['Noto Sans Myanmar', 'file'], { timeout: 15000 }); const line = (fl.out || '').split('\n').find(x => x.toLowerCase().indexOf('.ttf') >= 0); if (line) notoPath = line.split(':')[0].trim(); } catch {}
-          if (embFont) { draw = ',' + posterTitleDrawtexts(embFont, posterTitle, 48, W, H, 'bottom', false); }
-          else if (notoPath) { draw = ',' + posterTitleDrawtexts(notoPath, posterTitle, 48, W, H, 'bottom', false); }
-          else { const fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const asciiTitle = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fontPath) && asciiTitle) draw = ',' + posterTitleDrawtexts(fontPath, asciiTitle, 48, W, H, 'bottom', false); }
+          // v151: custom poster = as-is, NO title overlay (draw stays
+          // ''). The collage branch below only runs when useCollage,
+          // which is false for custom.
+          if (posterPlan.mode !== 'custom') {
+            if (embFont) { draw = ',' + posterTitleDrawtexts(embFont, posterTitle, 48, W, H, 'bottom', false); }
+            else if (notoPath) { draw = ',' + posterTitleDrawtexts(notoPath, posterTitle, 48, W, H, 'bottom', false); }
+            else { const fontPath = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'; const asciiTitle = posterTitle.replace(/[^A-Za-z0-9 _-]/g, ''); if (fs.existsSync(fontPath) && asciiTitle) draw = ',' + posterTitleDrawtexts(fontPath, asciiTitle, 48, W, H, 'bottom', false); }
+          }
           if (useCollage) {
             let bigFs = Math.max(48, Math.round(H / 10));
             // v147: shrink + wrap so a long title never overflows the frame.
@@ -5804,7 +5860,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', progressPct: 100, progressStage: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, narrationSync, narrationSyncNote, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, overlayNote, narrationFitCount, narrationFitOverflow, narrationFitNote };
+      p.export = { status: 'ready', progress: 'done', progressPct: 100, progressStage: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, posterCustom: posterPlan.mode === 'custom', narrationSync, narrationSyncNote, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, overlayNote, narrationFitCount, narrationFitOverflow, narrationFitNote };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
