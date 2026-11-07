@@ -1,4 +1,10 @@
 /* Sangbik — server. No secrets are hard-coded; keys come from .env only.
+   Server v156 (2026-11-06): metadata strip/rewrite on every final-output
+   mux (-map_metadata -1 + fresh title/creation_time); new export body
+   fields gradePreset/hueDeg/canvasZoom/overlayOpacityPct/grainIntensity/
+   frameStyle applied as a filter suffix after clarity; the scene-order
+   route also accepts an optional cuts array (stored as p.scenes when the
+   project has no scenes yet).
    Server v155 (2026-11-05): when a subtitle box is set, the burn uses a
    per-line ASS file (writeBurnAss) so SHORT subtitle lines are centred in
    the box ({\an8} top-center override); long lines keep Alignment=7. The
@@ -536,7 +542,7 @@ const CHUNK_DIR = path.join(UPLOAD_DIR, '.chunks');
 const TRANSCRIBE_CONCURRENCY = Math.max(1, parseInt(process.env.TRANSCRIBE_CONCURRENCY || '4', 10));
 const TRANSCRIBE_MODEL = process.env.TRANSCRIBE_MODEL || 'whisper-1';
 const BLUR_SIGMA = { light: 5, medium: 15, strong: 30, xstrong: 60 };
-const ZOOM_MAX = { light: 1.10, medium: 1.20, strong: 1.35 }; // zoom pulse max zoom factor
+const ZOOM_MAX = { light: 1.05, medium: 1.05, strong: 1.05 }; // v157: subtle zoom peak 1.05x for every strength, matching the phone (v2.09 zoomMaxFor)
 // Clarity enhancement (sharpen/denoise, NOT magic restoration): unsharp luma amount
 // light 0.5 / medium 1.0 / strong 1.5, chroma amount kept at 0 to avoid colour artefacts.
 const CLARITY_UNSHARP = { light: '5:5:0.5:5:5:0.0', medium: '5:5:1.0:5:5:0.0', strong: '5:5:1.5:5:5:0.0' };
@@ -847,6 +853,42 @@ function fitTempo(clipDuration, windowSec) {
   if (clipDuration <= windowSec) return { tempo: 1, fitted: false, overflow: false };
   const tempo = Math.min(clipDuration / windowSec, 100.0);
   return { tempo, fitted: true, overflow: (clipDuration / tempo) > windowSec + 1e-6 };
+}
+// v157: BGM gate expression (replaces the v1.90 sidechaincompress duck).
+// Music is SILENT during narration and in gaps <= 3 s; in a gap > 3 s it
+// fades in over 1.0 s, holds at full level, and fades out over 1.0 s
+// before the next narration window — exactly the phone's v2.08 rules.
+// windows = [[start,end],...] on the output timeline (pre-playbackSpeed
+// atempo, the same timeline the narration clips are placed on).
+// totalDur = the music track's output-timeline duration (musicDur).
+// Returns a ffmpeg volume-expression string (a 0..1 multiplier, applied
+// AFTER the musicVol volume so the set level is untouched), or null when
+// there are no narration windows at all (fail-open: music plays ungated).
+// When windows exist but no gap is > 3 s, returns '0' (music silent
+// throughout — there is nowhere it is allowed to play).
+function musicGateExpression(windows, totalDur) {
+  const GAP_MIN_SEC = 3.0, FADE_SEC = 1.0;
+  if (!Array.isArray(windows) || !windows.length || !(totalDur > 0)) return null;
+  const sorted = windows.map(w => [Math.max(0, +w[0] || 0), Math.max(0, +w[1] || 0)])
+    .filter(w => w[1] > w[0]).sort((a, b) => a[0] - b[0]);
+  if (!sorted.length) return null;
+  const merged = [sorted[0].slice()];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    if (sorted[i][0] <= last[1]) last[1] = Math.max(last[1], sorted[i][1]);
+    else merged.push(sorted[i].slice());
+  }
+  const f = (x) => (+x).toFixed(3);
+  const terms = [];
+  function addGap(gs, ge) {
+    if (!(ge - gs > GAP_MIN_SEC)) return;
+    terms.push(`min(clip((t-${f(gs)})/${f(FADE_SEC)},0,1),clip((${f(ge)}-t)/${f(FADE_SEC)},0,1))`);
+  }
+  addGap(0, merged[0][0]);
+  for (let i = 0; i + 1 < merged.length; i++) addGap(merged[i][1], merged[i + 1][0]);
+  addGap(merged[merged.length - 1][1], totalDur);
+  if (!terms.length) return '0';
+  return terms.length === 1 ? terms[0] : `max(${terms.join(',')})`;
 }
 // Smart Sync (phonekey35): stretch the VIDEO to match the voiceover, never
 // speed up or cut the voiceover. For each timed line: if the Burmese clip
@@ -4614,6 +4656,18 @@ app.post('/api/projects/:id/auto-job', (req, res) => {
 app.put('/api/projects/:id/scene-order', (req, res) => {
   const p = projects[req.params.id]; if (!p) return res.status(404).json({ error: 'Project not found — create a project first.' });
   const order = req.body?.order;
+  // v156: optional scene-cut times (seconds). When the project has no
+  // scenes yet, store them as p.scenes BEFORE the order validation below
+  // runs, so the existing validation + export logic can apply the order.
+  // Invalid cuts -> 400. When scenes already exist the cuts are ignored.
+  const cuts = req.body?.cuts;
+  if (cuts !== undefined) {
+    const cutsValid = Array.isArray(cuts) && cuts.length <= 500
+      && cuts.every(n => typeof n === 'number' && Number.isFinite(n) && n > 0)
+      && cuts.every((n, i) => i === 0 || (n - cuts[i - 1]) >= 0.5);
+    if (!cutsValid) return res.status(400).json({ error: 'cuts must be an array of up to 500 scene cut times in seconds, sorted ascending, each > 0, with gaps of at least 0.5s, e.g. [12.5, 45, 90].' });
+    if (!p.scenes || !p.scenes.length) { p.scenes = [...cuts]; saveProjects(projects); }
+  }
   if (!Array.isArray(order) || order.length < 2 || !order.every(n => Number.isInteger(n) && n >= 0)) return res.status(400).json({ error: 'order must be an array of at least 2 scene-segment indices, e.g. [1,0,2].' });
   if (new Set(order).size !== order.length) return res.status(400).json({ error: 'Scene order must not repeat a segment index.' });
   if (p.scenes && p.scenes.length && p.metadata && p.metadata.duration) {
@@ -5066,6 +5120,14 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const p = projects[req.params.id]; if (!p || !p.file) return res.status(400).json({ error: 'Project or video not found' });
   if (p.audioOnly) return res.status(400).json({ error: 'Phone-only project — export လုပ်ဖို့ video ကို တစ်ခါတည်း တင်ရမယ်။' });
   const o = req.body || {};
+  // v156: metadata strip/rewrite — every final-output MP4 gets NO source
+  // metadata and a fresh title + creation_time. Title = project title
+  // (p.title), '' when missing. Honest boundary: this is a cleanliness
+  // step only — video fingerprinting reads pixels/audio, NOT metadata,
+  // so it does not dodge fingerprinting. Flags go AFTER the inputs and
+  // BEFORE the output file in each ffmpeg args array.
+  const v156MetaTitle = (typeof p.title === 'string') ? p.title : '';
+  const v156MetaArgs = () => ['-map_metadata', '-1', '-metadata', 'title=' + v156MetaTitle, '-metadata', 'creation_time=' + new Date().toISOString()];
   // narrationExpected (native) = voice is REQUIRED: no usable narration
   // at all (neither per-line clips nor the continuous file) fails fast
   // here instead of rendering original-only or silent after a long render.
@@ -5118,7 +5180,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
         if (fNarr || fHasAudio) args.push('-c:a', 'aac');
         else args.push('-an');
         if (fSrt) args.push('-map', srtIdx + ':s', '-c:s', 'mov_text', '-metadata:s:s:0', 'language=bur');
-        args.push('-t', String(fDur), fOut);
+        args.push('-t', String(fDur), ...v156MetaArgs(), fOut);
         await run('ffmpeg', args);
         p.export = { ...p.export, status: 'ready', file: fOut, fastMux: true, progressPct: 100, fastNote: 'Fast export: video copied without re-encode; subtitles are a toggleable track (not burned in); narration mixed continuously (not timed to subtitle times); trim (if any) is keyframe-approximate.' };
         saveProjects(projects);
@@ -5256,6 +5318,46 @@ app.post('/api/projects/:id/export', async (req, res) => {
   const clarityStrength = ['light', 'medium', 'strong'].includes(o.clarityStrength) ? o.clarityStrength : 'medium';
   const clarityUnsharp = CLARITY_UNSHARP[clarityStrength];
   const clarityDenoise = CLARITY_DENOISE[clarityStrength];
+  // v156: new video-effect body fields (same clamp/validate style as the
+  // parsers above; the phone app uses these same preset numbers). All
+  // defaults are a no-op (the filter suffix below is then empty).
+  // Grade presets: b=brightness -1..1, c=contrast, s=saturation, g=gamma.
+  const GRADE_PRESETS_V156 = {
+    none: null,
+    // v1.90 fixed auto grade: Contrast +3%, Brightness +2%
+    // (matches the phone's GradePreset "auto": b=+0.02, c=1.03).
+    auto: { b: 0.02, c: 1.03, s: 1.0, g: 1.0 },
+    natural: { b: 0, c: 1.02, s: 1.05, g: 1.0 },
+    warm: { b: 0.01, c: 1.03, s: 1.12, g: 0.98 },
+    cool: { b: 0, c: 1.04, s: 0.95, g: 1.03 },
+    vivid: { b: 0, c: 1.12, s: 1.25, g: 1.0 },
+    soft: { b: 0.02, c: 0.92, s: 0.90, g: 1.0 },
+  };
+  const gradePreset = ['none', 'auto', 'natural', 'warm', 'cool', 'vivid', 'soft'].includes(o.gradePreset) ? o.gradePreset : 'none';
+  const hueDegRaw = parseFloat(o.hueDeg ?? 0);
+  const hueDeg = Number.isFinite(hueDegRaw) ? Math.max(-10, Math.min(10, hueDegRaw)) : 0;
+  const canvasZoomRaw = parseFloat(o.canvasZoom ?? 1.0);
+  // v1.90: the fixed canvas zoom is 1.04 (not one of the old picker
+  // values 1.10/1.15/1.20) — accept the value directly, clamped to
+  // a sane range, instead of snapping to the old picker grid (which
+  // snapped 1.04 -> 1.0, i.e. no zoom at all).
+  const canvasZoom = Number.isFinite(canvasZoomRaw) ? Math.max(1.0, Math.min(1.20, canvasZoomRaw)) : 1.0;
+  const overlayOpacityPctRaw = parseInt(o.overlayOpacityPct ?? 0, 10);
+  const overlayOpacityPct = Number.isFinite(overlayOpacityPctRaw) ? Math.max(0, Math.min(20, overlayOpacityPctRaw)) : 0;
+  const grainIntensityRaw = parseFloat(o.grainIntensity ?? 0);
+  const grainIntensity = Number.isFinite(grainIntensityRaw) ? Math.max(0, Math.min(0.10, grainIntensityRaw)) : 0;
+  const frameStyle = ['none', 'thin', 'thick'].includes(o.frameStyle) ? o.frameStyle : 'none';
+  // v1.90: global playback speed (always 1.08x from the phone:
+  // the video timeline is sped up and the line times are remapped
+  // by the same factor, so the voiceover stays in sync). Clamped
+  // to [1.0, 1.10]; 1.0 = no speed change.
+  const playbackSpeedRaw = parseFloat(o.playbackSpeed ?? 1.0);
+  const playbackSpeed = Number.isFinite(playbackSpeedRaw) ? Math.max(1.0, Math.min(1.10, playbackSpeedRaw)) : 1.0;
+  // v1.90: BGM speed (1.03x when a bundled track is used, else 1.0).
+  // v157: music speed is always 1.0x (normal — never slowed or sped up),
+  // matching the phone (v2.08). The incoming musicSpeed is ignored so an
+  // older app sending 1.03 cannot reintroduce a speed change.
+  const musicSpeed = 1.0;
   // Music: only used if a music file was uploaded via POST /api/projects/:id/music.
   const musicVol = Math.min(1.5, Math.max(0, parseFloat(o.musicVolume ?? 0.3)));
   const musicDelaySec = Math.max(0, parseFloat(o.musicDelaySec || 0));
@@ -5291,9 +5393,19 @@ app.post('/api/projects/:id/export', async (req, res) => {
   let overlaySegs = textOverlaysIn;
   if (sceneOrderApplied) overlaySegs = overlaySegs.map(sg => ({ ...sg, start: mapTimeForOrder(rawOrder, sceneSegs, sg.start), end: mapTimeForOrder(rawOrder, sceneSegs, sg.end) })).filter(sg => sg.end > sg.start);
   if (splitActive) overlaySegs = rebaseSegmentsForSplit(overlaySegs, keepRanges);
+  // v1.90: playback speed — the video + audio are sped up by
+  // playbackSpeed (setpts + atempo, below), so the subtitle and
+  // overlay times are remapped by the same factor (start/end /
+  // speed). The voiceover stays in sync because the narration
+  // clips are placed at the (already remapped) line times and the
+  // audio is sped up by the same factor.
+  if (playbackSpeed > 1.0) {
+    segments = segments.map(sg => ({ ...sg, start: sg.start / playbackSpeed, end: sg.end / playbackSpeed }));
+    overlaySegs = overlaySegs.map(sg => ({ ...sg, start: sg.start / playbackSpeed, end: sg.end / playbackSpeed }));
+  }
   const srtPath = writeSrt(p, segments);
   const vttPath = writeVtt(p, segments, subtitlesFrom === 'translation' ? '-translation' : '');
-  p.export = { status: 'processing', progress: 'started', progressPct: 0, progressStage: 'ပြင်ဆင်နေပါတယ်', startedAt: Date.now(), lastProgressAt: Date.now(), aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, narrationFitCount: 0, narrationFitOverflow: [], narrationFitNote: null };
+  p.export = { status: 'processing', progress: 'started', progressPct: 0, progressStage: 'ပြင်ဆင်နေပါတယ်', startedAt: Date.now(), lastProgressAt: Date.now(), aspect, quality, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, gradePreset, hueDeg, canvasZoom, overlayOpacityPct, grainIntensity, frameStyle, playbackSpeed, musicSpeed, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied: null, transitionNote: sceneOrderNote, panMode, subtitleFont: subFont, posterSec, posterTitle, narrationSync, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, narrationFitCount: 0, narrationFitOverflow: [], narrationFitNote: null };
   saveProjects(projects);
   (async () => {
     try {
@@ -5456,6 +5568,19 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // FILTER ORDER (documented): aspect crop/scale -> blur (if any) -> clarity sharpen+denoise -> subtitles burn-in.
       // Clarity is sharpen/denoise only — it cannot restore detail that was never recorded.
       const clarityFilter = enhanceClarity ? `,hqdn3d=${clarityDenoise},unsharp=${clarityUnsharp}` : '';
+      // v156: new video-effect suffix, in order: grade -> hue -> canvas
+      // zoom -> warm tint overlay -> grain -> frame. Inserted after
+      // clarity in every filter branch below (before fade/subtitles/logo).
+      // Empty string at defaults, so existing behaviour is unchanged
+      // when no new field is sent.
+      const v156Grade = GRADE_PRESETS_V156[gradePreset];
+      let v156Filter = '';
+      if (v156Grade) v156Filter += `,eq=brightness=${v156Grade.b}:contrast=${v156Grade.c}:saturation=${v156Grade.s}:gamma=${v156Grade.g}`;
+      if (hueDeg !== 0) v156Filter += `,hue=h=${hueDeg}`;
+      if (canvasZoom > 1.0) v156Filter += `,crop=iw/${canvasZoom}:ih/${canvasZoom},scale=${W}:${H}`;
+      if (overlayOpacityPct > 0) v156Filter += `,drawbox=x=0:y=0:w=iw:h=ih:color=0xFFF5E0@${(overlayOpacityPct / 100).toFixed(2)}:t=fill`;
+      if (grainIntensity > 0) v156Filter += `,noise=alls=${Math.round(grainIntensity * 100)}:allf=t+u`;
+      if (frameStyle !== 'none') v156Filter += `,drawbox=x=0:y=0:w=iw:h=ih:color=black:t=${frameStyle === 'thin' ? Math.max(2, Math.round(Math.min(W, H) * 0.005)) : Math.max(4, Math.round(Math.min(W, H) * 0.015))}`;
       const fadeDur = transitionApplied.startsWith('fade') ? Math.min(transitionDuration, effDuration / 2) : 0;
       const fadeFilter = fadeDur > 0 ? `,fade=t=in:st=0:d=${fadeDur},fade=t=out:st=${Math.max(0, effDuration - fadeDur)}:d=${fadeDur}` : '';
       // Pan: scale to 1.2x target, then crop a moving window (left->right or right->left).
@@ -5520,23 +5645,23 @@ app.post('/api/projects/:id/export', async (req, res) => {
       }
       if (blurMode === 'full') {
         // Blur the whole frame (gblur sigma: light 5 / medium 15 / strong 30).
-        filter = blurEnable ? `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma}[br];[b][br]overlay=0:0${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]` : `[0:v]${panVf || baseVf},gblur=sigma=${blurSigma}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+        filter = blurEnable ? `[0:v]${panVf || baseVf},split[a][b];[a]gblur=sigma=${blurSigma}[br];[b][br]overlay=0:0${blurEnable}${rotAfter}${clarityFilter}${v156Filter}${fadeFilter}${subFilter}${overlayFilter}[vout]` : `[0:v]${panVf || baseVf},gblur=sigma=${blurSigma}${rotAfter}${clarityFilter}${v156Filter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else if (blurMode === 'background') {
         // Blurred background fills the frame; sharp original is overlaid centred inside it.
         // Note: blur is a visual effect only — it does NOT make copyrighted content legal.
-        filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+        filter = `[0:v]scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=${blurSigma}[bg];[0:v]${panVf || `scale=${W}:${H}${scaleFlags}:force_original_aspect_ratio=decrease`}[fg];[bg][fg]overlay=(W-overlay_w)/2:(H-overlay_h)/2${blurEnable}${rotAfter}${clarityFilter}${v156Filter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else if (blurMode === 'custom') {
         if (blur2Enabled && blur1Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}',gblur=sigma=${blurSigma}${blurEq1}[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}',gblur=sigma=${blurSigma2}${blurEq2}[br2];[d][br2]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}',gblur=sigma=${blurSigma}${blurEq1}[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}[tmp];[tmp]split[c][d];[c]crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}',gblur=sigma=${blurSigma2}${blurEq2}[br2];[d][br2]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${v156Filter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else if (blur2Enabled) {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}',gblur=sigma=${blurSigma2}${blurEq2}[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}',gblur=sigma=${blurSigma2}${blurEq2}[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${v156Filter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         } else {
-          filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}',gblur=sigma=${blurSigma}${blurEq1}[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+          filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blurW}':h='ih*${blurH}':x='iw*${blurX}':y='ih*${blurY}',gblur=sigma=${blurSigma}${blurEq1}[br];[b][br]overlay=x='W*${blurX}':y='H*${blurY}'${blurEnable}${rotAfter}${clarityFilter}${v156Filter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
         }
       } else if (blur2Enabled) {
-        filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}',gblur=sigma=${blurSigma2}${blurEq2}[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+        filter = `[0:v]${panVf || baseVf},split[a][b];[a]crop=w='iw*${blur2W}':h='ih*${blur2H}':x='iw*${blur2X}':y='ih*${blur2Y}',gblur=sigma=${blurSigma2}${blurEq2}[br];[b][br]overlay=x='W*${blur2X}':y='H*${blur2Y}'${blurEnable}${rotAfter}${clarityFilter}${v156Filter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       } else {
-        filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
+        filter = `[0:v]${panVf || baseVf}${rotAfter}${clarityFilter}${v156Filter}${fadeFilter}${subFilter}${overlayFilter}[vout]`;
       }
       // v1.22 SPEED: prepend the combined zoom head to the main video
       // filter. Labels za/zb/zzm/znm/zv are unique in this graph (the
@@ -5595,6 +5720,10 @@ app.post('/api/projects/:id/export', async (req, res) => {
       // usable per-line clips exist, fall back to continuous + a note.
       let narrationSyncNote = null;
       let timedClips = [];
+      // v157: narration windows on the output timeline (pre-playbackSpeed
+      // atempo) for the BGM gate — [start,end] seconds per placed clip
+      // (timed path) or one track-span window (continuous path).
+      let narrWindows = [];
       let timedClipsStale = false;
       let narrationFitCount = 0, narrationFitOverflow = [], narrationFitNote = null;
       if (narrationSync === 'timed' && Array.isArray(p.tts?.clips) && p.translationLines?.length) {
@@ -5675,8 +5804,8 @@ app.post('/api/projects/:id/export', async (req, res) => {
         for (const tc of timedClips) tc.normGain = narrationNormGain(await narrationPeakLinear(tc.file), narrVol);
         for (const tc of timedClips) {
           args.push('-i', tc.file); inputs.push(tc.file);
-          let ms, clipFilter;
-          if (smartSync) { ms = Math.round(Math.max(0, ssPlan.mapTime(tc.winStart) + narrationDelaySec) * 1000); clipFilter = ''; }
+          let ms, clipFilter, placedDur;
+          if (smartSync) { ms = Math.round(Math.max(0, ssPlan.mapTime(tc.winStart) + narrationDelaySec) * 1000); clipFilter = ''; placedDur = tc.duration || tc.windowSec; }
           else if (capStretch) {
             // v148: every timed clip is placed on the STRETCHED timeline
             // (mapTime shifts lines after a stretched segment by the
@@ -5696,10 +5825,12 @@ app.post('/api/projects/:id/export', async (req, res) => {
             const seg = capPlan.segments.find(sg => Math.abs(sg.start - tc.winStart) < 1e-6 && Math.abs(sg.end - (tc.winStart + tc.windowSec)) < 1e-6);
             const isStretched = !!(seg && seg.factor > 1);
             ms = Math.round(Math.max(0, capPlan.mapTime(tc.winStart) + narrationDelaySec) * 1000);
-            if (isStretched) { const stretchedWindow = (seg.end - seg.start) * seg.factor; clipFilter = `atempo=${VOICE_CAP},atrim=0:${Math.round(stretchedWindow * 1000) / 1000},`; }
-            else { const cappedTempo = tc.tempo > 1 ? Math.min(tc.tempo, VOICE_CAP) : 0; const tempoFilter = cappedTempo ? `atempo=${cappedTempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; }
+            if (isStretched) { const stretchedWindow = (seg.end - seg.start) * seg.factor; clipFilter = `atempo=${VOICE_CAP},atrim=0:${Math.round(stretchedWindow * 1000) / 1000},`; placedDur = stretchedWindow; }
+            else { const cappedTempo = tc.tempo > 1 ? Math.min(tc.tempo, VOICE_CAP) : 0; const tempoFilter = cappedTempo ? `atempo=${cappedTempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; placedDur = tc.windowSec; }
           }
-          else { ms = Math.round(tc.outStart * 1000); const tempoFilter = tc.tempo > 1 ? `atempo=${tc.tempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; }
+          else { ms = Math.round(tc.outStart * 1000); const tempoFilter = tc.tempo > 1 ? `atempo=${tc.tempo},` : ''; const trimFilter = `atrim=0:${Math.round(tc.windowSec * 1000) / 1000},`; clipFilter = tempoFilter + trimFilter; placedDur = tc.windowSec; }
+          // v157: record this clip's output-timeline window for the BGM gate.
+          narrWindows.push([ms / 1000, ms / 1000 + placedDur]);
           filter += `;[${nextInputIdx}:a]${clipFilter}adelay=${ms}:all=1,volume=${tc.normGain ?? narrVol}[n${nextInputIdx}]`; audioInputs.push(`[n${nextInputIdx}]`); nextInputIdx++;
         }
       } else {
@@ -5713,6 +5844,14 @@ app.post('/api/projects/:id/export', async (req, res) => {
           if (narrationDelaySec > 0) filter += `;[${nextInputIdx}:a]adelay=${Math.round(narrationDelaySec * 1000)}:all=1,volume=${contGain}[a1]`;
           else if (narrationDelaySec < 0) filter += `;[${nextInputIdx}:a]atrim=start=${-narrationDelaySec},asetpts=PTS-STARTPTS,volume=${contGain}[a1]`;
           else filter += `;[${nextInputIdx}:a]volume=${contGain}[a1]`;
+          // v157: continuous narration is ONE back-to-back track (per-line
+          // clips concatenated, NOT aligned to line times), so its speech
+          // occupies a single window — the track span shifted by the
+          // manual delay. (Line start/end times would be wrong here: the
+          // track is compressed, so speech sits earlier than the lines.)
+          let narrDur = (p.tts.duration && p.tts.duration > 0) ? p.tts.duration : 0;
+          if (!(narrDur > 0)) { try { narrDur = (await probe(p.tts.file)).duration || 0; } catch {} }
+          if (narrDur > 0) narrWindows.push([Math.max(0, narrationDelaySec), narrationDelaySec + narrDur]);
           audioInputs.push('[a1]'); nextInputIdx++;
         }
       }
@@ -5751,6 +5890,10 @@ app.post('/api/projects/:id/export', async (req, res) => {
         args.push('-stream_loop', '-1', '-i', p.music.path); inputs.push(p.music.path);
         const mIdx = nextInputIdx; nextInputIdx++;
         let mFilter = `[${mIdx}:a]volume=${musicVol}`;
+        // v1.90: BGM speed (1.03x for a bundled track — the music is
+        // sped up with the video's 1.08x, slightly less so it stays
+        // musical). atempo range is 0.5–100; 1.03 is well inside.
+        if (musicSpeed !== 1) mFilter += `,atempo=${musicSpeed}`;
         if (musicPlayDurSec > 0) {
           if (musicFadeIn > 0) mFilter += `,afade=t=in:st=0:d=${musicFadeIn}`;
           if (musicFadeOut > 0 && musicFadeOut < musicPlayDurSec) mFilter += `,afade=t=out:st=${Math.max(0, musicPlayDurSec - musicFadeOut)}:d=${musicFadeOut}`;
@@ -5763,6 +5906,23 @@ app.post('/api/projects/:id/export', async (req, res) => {
           mFilter += `,atrim=duration=${musicDur},asetpts=PTS-STARTPTS[music]`;
         }
         filter += `;${mFilter}`; audioInputs.push('[music]');
+      }
+      // v157: BGM gate (replaces the v1.90 sidechaincompress duck, which
+      // only dipped the music ~9 dB to ~35% under speech). The music is
+      // now SILENT during narration and in gaps <= 3 s, and plays (1.0 s
+      // fades) only in gaps > 3 s — the phone's v2.08 rules. The gate is
+      // a time-based volume multiplier on [music] (0..1, applied after
+      // musicVol), driven by narrWindows; no sidechain, no narrSum, so
+      // the narration labels stay as-is in the final amix (same audio).
+      // When no narration windows are known, the gate is skipped and the
+      // music plays ungated (fail-open).
+      if (hasMusic) {
+        const gateExpr = musicGateExpression(narrWindows, musicDur);
+        if (gateExpr) {
+          filter += `;[music]volume='${gateExpr}':eval=frame[musicGated]`;
+          const mi = audioInputs.indexOf('[music]');
+          if (mi >= 0) audioInputs[mi] = '[musicGated]';
+        }
       }
       let audioMap;
       if (audioInputs.length === 1) { filter += `;${audioInputs[0]}anull[aout]`; audioMap = '[aout]'; }
@@ -5790,10 +5950,23 @@ app.post('/api/projects/:id/export', async (req, res) => {
         filter = filter.replace('[vout];', '[vstretch];' + vFilter + ';');
       }
       if (fpsVal) filter = filter.replace(/\[vout\]$/, ',fps=' + fpsVal + '[vout]');
-      if (audioMap) args.push('-filter_complex_threads', '4', '-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', renderPreset, ...bitrateArgs, '-c:a', 'aac', outMp4);
-      else args.push('-filter_complex_threads', '4', '-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', renderPreset, ...bitrateArgs, '-an', outMp4);
+      // v1.90: playback speed — the video timeline is sped up
+      // (setpts) and the audio is sped up by the same factor
+      // (atempo), so the voiceover stays in sync (the subtitle /
+      // narration times were already remapped by /speed above).
+      // [vout] is followed by ';' when the audio chain follows it,
+      // or is at the end when there is no audio — hence the (;|$).
+      if (playbackSpeed > 1.0) {
+        filter = filter.replace(/\[vout\](;|$)/, ',setpts=PTS/' + playbackSpeed + '[vout]$1');
+        if (audioMap) filter = filter.replace(/\[aout\]$/, ',atempo=' + playbackSpeed + '[aout]');
+      }
+      if (audioMap) args.push('-filter_complex_threads', '4', '-filter_complex', filter, '-map', '[vout]', '-map', audioMap, '-c:v', 'libx264', '-preset', renderPreset, ...bitrateArgs, '-c:a', 'aac', ...v156MetaArgs(), outMp4);
+      else args.push('-filter_complex_threads', '4', '-filter_complex', filter, '-map', '[vout]', '-c:v', 'libx264', '-preset', renderPreset, ...bitrateArgs, '-an', ...v156MetaArgs(), outMp4);
       let outDur = 0;
-      try { outDur = Math.max(0, (end || 0) - (start || 0)); } catch {}
+      // v1.90: the output is sped up by playbackSpeed, so the
+      // mux-progress denominator is the SPED-UP duration (otherwise
+      // the progress would cap at ~92% instead of reaching 99%).
+      try { outDur = Math.max(0, (end || 0) - (start || 0)) / playbackSpeed; } catch {}
       try { touchExportProgress(p, 5, 'video ရိုက်နေပါတယ်'); } catch {}
       let lastMuxPct = 5;
       const onMuxProgress = (chunk) => {
@@ -5908,7 +6081,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
           // video (e.g. 960x720) and the concat join failed with a size
           // mismatch. For a collage / single-frame poster (already W×H)
           // this is a no-op. Title drawtext (draw) is unchanged.
-          await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', `anullsrc=channel_layout=${aLayout}:sample_rate=${aRate}`, '-vf', `scale=${W}:${H}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=${mSar.replace(':', '/')}${draw}`, '-t', String(posterDur), '-c:v', 'libx264', '-preset', renderPreset, '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', posterMp4]);
+          await run('ffmpeg', ['-y', '-loop', '1', '-i', posterImg, '-f', 'lavfi', '-i', `anullsrc=channel_layout=${aLayout}:sample_rate=${aRate}`, '-vf', `scale=${W}:${H}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=${mSar.replace(':', '/')}${draw}`, '-t', String(posterDur), '-c:v', 'libx264', '-preset', renderPreset, '-pix_fmt', 'yuv420p', '-r', '30', '-shortest', ...v156MetaArgs(), posterMp4]);
           const finalMp4 = path.join(OUT_DIR, `${p.id}-recap-poster.mp4`);
           // Fast poster join: stream-copy concat when poster and main share
           // every stream parameter (codec, size, fps, SAR, audio params).
@@ -5927,7 +6100,7 @@ app.post('/api/projects/:id/export', async (req, res) => {
               const listFile = path.join(OUT_DIR, `${p.id}-concat.txt`);
               fs.writeFileSync(listFile, `file '${posterMp4.replace(/'/g, "'\\''")}'\nfile '${outMp4.replace(/'/g, "'\\''")}'\n`);
               const copyOut = path.join(OUT_DIR, `${p.id}-recap-poster-copy.mp4`);
-              await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', copyOut], { timeout: 120000 });
+              await run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', ...v156MetaArgs(), copyOut], { timeout: 120000 });
               const cm = await probe(copyOut);
               if (cm.size > 0 && Math.abs(cm.duration - (posterDur + (mm.duration || 0))) <= 1.0) {
                 outMp4 = copyOut; posterApplied = true; joined = true;
@@ -5936,13 +6109,13 @@ app.post('/api/projects/:id/export', async (req, res) => {
             }
           } catch (ce) { posterNote = 'Poster stream-copy join unavailable, re-encode used: ' + ce.message; }
           if (!joined) {
-            await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex_threads', '4', '-filter_complex', '[0:v]setsar=1[v0];[1:v]setsar=1[v1];[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', renderPreset, '-c:a', 'aac', finalMp4]);
+            await run('ffmpeg', ['-y', '-i', posterMp4, '-i', outMp4, '-filter_complex_threads', '4', '-filter_complex', '[0:v]setsar=1[v0];[1:v]setsar=1[v1];[v0][0:a][v1][1:a]concat=n=2:v=1:a=1[v][a]', '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', renderPreset, '-c:a', 'aac', ...v156MetaArgs(), finalMp4]);
             outMp4 = finalMp4; posterApplied = true;
           }
         } catch (pe) { posterNote = 'Poster frame failed, original video kept: ' + pe.message; }
       }
       const meta = await probe(outMp4);
-      p.export = { status: 'ready', progress: 'done', progressPct: 100, progressStage: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, posterCustom: posterPlan.mode === 'custom', narrationSync, narrationSyncNote, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, overlayNote, narrationFitCount, narrationFitOverflow, narrationFitNote };
+      p.export = { status: 'ready', progress: 'done', progressPct: 100, progressStage: 'done', aspect, quality, file: outMp4, duration: meta.duration, width: meta.width, height: meta.height, srt: srtPath, vtt: vttPath, dubbingPreset: dubbing, subtitlesFrom, subtitlesOn, blurMode, blurStrength, blurSigma, blurRegion, blur1Enabled, blur2Enabled, blur2Region, blurStartSec, blurEndSec, rotationDeg, videoMirror, zoomEvery5s, zoomStrength, zoomMax, enhanceClarity, clarityStrength, clarityUnsharp, gradePreset, hueDeg, canvasZoom, overlayOpacityPct, grainIntensity, frameStyle, playbackSpeed, musicSpeed, musicVolume: musicVol, musicFadeIn, musicFadeOut, musicFile: hasMusic ? p.music.name : null, sceneOrder: sceneOrderApplied ? rawOrder : null, sceneOrderApplied, sceneOrderNote, transition, transitionDuration, transitionApplied, transitionNote, panMode, subtitleFont: subFont, posterSec, posterTitle, posterApplied, posterNote, posterCustom: posterPlan.mode === 'custom', narrationSync, narrationSyncNote, zoomIntervalSec, removeRanges: mergedRanges, splitApplied: splitActive, splitNote, narrationDelaySec, textOverlayCount: overlaySegs.length, overlayNote, narrationFitCount, narrationFitOverflow, narrationFitNote };
       saveProjects(projects);
     } catch (e) { p.export = { status: 'failed', error: e.message }; saveProjects(projects); }
   })();
@@ -6181,8 +6354,8 @@ app.get('/api/projects/:id/download/:kind', (req, res) => {
   const kind = req.params.kind;
   if (kind === 'script') { res.setHeader('Content-Type', 'text/plain; charset=utf-8'); res.setHeader('Content-Disposition', 'attachment; filename="script.txt"'); return res.send(p.script || ''); }
   if (kind === 'subtitles') { const f = p.export?.srt; if (f && fs.existsSync(f)) return res.download(f, 'subtitles.srt'); return res.status(404).json({ error: 'Subtitles not generated yet' }); }
-  if (kind === 'translation-srt') { if (!p.translationLines?.length) return res.status(404).json({ error: 'No translation lines saved yet' }); const f = writeSrt(p, p.translationLines.map(l => ({ start: l.start, end: l.end, text: l.burmese }))); return res.download(f, 'translation.srt'); }
-  if (kind === 'translation-vtt') { if (!p.translationLines?.length) return res.status(404).json({ error: 'No translation lines saved yet' }); const f = writeVtt(p, p.translationLines.map(l => ({ start: l.start, end: l.end, text: l.burmese })), '-translation'); return res.download(f, 'translation.vtt'); }
+  if (kind === 'translation-srt') { if (!p.translationLines?.length) return res.status(404).json({ error: 'No translation lines saved yet' }); const ex = p.export; if (ex && ex.subtitlesFrom === 'translation' && ex.srt && fs.existsSync(ex.srt)) return res.download(ex.srt, 'translation.srt'); const sp = (ex && ex.playbackSpeed) || 1; const f = writeSrt(p, p.translationLines.map(l => ({ start: l.start / sp, end: l.end / sp, text: l.burmese }))); return res.download(f, 'translation.srt'); }
+  if (kind === 'translation-vtt') { if (!p.translationLines?.length) return res.status(404).json({ error: 'No translation lines saved yet' }); const ex2 = p.export; if (ex2 && ex2.subtitlesFrom === 'translation' && ex2.vtt && fs.existsSync(ex2.vtt)) return res.download(ex2.vtt, 'translation.vtt'); const sp2 = (ex2 && ex2.playbackSpeed) || 1; const f = writeVtt(p, p.translationLines.map(l => ({ start: l.start / sp2, end: l.end / sp2, text: l.burmese })), '-translation'); return res.download(f, 'translation.vtt'); }
   if (kind === 'audio') { const f = p.tts?.file; if (f && fs.existsSync(f)) return res.download(f, 'narration.mp3'); return res.status(404).json({ error: 'Narration audio not generated yet' }); }
   if (kind === 'video') { const f = p.export?.file; if (f && fs.existsSync(f)) return res.download(f, 'recap.mp4'); return res.status(404).json({ error: 'Export video not ready yet' }); }
   res.status(400).json({ error: 'Unknown download kind' });
